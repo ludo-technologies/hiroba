@@ -975,7 +975,24 @@ p { margin: 0; }
 }
 .invited h3 { font-size: 1.05rem; }
 .invited p { font-size: 0.88rem; color: var(--ink-soft); flex: 1 1 320px; }
+.invited-actions { flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
 .invited .btn { flex: none; }
+.invited .btn.is-disabled {
+  pointer-events: none;
+  opacity: 0.55;
+}
+.download-more {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+.download-more a {
+  color: var(--ink-soft);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.download-more a:hover { color: var(--accent); }
 
 /* --- CTA band ------------------------------------------------------------ */
 

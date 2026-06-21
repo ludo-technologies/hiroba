@@ -347,7 +347,10 @@
           <h3 data-i18n="invitedTitle">Got an invite link?</h3>
         </div>
         <p data-i18n="invitedDesc">Install the desktop app and open the invite link to join your org's floor. Sign in with your Google or GitHub account.</p>
-        <a class="btn btn-ghost" href="https://github.com/ludo-technologies/hiroba/releases" target="_blank" rel="noopener" data-i18n="invitedCta">Download the app</a>
+        <div class="invited-actions">
+          <a class="btn btn-ghost" href="#" data-download="primary" data-i18n="invitedCta">Download the app</a>
+          <p class="download-more" data-download-more hidden></p>
+        </div>
       </div>
     </div>
   </section>
@@ -385,7 +388,7 @@
           <li><a href="#values" data-i18n="navFeatures">Features</a></li>
           <li><a href="#how" data-i18n="navHow">How it works</a></li>
           <li><a href="pricing.html" data-i18n="navPricing">Pricing</a></li>
-          <li><a href="https://github.com/ludo-technologies/hiroba/releases" target="_blank" rel="noopener" data-i18n="footerDownload">Download</a></li>
+          <li><a href="#" data-download="footer" data-i18n="footerDownload">Download</a></li>
         </ul>
       </div>
       <div>
@@ -406,6 +409,7 @@
 </footer>
 
 <script src="assets/i18n.js"></script>
+<script src="assets/download.js" defer></script>
 <script src="assets/site.js" defer></script>
 </body>
 </html>

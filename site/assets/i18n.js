@@ -202,6 +202,17 @@
     invitedDesc:
       'Install the desktop app and open the invite link to join your org\u2019s floor. Sign in with your Google or GitHub account.',
     invitedCta: 'Download the app',
+    downloadCtaMac: 'Download for macOS',
+    downloadCtaWin: 'Download for Windows',
+    downloadCtaLinux: 'Download for Linux',
+    downloadMacArm: 'macOS (Apple Silicon)',
+    downloadMacIntel: 'macOS (Intel)',
+    downloadMacUniversal: 'macOS',
+    downloadWin: 'Windows',
+    downloadLinux: 'Linux',
+    downloadMoreSep: ' \u00b7 ',
+    downloadChooseMac: 'Choose your Mac version below',
+    downloadUnavailable: 'Desktop app coming soon',
 
     // Index — CTA band
     indexCtaTitle: 'Ready to try a virtual office<br />for your team?',
@@ -478,6 +489,17 @@
     invitedDesc:
       'デスクトップアプリをインストールして、届いた招待リンクを開くだけで組織のフロアに参加できます。アカウントはお使いのGoogle / GitHubアカウントでそのまま。',
     invitedCta: 'アプリをダウンロード',
+    downloadCtaMac: 'macOS 版をダウンロード',
+    downloadCtaWin: 'Windows 版をダウンロード',
+    downloadCtaLinux: 'Linux 版をダウンロード',
+    downloadMacArm: 'macOS（Apple Silicon）',
+    downloadMacIntel: 'macOS（Intel）',
+    downloadMacUniversal: 'macOS',
+    downloadWin: 'Windows',
+    downloadLinux: 'Linux',
+    downloadMoreSep: ' · ',
+    downloadChooseMac: 'お使いの Mac に合わせて選んでください',
+    downloadUnavailable: 'デスクトップアプリは近日公開',
 
     indexCtaTitle: 'チームのバーチャルオフィス、<br />試してみませんか。',
     indexCtaDesc:

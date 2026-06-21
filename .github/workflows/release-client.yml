@@ -1,0 +1,104 @@
+# Build Hiroba desktop installers and upload them to the GitHub Release for the tag.
+#
+# Usage:
+#   1. Bump is optional — the workflow syncs client version from the tag (v0.2.0 → 0.2.0).
+#   2. git tag v0.1.0 && git push origin v0.1.0
+#   3. Wait for all matrix jobs; assets appear on the Release page.
+#
+# Optional code signing (not configured yet):
+#   macOS — APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID
+#   Windows — TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+
+name: Release desktop client
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: release-client-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  publish-tauri:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: --target aarch64-apple-darwin
+          - platform: macos-latest
+            args: --target x86_64-apple-darwin
+          - platform: ubuntu-22.04
+            args: ''
+          - platform: windows-latest
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set app version from tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          VERSION="$VERSION" node <<'NODE'
+          const fs = require('fs');
+          const v = process.env.VERSION;
+          for (const path of ['client/package.json', 'client/src-tauri/tauri.conf.json']) {
+            const json = JSON.parse(fs.readFileSync(path, 'utf8'));
+            json.version = v;
+            fs.writeFileSync(path, `${JSON.stringify(json, null, 2)}\n`);
+          }
+          const cargoPath = 'client/src-tauri/Cargo.toml';
+          const cargo = fs.readFileSync(cargoPath, 'utf8');
+          fs.writeFileSync(
+            cargoPath,
+            cargo.replace(/^version = ".*"/m, `version = "${v}"`)
+          );
+          NODE
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: client/src-tauri
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install frontend dependencies
+        working-directory: client
+        run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: client
+          tagName: ${{ github.ref_name }}
+          releaseName: Hiroba ${{ github.ref_name }}
+          releaseBody: |
+            Desktop installers for Hiroba ${{ github.ref_name }}.
+
+            After installing, open an invite link or point the app at your server.
+            Server self-hosting: [docs/SELF_HOSTING.md](https://github.com/${{ github.repository }}/blob/main/docs/SELF_HOSTING.md)
+          generateReleaseNotes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          args: ${{ matrix.args }}
