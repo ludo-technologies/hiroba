@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>料金 — Hiroba</title>
+  <meta name="description" content="Hirobaの料金。OSS self-hostは無料・無制限。ホスト型はシンプルなシート課金（早期アクセス価格）。" />
+  <meta property="og:title" content="料金 — Hiroba" />
+  <meta property="og:description" content="self-hostは無料。ホスト型はシンプルなシート課金。" />
+  <meta property="og:type" content="website" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23d8552e'/%3E%3Ctext x='32' y='46' font-size='40' font-family='serif' font-weight='700' text-anchor='middle' fill='%23fff'%3E広%3C/text%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;600;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="./">
+      <span class="brand-mark" aria-hidden="true">広</span>
+      Hiroba
+      <span class="brand-sub">ひろば</span>
+    </a>
+    <nav class="site-nav" aria-label="メイン">
+      <a href="./#values">特徴</a>
+      <a href="./#how">仕組み</a>
+      <a href="./#numbers">軽さ</a>
+      <a href="pricing.html" aria-current="page">料金</a>
+      <a href="https://github.com/ludo-technologies/hiroba" target="_blank" rel="noopener">GitHub</a>
+      <a class="nav-cta" href="./#start">はじめる</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+  <section class="page-hero">
+    <div class="wrap">
+      <p class="eyebrow" style="justify-content:center; display:flex;">Pricing</p>
+      <h1>料金も、軽く。</h1>
+      <p>self-host はずっと無料。ホスト型は、席の数だけのシンプルなシート課金です。</p>
+      <p class="notice">
+        ホスト型 Standard は Stripe のシート課金で提供します。価格は<strong>¥300／席／月</strong>（税別）です。
+      </p>
+    </div>
+  </section>
+
+  <section class="section" style="padding-top: 20px;">
+    <div class="wrap">
+      <div class="plans">
+
+        <div class="plan" data-reveal>
+          <h3>Self-host</h3>
+          <p class="plan-for">自分たちで運用したい技術チームに</p>
+          <p class="price">¥0<small>　ずっと無料</small></p>
+          <p class="price-note">Apache-2.0 のオープンソース。席数・組織数の制限なし。</p>
+          <ul>
+            <li>機能はすべて利用可能</li>
+            <li>単一バイナリ・DBレスで起動</li>
+            <li>ゲスト/簡易入室（OAuthは任意で有効化）</li>
+            <li class="minus">サーバー・TURNの運用は自前</li>
+            <li class="minus">サポートはコミュニティベース</li>
+          </ul>
+          <a class="btn btn-ghost" href="https://github.com/ludo-technologies/hiroba" target="_blank" rel="noopener">GitHubで始める</a>
+        </div>
+
+        <div class="plan featured" data-reveal>
+          <span class="plan-badge">おすすめ</span>
+          <h3>ホスト型 Standard</h3>
+          <p class="plan-for">運用せずに、すぐ使い始めたいチームに</p>
+          <p class="price">¥300<small>／席／月（ローンチ価格・税別）</small></p>
+          <p class="price-note">Stripe 決済。30日間の無料トライアル（カード不要）。席数は月単位で変更可能。</p>
+          <ul>
+            <li>OAuthログイン（Google / GitHub など）</li>
+            <li>組織の作成・招待リンク・メンバー管理</li>
+            <li>TURN込みの接続性（企業NW内でも“ほぼ必ず繋がる”）</li>
+            <li>インフラ運用・アップデートはおまかせ</li>
+            <li>メールサポート</li>
+          </ul>
+          <!-- TODO(§12): ドメイン確定後、ホスト型サインアップURLへ差し替え -->
+          <a class="btn btn-primary" href="mailto:contact@ludo-tech.org?subject=%5BHiroba%5D%20%E6%97%A9%E6%9C%9F%E3%82%A2%E3%82%AF%E3%82%BB%E3%82%B9%E5%B8%8C%E6%9C%9B&body=%E7%B5%84%E7%B9%94%E5%90%8D%EF%BC%9A%0A%E4%BA%BA%E6%95%B0%EF%BC%9A%0A%E3%81%B2%E3%81%A8%E3%81%93%E3%81%A8%EF%BC%9A">早期アクセスに登録<span class="arrow">→</span></a>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <section class="section deep">
+    <div class="wrap">
+      <div class="sec-head" data-reveal>
+        <p class="sec-no"><b>比</b>Compare</p>
+        <h2>ホスト型と self-host の違い</h2>
+        <p class="sec-lede">どちらも同じコードベース。違うのは「誰が運用するか」です。</p>
+      </div>
+      <div class="table-scroll" data-reveal>
+        <table class="cmp-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th>ホスト型</th>
+              <th>OSS self-host</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th>在席・スペース・声の輪・呼びかけ</th>
+              <td class="yes">✓ すべて利用可</td>
+              <td class="yes">✓ すべて利用可</td>
+            </tr>
+            <tr>
+              <th>ログイン</th>
+              <td>OAuth（Google / GitHub など）</td>
+              <td>ゲスト/簡易入室（OAuthは任意）</td>
+            </tr>
+            <tr>
+              <th>組織への参加</th>
+              <td>招待リンク（管理者が発行）</td>
+              <td>サーバーURLの共有 など自由</td>
+            </tr>
+            <tr>
+              <th>NAT越え（TURN）</th>
+              <td class="yes">✓ 込み。“ほぼ必ず繋がる”を保証</td>
+              <td class="opt">△ 公開STUNが既定。必要なら自前でcoturn</td>
+            </tr>
+            <tr>
+              <th>データの永続化</th>
+              <td class="yes">✓ 組織・メンバー・招待を保存</td>
+              <td class="opt">△ DBレス可（設定ファイル/環境変数）</td>
+            </tr>
+            <tr>
+              <th>サーバー運用・アップデート</th>
+              <td class="yes">✓ おまかせ</td>
+              <td>自前（単一バイナリで簡単）</td>
+            </tr>
+            <tr>
+              <th>費用</th>
+              <td>¥300／席／月（税別）</td>
+              <td class="yes">無料（インフラ実費のみ）</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <div class="sec-head" data-reveal>
+        <p class="sec-no"><b>問</b>FAQ</p>
+        <h2>よくある質問</h2>
+      </div>
+      <div class="faq" data-reveal>
+        <details>
+          <summary>本当に軽いんですか？</summary>
+          <p class="a">軽さを製品の中核価値として設計しています。アイドル時CPUほぼ0%・常駐メモリ数十MB・音声のみの低帯域を設計目標（NFR）に置き、クライアントはElectronではなくTauri＋Canvas 2D、サーバーは音声データを一切中継しないP2P構成です。数値は目標値であり、実測の検証結果を順次公開します。</p>
+        </details>
+        <details>
+          <summary>ビデオ通話や画面共有はいつ追加されますか？</summary>
+          <p class="a">追加しません。これは未実装ではなく設計判断です。会議ツールの機能は常駐の軽さと引き換えになるため、Hirobaは「会議の手前」——在席・気配・声——に専念します。会議になったら、いつもお使いの会議ツールをご利用ください。</p>
+        </details>
+        <details>
+          <summary>音声データはどこを通りますか？</summary>
+          <p class="a">原則、participantsの間をWebRTCのP2Pで直接流れ、サーバーを通過しません。サーバーが扱うのは位置・在席・シグナリングといった制御データのみです。NAT環境によりP2Pが確立できない場合のみ、ホスト型ではTURNリレーを経由します（音声は暗号化されています）。</p>
+        </details>
+        <details>
+          <summary>self-host とホスト型で機能差はありますか？</summary>
+          <p class="a">コア体験（在席・スペース・声の輪・呼びかけ）は同一です。ホスト型はOAuthログイン・組織管理・招待・TURN・永続化が「設定不要で付いてくる」のに対し、self-hostではそれらを任意で有効化・自前運用します。同じコードベースからプロファイル切替で両方をビルドしています。</p>
+        </details>
+        <details>
+          <summary>支払い方法・請求はどうなりますか？</summary>
+          <p class="a">支払いと請求管理は Stripe で行います。価格は ¥300／席／月（税別）で、席数は組織の登録メンバー数に基づきます。</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta-band">
+    <div class="wrap">
+      <h2 data-reveal>まずは、フロアをひとつ。</h2>
+      <p data-reveal>ホスト型は組織作成から。self-host なら今日から動かせます。</p>
+      <div class="hero-ctas" data-reveal>
+        <!-- TODO(§12): ドメイン確定後、ホスト型サインアップURLへ差し替え -->
+        <a class="btn btn-primary" href="mailto:contact@ludo-tech.org?subject=%5BHiroba%5D%20%E6%97%A9%E6%9C%9F%E3%82%A2%E3%82%AF%E3%82%BB%E3%82%B9%E5%B8%8C%E6%9C%9B&body=%E7%B5%84%E7%B9%94%E5%90%8D%EF%BC%9A%0A%E4%BA%BA%E6%95%B0%EF%BC%9A%0A%E3%81%B2%E3%81%A8%E3%81%93%E3%81%A8%EF%BC%9A">早期アクセスに登録<span class="arrow">→</span></a>
+        <a class="btn btn-ghost" href="https://github.com/ludo-technologies/hiroba" target="_blank" rel="noopener">GitHubで始める</a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="footer-grid">
+      <div>
+        <a class="brand" href="./">
+          <span class="brand-mark" aria-hidden="true">広</span>
+          Hiroba
+        </a>
+        <p class="footer-tag">
+          忘れるほど軽い、チームのためのバーチャルオフィス。
+          オープンソース（Apache-2.0）で開発され、運用不要のホスト型としても提供されます。
+        </p>
+      </div>
+      <div>
+        <h4>Product</h4>
+        <ul>
+          <li><a href="./#values">特徴</a></li>
+          <li><a href="./#how">仕組み</a></li>
+          <li><a href="pricing.html">料金</a></li>
+          <li><a href="https://github.com/ludo-technologies/hiroba/releases" target="_blank" rel="noopener">ダウンロード</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Open Source</h4>
+        <ul>
+          <li><a href="https://github.com/ludo-technologies/hiroba" target="_blank" rel="noopener">GitHub</a></li>
+          <li><a href="https://github.com/ludo-technologies/hiroba/blob/master/docs/SELF_HOSTING.md" target="_blank" rel="noopener">self-host ガイド</a></li>
+          <li><a href="https://github.com/ludo-technologies/hiroba/blob/master/PROTOCOL.md" target="_blank" rel="noopener">プロトコル仕様</a></li>
+          <li><a href="mailto:contact@ludo-tech.org">お問い合わせ</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-legal">
+      <p>ソースコードは Apache License 2.0 で公開されています。「Hiroba」の名称・ロゴ等のブランド素材は Apache-2.0 ライセンスの対象外です。</p>
+      <p>© 2026 Ludo Technologies</p>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/site.js" defer></script>
+</body>
+</html>

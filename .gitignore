@@ -1,0 +1,41 @@
+# Rust
+/target
+/server/target
+/auth/target
+/common/target
+/client/src-tauri/target
+**/*.rs.bk
+
+# Auth backend local state (SQLite store + RS256 signing key)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+hiroba-auth-key.pem
+
+# Node / Vite
+node_modules
+/client/node_modules
+/client/dist
+.vite
+
+# Test build output (compiled from src for node --test)
+/client/.test-build
+
+# Tauri generated
+/client/src-tauri/gen
+
+# Source icon (icons/ are committed; the 1024px source is regenerable)
+/app-icon.png
+
+# Internal / Japanese dev docs — kept locally, not part of the OSS release
+/_internal/
+
+# Commercial auth/billing backend — developed in the private repo, not OSS
+/auth/
+
+# OS / editor
+.DS_Store
+*.log
+.idea
+.vscode

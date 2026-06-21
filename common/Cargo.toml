@@ -1,0 +1,11 @@
+[package]
+name = "hiroba-common"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Small helpers shared by the Hiroba signaling server and auth backend."
+
+[dependencies]
+http = "1"
+tower-http = { version = "0.6", features = ["cors"] }
+tracing = "0.1"

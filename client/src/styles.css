@@ -1,0 +1,1555 @@
+/*
+ * styles.css — Visual shell for Hiroba.
+ *
+ * Design language: a warm, furnished co-working floor seen from above —
+ * inviting, light, and unmistakably *a place*, not an empty room. The canvas
+ * (the office floor itself) is the star; chrome is small, soft, and recedes.
+ * Light theme, warm clay accent, native system type (no web-font download, in
+ * keeping with the lightness / self-host thesis). No frameworks, no build step.
+ *
+ * Motion is gentle and always honours prefers-reduced-motion.
+ */
+
+/* ---------------------------------------------------------------------------
+ * Custom properties
+ * --------------------------------------------------------------------------- */
+
+:root {
+  /* The org-roster sidebar width; the office floor begins to its right. */
+  --rail:       244px;
+
+  /* Warm paper / wood palette */
+  --frame:      #241f1a; /* the dark wooden frame behind the room */
+  --paper:      #fbf5ea; /* card / chrome surface */
+  --paper-2:    #f3ead9; /* raised chrome */
+  --wood:       #e7d7bb; /* warm floor tone, echoed in chrome */
+
+  --ink:        #3a2e20; /* primary text — warm dark brown */
+  --ink-soft:   #6b5b46; /* secondary text */
+  --ink-mute:   #9a8a72; /* tertiary / labels */
+
+  --edge:       rgba(90, 70, 45, 0.14);
+  --edge-2:     rgba(90, 70, 45, 0.26);
+
+  /* The one accent: warm clay / coral */
+  --accent:     #e07a52;
+  --accent-lo:  #cf6841;
+  --accent-hi:  #ee8e64;
+  --accent-soft: rgba(224, 122, 82, 0.16);
+
+  --sage:       #7fa863; /* "live" / present-and-talking green */
+  --sage-soft:  rgba(127, 168, 99, 0.16);
+
+  --danger:     #d4583c;
+
+  /* Radii */
+  --radius-card: 20px;
+  --radius-btn:  12px;
+  --radius-pill: 999px;
+
+  /* Elevation — warm, soft shadows */
+  --shadow-card: 0 24px 60px -18px rgba(60, 40, 20, 0.45), 0 2px 8px rgba(60, 40, 20, 0.12);
+  --shadow-hud:  0 6px 20px rgba(60, 40, 20, 0.18);
+  --glow-accent: 0 8px 24px -8px rgba(224, 122, 82, 0.5);
+
+  /* Motion */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  --font-ui: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+}
+
+/* ---------------------------------------------------------------------------
+ * Reset / base
+ * --------------------------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--frame);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Canvas — full bleed, fills the window
+ * --------------------------------------------------------------------------- */
+
+/*
+ * The office floor occupies the area to the RIGHT of the roster rail, so the
+ * sidebar never covers it. The renderer reads the canvas's own client size and
+ * re-fits on resize, so insetting here re-centres the room in the visible area.
+ * Before joining (sidebar hidden) the rail-width gap shows the body's --frame
+ * colour, identical to the idle canvas, so there's no visible seam.
+ */
+#space {
+  position: fixed;
+  top: 0;
+  left: var(--rail);
+  /* <canvas> is a replaced element: an inset alone won't stretch it, so give it
+   * an explicit size (else it falls back to its intrinsic 300×150 box). */
+  width: calc(100% - var(--rail));
+  height: 100%;
+  display: block;
+  cursor: default;
+  touch-action: none; /* taps/drags walk the avatar; don't pan or zoom */
+}
+
+/* In a session the floor is clickable (click-to-walk). */
+#space.walkable {
+  cursor: pointer;
+}
+
+/* ---------------------------------------------------------------------------
+ * Overlays (join / reconnect) — centered warm card
+ * --------------------------------------------------------------------------- */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(36, 28, 20, 0.35);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+  z-index: 100;
+  animation: overlay-in 0.4s var(--ease);
+}
+
+.overlay[hidden] {
+  display: none;
+}
+
+@keyframes overlay-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.card {
+  position: relative;
+  background: linear-gradient(180deg, var(--paper), var(--paper-2));
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: var(--radius-card);
+  padding: 32px 32px 28px;
+  width: min(400px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  box-shadow: var(--shadow-card);
+  animation: card-in 0.5s var(--ease);
+}
+
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* --- Brand: logo mark + wordmark --- */
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.logo-mark {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  display: block;
+  filter: drop-shadow(0 4px 10px rgba(224, 122, 82, 0.35));
+}
+
+.logo-mark svg {
+  display: block;
+  width: 44px;
+  height: 44px;
+}
+
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  line-height: 1.1;
+}
+
+.brand-mark {
+  font-size: 27px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  color: var(--ink);
+}
+
+.brand-latin {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--accent-lo);
+}
+
+.tagline {
+  margin-top: -4px;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+/* --- Identity row: live avatar preview + name --- */
+
+.identity {
+  display: flex;
+  align-items: flex-end;
+  gap: 15px;
+}
+
+.avatar-wrap {
+  flex: 0 0 auto;
+  position: relative;
+}
+
+.avatar-preview {
+  display: grid;
+  position: relative;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border-radius: 50%;
+  place-items: center;
+  background: var(--accent);
+  background-size: cover;
+  background-position: center;
+  color: #fff;
+  font-family: inherit;
+  font-size: 23px;
+  font-weight: 600;
+  border: 3px solid #fffaf2;
+  box-shadow:
+    0 4px 14px rgba(60, 40, 20, 0.28),
+    0 0 22px -4px var(--avatar-glow, rgba(224, 122, 82, 0.5));
+  transition: background 0.3s var(--ease), box-shadow 0.3s var(--ease);
+  user-select: none;
+  cursor: pointer;
+}
+
+.avatar-preview.has-image #avatar-initial {
+  display: none;
+}
+
+/* Camera badge: the "this is editable" affordance (Slack-style). */
+.avatar-edit {
+  position: absolute;
+  right: -4px;
+  bottom: -3px;
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #fffaf2;
+  color: #8a7355;
+  border: 1px solid rgba(90, 70, 45, 0.25);
+  box-shadow: 0 1px 4px rgba(60, 40, 20, 0.25);
+  transition: color 0.2s var(--ease), transform 0.2s var(--ease);
+}
+
+.avatar-preview:hover .avatar-edit,
+.avatar-preview:focus-visible .avatar-edit {
+  color: var(--accent);
+  transform: scale(1.12);
+}
+
+.avatar-remove {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(90, 70, 45, 0.25);
+  background: #fffaf2;
+  color: #8a5a45;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(60, 40, 20, 0.25);
+  opacity: 0;
+  transition: opacity 0.15s var(--ease);
+}
+
+.avatar-wrap:hover .avatar-remove,
+.avatar-remove:focus-visible {
+  opacity: 1;
+}
+
+.name-field {
+  flex: 1 1 auto;
+}
+
+/* --- Fields --- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.field-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+
+.card input[type="text"] {
+  width: 100%;
+  background: #fffdf8;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-btn);
+  padding: 11px 13px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.card input[type="text"]::placeholder {
+  color: var(--ink-mute);
+}
+
+.card input[type="text"]:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* --- Color swatches --- */
+
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 11px;
+  border: none;
+}
+
+.swatch {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2px solid #fffaf2;
+  cursor: pointer;
+  padding: 0;
+  position: relative;
+  box-shadow: 0 2px 8px -2px var(--swatch-glow, rgba(60, 40, 20, 0.3));
+  transition: transform 0.14s var(--ease), box-shadow 0.18s;
+}
+
+.swatch:hover {
+  transform: scale(1.14) translateY(-1px);
+}
+
+.swatch[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--accent), 0 3px 10px -2px var(--swatch-glow, rgba(60, 40, 20, 0.4));
+}
+
+/* The "custom color" swatch shows a hue-wheel hint. */
+.swatch.swatch-custom {
+  background:
+    conic-gradient(from 0deg, #e07a52, #e6a94e, #c9b24a, #86b27a, #4f9dde, #b07ad0, #e07a52);
+}
+
+.swatch.swatch-custom::after {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  background: var(--paper);
+}
+
+/* --- Advanced disclosure --- */
+
+.advanced {
+  border-top: 1px solid var(--edge);
+  padding-top: 16px;
+}
+
+.advanced summary {
+  list-style: none;
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  user-select: none;
+  transition: color 0.15s;
+}
+
+.advanced summary:hover {
+  color: var(--ink-soft);
+}
+
+.advanced summary::-webkit-details-marker {
+  display: none;
+}
+
+.advanced summary::before {
+  content: "›";
+  display: inline-block;
+  font-size: 16px;
+  color: var(--accent);
+  transition: transform 0.22s var(--ease);
+}
+
+.advanced[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.advanced[open] summary {
+  margin-bottom: 14px;
+}
+
+/* --- Primary button --- */
+
+#join-btn {
+  position: relative;
+  margin-top: 2px;
+  padding: 14px;
+  background: linear-gradient(180deg, var(--accent-hi), var(--accent));
+  color: #fff;
+  font: inherit;
+  font-size: 14.5px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  border: none;
+  border-radius: var(--radius-btn);
+  cursor: pointer;
+  box-shadow: var(--glow-accent), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transition: filter 0.15s, transform 0.08s, box-shadow 0.2s;
+}
+
+#join-btn:hover:not(:disabled) {
+  filter: brightness(1.05);
+  box-shadow: 0 12px 30px -8px rgba(224, 122, 82, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+#join-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+#join-btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+  filter: saturate(0.75);
+}
+
+/* --- Error --- */
+
+.error {
+  font-size: 13px;
+  color: var(--danger);
+  text-align: center;
+}
+
+.error[hidden] {
+  display: none;
+}
+
+/* ---------------------------------------------------------------------------
+ * Reconnect overlay — a calm breathing pulse, not a spinner
+ * --------------------------------------------------------------------------- */
+
+.reconnect-card {
+  align-items: center;
+  text-align: center;
+  width: min(320px, 100%);
+  gap: 20px;
+  padding-top: 36px;
+}
+
+.pulse {
+  position: relative;
+  width: 18px;
+  height: 18px;
+}
+
+.pulse span {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.pulse span:nth-child(1),
+.pulse span:nth-child(2) {
+  background: transparent;
+  border: 2px solid var(--accent);
+  animation: pulse-ring 1.8s var(--ease) infinite;
+}
+
+.pulse span:nth-child(2) {
+  animation-delay: 0.9s;
+}
+
+@keyframes pulse-ring {
+  0%   { transform: scale(0.6); opacity: 0.9; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+
+.reconnect-msg {
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.ghost-btn {
+  background: transparent;
+  border: 1px solid var(--edge-2);
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 13px;
+  padding: 9px 20px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.ghost-btn:hover {
+  border-color: var(--accent);
+  color: var(--ink);
+  background: var(--accent-soft);
+}
+
+/* ---------------------------------------------------------------------------
+ * Onboarding hint — centered low, fades away after first move
+ * --------------------------------------------------------------------------- */
+
+.onboard {
+  position: fixed;
+  left: 50%;
+  bottom: 92px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 18px;
+  background: var(--paper);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-pill);
+  color: var(--ink-soft);
+  font-size: 13px;
+  box-shadow: var(--shadow-hud);
+  z-index: 40;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.6s var(--ease), transform 0.6s var(--ease);
+}
+
+.onboard[hidden] {
+  display: none;
+}
+
+.onboard.fading {
+  opacity: 0;
+  transform: translateX(-50%) translateY(8px);
+}
+
+.onboard kbd {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--wood);
+  border: 1px solid var(--edge);
+  border-radius: 5px;
+  padding: 2px 6px;
+  min-width: 21px;
+  text-align: center;
+}
+
+.onboard-sep {
+  color: var(--ink-mute);
+}
+
+.onboard-arrows {
+  letter-spacing: 2px;
+  color: var(--ink);
+}
+
+.onboard-click {
+  color: var(--ink-mute);
+}
+
+/* ---------------------------------------------------------------------------
+ * HUD — pinned bottom, unobtrusive
+ * --------------------------------------------------------------------------- */
+
+#hud {
+  position: fixed;
+  bottom: 22px;
+  left: 22px;
+  right: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  z-index: 50;
+  pointer-events: none; /* children re-enable; gaps stay click-through */
+}
+
+#hud[hidden] {
+  display: none;
+}
+
+.hud-group {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.hud-btn,
+.hud-pill {
+  pointer-events: auto;
+  box-shadow: var(--shadow-hud);
+}
+
+.hud-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 17px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--edge);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.2s;
+  white-space: nowrap;
+}
+
+.hud-btn:hover {
+  background: #fff;
+  border-color: var(--edge-2);
+}
+
+/* Mic button with a drawn mic glyph that morphs muted ↔ live */
+.mic-glyph {
+  position: relative;
+  width: 11px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+.mic-glyph::before {
+  /* mic capsule */
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  width: 7px;
+  height: 10px;
+  border-radius: 4px;
+  background: currentColor;
+}
+
+.mic-glyph::after {
+  /* stand */
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  width: 9px;
+  height: 5px;
+  border: 1.5px solid currentColor;
+  border-top: none;
+  border-radius: 0 0 5px 5px;
+}
+
+#mic {
+  color: var(--ink-soft);
+}
+
+/* Live: sage green, present and talking */
+#mic[aria-pressed="true"] {
+  border-color: rgba(127, 168, 99, 0.6);
+  color: #5e864a;
+  background: var(--sage-soft);
+  box-shadow: var(--shadow-hud), 0 0 16px -4px rgba(127, 168, 99, 0.5);
+}
+
+/* Muted: dim glyph */
+#mic[aria-pressed="false"] .mic-glyph {
+  color: var(--ink-mute);
+}
+
+#mic[aria-pressed="false"] .mic-glyph::before,
+#mic[aria-pressed="false"] .mic-glyph::after {
+  opacity: 0.6;
+}
+
+/* Attention pulse when the nudge wants the user to unmute */
+#mic.attention {
+  animation: mic-attention 1.8s var(--ease) infinite;
+}
+
+@keyframes mic-attention {
+  0%, 100% { box-shadow: var(--shadow-hud), 0 0 0 0 rgba(224, 122, 82, 0); }
+  50%      { box-shadow: var(--shadow-hud), 0 0 0 6px rgba(224, 122, 82, 0.16); }
+}
+
+#leave:hover {
+  color: var(--danger);
+  border-color: rgba(212, 88, 60, 0.5);
+}
+
+.hud-pill {
+  padding: 9px 16px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--edge);
+  background: var(--paper);
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 600;
+  user-select: none;
+}
+
+/* ---------------------------------------------------------------------------
+ * Mute nudge — gentle prompt above the mic button
+ * --------------------------------------------------------------------------- */
+
+.nudge {
+  position: fixed;
+  bottom: 70px;
+  left: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 15px;
+  background: #fff;
+  border: 1px solid var(--edge-2);
+  border-radius: var(--radius-pill);
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 600;
+  box-shadow: var(--shadow-hud);
+  z-index: 49;
+  pointer-events: none;
+  animation: nudge-in 0.4s var(--ease);
+}
+
+.nudge[hidden] {
+  display: none;
+}
+
+@keyframes nudge-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.nudge-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--sage);
+  box-shadow: 0 0 0 0 rgba(127, 168, 99, 0.5);
+  animation: dot-pulse 1.9s ease-in-out infinite;
+}
+
+@keyframes dot-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(127, 168, 99, 0.5); }
+  50%      { box-shadow: 0 0 0 6px rgba(127, 168, 99, 0); }
+}
+
+/* ---------------------------------------------------------------------------
+ * Sidebar — the org roster (always-on presence, FR-02/03)
+ * --------------------------------------------------------------------------- */
+
+#sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: var(--rail);
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, rgba(251, 245, 234, 0.96), rgba(243, 234, 217, 0.96));
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-right: 1px solid var(--edge);
+  box-shadow: 2px 0 18px -10px rgba(60, 40, 20, 0.35);
+  z-index: 60;
+}
+
+#sidebar[hidden] {
+  display: none;
+}
+
+.side-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid var(--edge);
+}
+
+.org-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--accent);
+  box-shadow: 0 0 10px -2px var(--accent);
+}
+
+.org-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.2px;
+}
+
+.roster {
+  flex: 1 1 auto;
+  list-style: none;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.roster-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 9px;
+  border-radius: 10px;
+  transition: background 0.15s;
+}
+
+.roster-row:hover {
+  background: var(--accent-soft);
+}
+
+.roster-row.is-self {
+  background: rgba(224, 122, 82, 0.10);
+}
+
+.roster-row.is-offline {
+  opacity: 0.5;
+}
+
+.roster-dot {
+  flex: 0 0 auto;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid #fffaf2;
+  box-shadow: 0 1px 3px rgba(60, 40, 20, 0.3);
+}
+
+/* Uploaded avatar: grow the identity dot into a small photo. */
+.roster-dot.has-avatar {
+  width: 20px;
+  height: 20px;
+  background-size: cover;
+  background-position: center;
+}
+
+.roster-row.is-offline .roster-dot {
+  filter: grayscale(1);
+}
+
+.roster-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.roster-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.roster-status {
+  font-size: 11px;
+  color: var(--ink-mute);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Status-tinted right-hand label */
+/* Empty floor: a quiet hint where teammates will appear. */
+.roster-empty {
+  padding: 10px 11px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-mute);
+}
+
+.roster-row[data-tone="in_call"] .roster-status { color: #5e864a; font-weight: 600; }
+.roster-row[data-tone="dnd"]     .roster-status { color: var(--danger); font-weight: 600; }
+.roster-row[data-tone="away"]    .roster-status { color: var(--ink-mute); }
+
+.page-btn {
+  flex: 0 0 auto;
+  border: 1px solid var(--edge);
+  background: var(--paper);
+  color: var(--accent-lo);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.roster-row:hover .page-btn,
+.page-btn:focus-visible {
+  opacity: 1;
+}
+
+.page-btn:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.side-foot {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid var(--edge);
+}
+
+.status-toggle {
+  flex: 1 1 auto;
+  border: 1px solid var(--edge);
+  background: var(--paper);
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 6px;
+  border-radius: var(--radius-btn);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.status-toggle:hover {
+  border-color: var(--edge-2);
+}
+
+#status-away[aria-pressed="true"] {
+  background: var(--accent-soft);
+  border-color: rgba(224, 122, 82, 0.5);
+  color: var(--accent-lo);
+}
+
+#status-dnd[aria-pressed="true"] {
+  background: rgba(212, 88, 60, 0.14);
+  border-color: rgba(212, 88, 60, 0.5);
+  color: var(--danger);
+}
+
+/* ---------------------------------------------------------------------------
+ * Space tabs — switch the active space (FR-05)
+ * --------------------------------------------------------------------------- */
+
+.tabs {
+  position: fixed;
+  top: 16px;
+  left: calc(var(--rail) + 24px);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  z-index: 55;
+  max-width: calc(100vw - var(--rail) - 46px);
+}
+
+.tabs[hidden] {
+  display: none;
+}
+
+.tab {
+  border: 1px solid var(--edge);
+  background: var(--paper);
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 15px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  box-shadow: var(--shadow-hud);
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.tab:hover {
+  background: #fff;
+  color: var(--ink);
+}
+
+.tab.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.tab[data-kind="team"]::before {
+  content: "•";
+  margin-right: 5px;
+  color: var(--sage);
+}
+
+.tab.active[data-kind="team"]::before {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.tab-add {
+  font-size: 16px;
+  line-height: 1;
+  padding: 7px 13px;
+  color: var(--accent-lo);
+}
+
+.tab-add-input {
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-pill);
+  padding: 7px 13px;
+  font: inherit;
+  font-size: 13px;
+  width: 130px;
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* ---------------------------------------------------------------------------
+ * In-call banner (page / barge-in) + toasts
+ * --------------------------------------------------------------------------- */
+
+.call-banner {
+  position: fixed;
+  top: 16px;
+  right: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px 9px 15px;
+  background: linear-gradient(180deg, #fff, var(--paper));
+  border: 1px solid rgba(127, 168, 99, 0.5);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-hud), 0 0 18px -6px rgba(127, 168, 99, 0.5);
+  z-index: 58;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  animation: nudge-in 0.3s var(--ease);
+}
+
+.call-banner[hidden] {
+  display: none;
+}
+
+.call-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--sage);
+  animation: dot-pulse 1.6s ease-in-out infinite;
+}
+
+#hangup {
+  border: none;
+  background: var(--danger);
+  color: #fff;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  padding: 6px 13px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+
+#hangup:hover {
+  filter: brightness(1.08);
+}
+
+.toasts {
+  position: fixed;
+  top: 62px;
+  right: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 80;
+  pointer-events: none;
+}
+
+.toast {
+  padding: 10px 15px;
+  background: var(--ink);
+  color: #fdf6ea;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: var(--radius-btn);
+  box-shadow: var(--shadow-card);
+  animation: nudge-in 0.3s var(--ease);
+  transition: opacity 0.45s, transform 0.45s;
+}
+
+.toast.leaving {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+/* Error toasts read as failures at a glance, not just notices. */
+.toast[data-kind="error"] {
+  background: var(--danger);
+  color: #fff;
+}
+
+/* Shift bottom chrome clear of the sidebar */
+#hud {
+  left: calc(var(--rail) + 24px);
+}
+
+.nudge {
+  left: calc(var(--rail) + 24px);
+}
+
+/* Centre the first-run hint over the office area, not the whole window. */
+.onboard {
+  left: calc(var(--rail) + (100% - var(--rail)) / 2);
+}
+
+/* Narrow windows (Tauri min width 720): slim the rail so the floor keeps room. */
+@media (max-width: 860px) {
+  :root {
+    --rail: 200px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Reduced motion: honour the OS setting (calm by default, still by request)
+ * --------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * OAuth login block on the join card (FR-13 / AUTH_PLAN)
+ * --------------------------------------------------------------------------- */
+
+.auth-block {
+  display: grid;
+  gap: 10px;
+}
+
+.auth-block[hidden] {
+  display: none;
+}
+
+.auth-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.auth-actions[hidden] {
+  display: none;
+}
+
+.oauth-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  white-space: nowrap;
+  padding: 11px 12px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--paper-2);
+  border: 1px solid var(--edge-2);
+  border-radius: var(--radius-btn);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.08s;
+}
+
+.oauth-btn:hover:not(:disabled) {
+  background: var(--wood);
+  border-color: var(--accent);
+}
+
+.oauth-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.oauth-btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.oauth-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+/* Signed-in chip: who you are + which org the token pins you to. */
+.auth-session {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 12px;
+  background: var(--paper-2);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-btn);
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.auth-session[hidden] {
+  display: none;
+}
+
+.auth-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok, #86b27a);
+  flex: none;
+}
+
+.auth-user {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.auth-hint {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--ink-mute);
+  text-align: center;
+}
+
+/* ---------------------------------------------------------------------------
+ * Org setup step — replaces the join form body after a first sign-in
+ * without an invite (the user names their organization)
+ * --------------------------------------------------------------------------- */
+
+.org-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.org-setup[hidden] {
+  display: none;
+}
+
+/* While naming the org, the rest of the join form steps aside (the brand
+ * header and error area stay). */
+#join-form.org-setup-mode > .tagline,
+#join-form.org-setup-mode > .auth-block,
+#join-form.org-setup-mode > .identity,
+#join-form.org-setup-mode > .field,
+#join-form.org-setup-mode > .advanced,
+#join-form.org-setup-mode > #join-btn {
+  display: none;
+}
+
+.org-setup-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.org-setup-desc {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+
+#org-setup-btn {
+  padding: 14px;
+  background: linear-gradient(180deg, var(--accent-hi), var(--accent));
+  color: #fff;
+  font: inherit;
+  font-size: 14.5px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  border: none;
+  border-radius: var(--radius-btn);
+  cursor: pointer;
+  box-shadow: var(--glow-accent), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transition: filter 0.15s, transform 0.08s;
+}
+
+#org-setup-btn:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+#org-setup-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+#org-setup-btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+  filter: saturate(0.75);
+}
+
+#org-setup-back {
+  align-self: center;
+}
+
+/* ---------------------------------------------------------------------------
+ * Invite management (admin): sidebar entry + issue/list/revoke panel
+ * --------------------------------------------------------------------------- */
+
+.side-invite-btn {
+  border-color: rgba(224, 122, 82, 0.35);
+  background: var(--accent-soft);
+  color: var(--accent-lo);
+  font-weight: 700;
+}
+
+.side-invite-btn:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.side-invite-btn[hidden] {
+  display: none;
+}
+
+/* Billing sits next to Invites but is the quieter, secondary admin action —
+   neutral until hovered so the accent stays on inviting people in. */
+.side-billing-btn {
+  font-weight: 600;
+}
+
+.side-billing-btn:hover {
+  border-color: rgba(224, 122, 82, 0.35);
+  color: var(--accent-lo);
+}
+
+.side-billing-btn[hidden] {
+  display: none;
+}
+
+.invite-card {
+  width: min(440px, 100%);
+  gap: 18px;
+}
+
+.invite-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.invite-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.invite-issue {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.invite-role-field {
+  flex: 0 0 auto;
+}
+
+.invite-card select {
+  background: #fffdf8;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-btn);
+  padding: 10px 12px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13.5px;
+  outline: none;
+}
+
+.invite-card select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+#invite-issue-btn {
+  flex: 1 1 auto;
+  padding: 10px 18px;
+  background: linear-gradient(180deg, var(--accent-hi), var(--accent));
+  color: #fff;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  border: none;
+  border-radius: var(--radius-btn);
+  cursor: pointer;
+  box-shadow: var(--glow-accent), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transition: filter 0.15s, transform 0.08s;
+}
+
+#invite-issue-btn:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+#invite-issue-btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.invite-result {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.invite-result[hidden] {
+  display: none;
+}
+
+.invite-result-code {
+  background: #fffdf8;
+  border: 1px solid var(--edge-2);
+  border-radius: var(--radius-btn);
+  padding: 12px 14px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  color: var(--ink);
+  word-break: break-all;
+  user-select: all;
+}
+
+.invite-result-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.invite-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.invite-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--paper-2);
+  border-radius: 10px;
+  font-size: 12.5px;
+}
+
+.invite-row-role {
+  flex: 0 0 auto;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.invite-row-meta {
+  flex: 1 1 auto;
+  color: var(--ink-mute);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.invite-revoke-btn {
+  flex: 0 0 auto;
+  border: 1px solid var(--edge);
+  background: transparent;
+  color: var(--danger);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.invite-row:hover .invite-revoke-btn,
+.invite-revoke-btn:focus-visible {
+  opacity: 1;
+}
+
+.invite-revoke-btn:hover {
+  background: rgba(212, 88, 60, 0.1);
+}
+
+.invite-empty {
+  font-size: 12.5px;
+  color: var(--ink-mute);
+  padding: 4px 2px;
+}

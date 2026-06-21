@@ -1,0 +1,42 @@
+[package]
+name = "hiroba-server"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Hiroba signaling/state server: presence, position relay, proximity, WebRTC signaling"
+repository = "https://github.com/hiroba/hiroba"
+
+[[bin]]
+name = "hiroba-server"
+path = "src/main.rs"
+
+[dependencies]
+hiroba-common = { path = "../common" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "signal", "sync"] }
+axum = { version = "0.8", features = ["ws"] }
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+futures-util = "0.3"
+# Auth (FR-13 / §9): JWT verification for the OAuth/OIDC hosted path. HS256
+# shared-secret + RS256 via a fetched JWKS. Guest (self-host) pulls none of
+# this machinery at runtime.
+jsonwebtoken = "9"
+# JWKS fetch for the OIDC path (rustls → no system OpenSSL dependency).
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# TURN ephemeral credentials (NFR-07 / §7.4): coturn REST-API HMAC-SHA1 scheme.
+hmac = "0.12"
+sha1 = "0.10"
+base64 = "0.22"
+# Optional persistence (§7.5): org registry + space catalogs survive restarts
+# when HIROBA_DB is set. Bundled, like hiroba-auth — no system library needed.
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

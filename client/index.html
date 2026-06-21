@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hiroba</title>
+    <!-- Inline favicon (the logo mark) — no asset fetch, no 404 in dev/web builds -->
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect x='2' y='2' width='36' height='36' rx='11' fill='%23e07a52'/%3E%3Ccircle cx='15' cy='18' r='5.2' fill='%23fffaf2'/%3E%3Ccircle cx='26' cy='22' r='5.2' fill='%23fffaf2' opacity='0.78'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <!--
+      ICE/TURN injection seam (NFR-07). Self-host needs nothing here:
+      the client falls back to public STUN. A hosted deploy (or a self-host
+      operator who needs TURN behind symmetric NAT) sets the ICE servers before
+      the app loads — TURN credentials travel out of band, never over the wire.
+      The Tauri shell may inject the same global at runtime instead.
+
+      <script>
+        window.__HIROBA_CONFIG__ = {
+          iceServers: [
+            { urls: "stun:stun.l.google.com:19302" },
+            { urls: "turn:turn.example.com:3478", username: "u", credential: "p" }
+          ]
+        };
+      </script>
+    -->
+  </head>
+  <body>
+    <!-- The office floor: full-bleed canvas behind everything -->
+    <canvas id="space"></canvas>
+
+    <!-- Join overlay (guest entry); hidden once connected -->
+    <div id="join" class="overlay">
+      <form id="join-form" class="card" novalidate>
+        <header class="brand">
+          <span class="logo-mark" aria-hidden="true">
+            <svg viewBox="0 0 40 40" width="40" height="40">
+              <rect x="2" y="2" width="36" height="36" rx="11" fill="var(--accent)" />
+              <circle cx="15" cy="18" r="5.2" fill="#fffaf2" />
+              <circle cx="26" cy="22" r="5.2" fill="#fffaf2" opacity="0.78" />
+            </svg>
+          </span>
+          <span class="brand-text">
+            <span class="brand-mark">Hiroba</span>
+            <span class="brand-latin" data-i18n="brandTag">Your team's virtual office</span>
+          </span>
+        </header>
+        <p class="tagline" data-i18n="tagline">Step into the office, see who's around, and walk over for a chat.</p>
+
+        <!-- OAuth login (FR-13 / AUTH_PLAN). Hidden in plain-browser builds,
+             where the manual token field below stays the fallback. -->
+        <div id="auth-block" class="auth-block">
+          <div id="auth-actions" class="auth-actions">
+            <button id="login-google" type="button" class="oauth-btn">
+              <svg class="oauth-icon" viewBox="0 0 18 18" aria-hidden="true">
+                <path fill="#4285F4" d="M17.64 9.2045c0-.6381-.0573-1.2518-.1636-1.8409H9v3.4814h4.8436c-.2086 1.125-.8427 2.0782-1.7959 2.7164v2.2581h2.9087c1.7018-1.5668 2.6836-3.874 2.6836-6.615z"/>
+                <path fill="#34A853" d="M9 18c2.43 0 4.4673-.8059 5.9564-2.1805l-2.9087-2.2581c-.8059.54-1.8368.8591-3.0477.8591-2.344 0-4.3282-1.5831-5.036-3.7104H.9574v2.3318C2.4382 15.9832 5.4818 18 9 18z"/>
+                <path fill="#FBBC05" d="M3.964 10.71c-.18-.54-.2823-1.1168-.2823-1.71s.1023-1.17.2823-1.71V4.9582H.9573A8.9965 8.9965 0 0 0 0 9c0 1.4523.3477 2.8268.9573 4.0418L3.964 10.71z"/>
+                <path fill="#EA4335" d="M9 3.5795c1.3214 0 2.5077.4541 3.4405 1.346l2.5813-2.5813C13.4636.8918 11.4259 0 9 0 5.4818 0 2.4382 2.0168.9573 4.9582L3.964 7.29C4.6718 5.1627 6.6559 3.5795 9 3.5795z"/>
+              </svg>
+              <span class="oauth-label" data-i18n="signInGoogle">Sign in with Google</span>
+            </button>
+            <button id="login-github" type="button" class="oauth-btn">
+              <svg class="oauth-icon" viewBox="0 0 16 16" aria-hidden="true">
+                <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
+              </svg>
+              <span class="oauth-label" data-i18n="signInGithub">Sign in with GitHub</span>
+            </button>
+          </div>
+          <div id="auth-session" class="auth-session" hidden>
+            <span class="auth-dot" aria-hidden="true"></span>
+            <span id="auth-user" class="auth-user"></span>
+            <button id="auth-logout" type="button" class="ghost-btn" data-i18n="signOut">Sign out</button>
+          </div>
+          <p class="auth-hint" data-i18n="authHint">…or continue below as a guest on a self-hosted office.</p>
+        </div>
+
+        <div class="identity">
+          <div class="avatar-wrap">
+            <button
+              id="avatar-preview"
+              type="button"
+              class="avatar-preview"
+              data-i18n-title="avatarUpload"
+              data-i18n-arialabel="avatarUpload"
+            >
+              <span id="avatar-initial">?</span>
+              <span class="avatar-edit" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="11" height="11">
+                  <path fill="currentColor" d="M5.5 3.5 6.7 2h2.6l1.2 1.5H13A1.5 1.5 0 0 1 14.5 5v7A1.5 1.5 0 0 1 13 13.5H3A1.5 1.5 0 0 1 1.5 12V5A1.5 1.5 0 0 1 3 3.5h2.5zM8 11.2A3 3 0 1 0 8 5.2a3 3 0 0 0 0 6zm0-1.4a1.6 1.6 0 1 1 0-3.2 1.6 1.6 0 0 1 0 3.2z"/>
+                </svg>
+              </span>
+            </button>
+            <button
+              id="avatar-remove"
+              type="button"
+              class="avatar-remove"
+              data-i18n-title="avatarRemove"
+              data-i18n-arialabel="avatarRemove"
+              hidden
+            >×</button>
+            <input id="avatar-file" type="file" accept="image/*" hidden />
+          </div>
+          <label class="field name-field">
+            <span class="field-label" data-i18n="fieldName">Display name</span>
+            <input
+              id="join-name"
+              type="text"
+              maxlength="32"
+              autocomplete="off"
+              autocapitalize="words"
+              placeholder="Your name"
+              data-i18n-placeholder="namePlaceholder"
+              required
+            />
+          </label>
+        </div>
+
+        <div class="field">
+          <span class="field-label" data-i18n="fieldColor">Your color</span>
+          <div id="color-swatches" class="swatches" role="group" aria-label="Avatar color" data-i18n-arialabel="ariaColor"></div>
+          <input id="join-color" type="color" value="#e07a52" hidden />
+        </div>
+
+        <details id="advanced" class="advanced">
+          <summary data-i18n="serverSettings">Server settings</summary>
+          <label class="field">
+            <span class="field-label" data-i18n="fieldServer">Server</span>
+            <!-- value seeded from ui.ts (VITE_HIROBA_SERVER or loopback) -->
+            <input
+              id="join-server"
+              type="text"
+              spellcheck="false"
+              autocapitalize="off"
+              autocomplete="off"
+            />
+          </label>
+          <label class="field">
+            <span class="field-label" data-i18n="fieldToken">Access token (optional)</span>
+            <input
+              id="join-token"
+              type="text"
+              placeholder="Leave blank for a guest session"
+              data-i18n-placeholder="tokenPlaceholder"
+              spellcheck="false"
+              autocapitalize="off"
+              autocomplete="off"
+            />
+          </label>
+          <label class="field">
+            <span class="field-label" data-i18n="fieldAuthServer">Auth server</span>
+            <!-- value seeded from ui.ts (VITE_HIROBA_AUTH_SERVER or loopback) -->
+            <input
+              id="join-auth"
+              type="text"
+              spellcheck="false"
+              autocapitalize="off"
+              autocomplete="off"
+            />
+          </label>
+          <label class="field">
+            <span class="field-label" data-i18n="fieldInvite">Invite code (optional)</span>
+            <input
+              id="join-invite"
+              type="text"
+              placeholder="Paste an invite to join its org on sign-in"
+              data-i18n-placeholder="invitePlaceholder"
+              spellcheck="false"
+              autocapitalize="off"
+              autocomplete="off"
+            />
+          </label>
+        </details>
+
+        <button id="join-btn" type="submit">
+          <span class="btn-label" data-i18n="enter">Enter Hiroba</span>
+        </button>
+
+        <!-- Org setup step: shown after a first OAuth sign-in without an
+             invite, in place of the form body (the user must name their org
+             before a full session is minted; AUTH_PLAN org-setup flow). -->
+        <div id="org-setup" class="org-setup" hidden>
+          <h2 class="org-setup-title" data-i18n="orgSetupTitle">Name your organization</h2>
+          <p class="org-setup-desc" data-i18n="orgSetupDesc">
+            You're almost in. Give your organization a name — teammates you invite will join it.
+          </p>
+          <label class="field">
+            <span class="field-label" data-i18n="fieldOrgName">Organization name</span>
+            <input
+              id="org-setup-name"
+              type="text"
+              maxlength="64"
+              autocomplete="organization"
+              placeholder="e.g. Acme Inc"
+              data-i18n-placeholder="orgNamePlaceholder"
+            />
+          </label>
+          <button id="org-setup-btn" type="button" data-i18n="createOrg">Create organization</button>
+          <button id="org-setup-back" type="button" class="ghost-btn" data-i18n="backToLogin">Back to sign-in</button>
+        </div>
+
+        <p id="join-error" class="error" role="alert" hidden></p>
+      </form>
+    </div>
+
+    <!-- Reconnecting overlay (shown on an unexpected drop while in a session) -->
+    <div id="reconnect" class="overlay" hidden>
+      <div class="card reconnect-card" role="status" aria-live="polite">
+        <div class="pulse" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </div>
+        <p id="reconnect-msg" class="reconnect-msg" data-i18n="reconnecting">Reconnecting…</p>
+        <button id="reconnect-cancel" type="button" class="ghost-btn" data-i18n="cancel">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Org roster sidebar: who's around, what space, what status (FR-02/03) -->
+    <aside id="sidebar" hidden>
+      <header class="side-head">
+        <span class="org-dot" aria-hidden="true"></span>
+        <span id="org-name" class="org-name">Hiroba</span>
+      </header>
+      <ul id="roster" class="roster" aria-label="Members" data-i18n-arialabel="ariaMembers"></ul>
+      <footer class="side-foot">
+        <button id="status-away" class="status-toggle" type="button" aria-pressed="false" data-i18n="away">
+          Away
+        </button>
+        <button id="status-dnd" class="status-toggle" type="button" aria-pressed="false" data-i18n="dnd">
+          Do not disturb
+        </button>
+        <!-- Admin only (role from the session JWT); the server re-checks. -->
+        <button
+          id="invite-panel-btn"
+          class="status-toggle side-invite-btn"
+          type="button"
+          data-i18n="manageInvites"
+          data-i18n-title="manageInvitesTitle"
+          hidden
+        >
+          Invites
+        </button>
+        <!-- Admin only; only does anything when the auth backend has billing on. -->
+        <button
+          id="billing-panel-btn"
+          class="status-toggle side-billing-btn"
+          type="button"
+          data-i18n="manageBilling"
+          data-i18n-title="manageBillingTitle"
+          hidden
+        >
+          Billing
+        </button>
+      </footer>
+    </aside>
+
+    <!-- Invite management panel (admin): issue / list / revoke org invites -->
+    <div id="invite-panel" class="overlay" hidden>
+      <div class="card invite-card" role="dialog" aria-modal="true" aria-labelledby="invite-panel-title">
+        <header class="invite-head">
+          <span id="invite-panel-title" class="invite-title" data-i18n="manageInvitesTitle">Manage invitations</span>
+          <button id="invite-panel-close" type="button" class="ghost-btn" data-i18n="closePanel">Close</button>
+        </header>
+
+        <div class="invite-issue">
+          <label class="field invite-role-field">
+            <span class="field-label" data-i18n="inviteRole">Role</span>
+            <select id="invite-role">
+              <option value="member" data-i18n="roleMember">Member</option>
+              <option value="admin" data-i18n="roleAdmin">Admin</option>
+            </select>
+          </label>
+          <button id="invite-issue-btn" type="button" data-i18n="issueInvite">Issue invite</button>
+        </div>
+
+        <div id="invite-result" class="invite-result" hidden>
+          <div id="invite-result-code" class="invite-result-code"></div>
+          <div class="invite-result-actions">
+            <button id="invite-copy-link" type="button" class="ghost-btn" data-i18n="copyInviteLink">Copy link</button>
+            <button id="invite-copy-code" type="button" class="ghost-btn" data-i18n="copyInviteCode">Copy code</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="field-label" data-i18n="activeInvites">Active invites</span>
+          <ul id="invite-list" class="invite-list"></ul>
+        </div>
+
+        <p id="invite-panel-error" class="error" role="alert" hidden></p>
+      </div>
+    </div>
+
+    <!-- Space tabs: switch the active space (FR-05); rebuilt from the catalog -->
+    <nav id="tabs" class="tabs" hidden aria-label="Spaces" data-i18n-arialabel="ariaSpaces"></nav>
+
+    <!-- In-call banner: shown during a page (barge-in) with one-click hang-up -->
+    <div id="call-banner" class="call-banner" hidden role="status" aria-live="polite">
+      <span class="call-dot" aria-hidden="true"></span>
+      <span id="call-text">In call</span>
+      <button id="hangup" type="button" data-i18n="hangUp">Hang up</button>
+    </div>
+
+    <!-- Transient toasts (page rejected, space full, …) -->
+    <div id="toasts" class="toasts" aria-live="polite"></div>
+
+    <!-- First-run movement hint; fades out after the first move -->
+    <div id="onboard" class="onboard" hidden>
+      <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>
+      <span class="onboard-sep" data-i18n="onboardOr">or</span>
+      <span class="onboard-arrows">↑ ← ↓ →</span>
+      <span data-i18n="onboardWalk">to walk around</span>
+      <span class="onboard-click" data-i18n="onboardClick">— or click the floor</span>
+    </div>
+
+    <!-- HUD -->
+    <div id="hud" hidden>
+      <div class="hud-group">
+        <button id="mic" class="hud-btn mic-btn" aria-pressed="false" title="Toggle microphone (you start muted)" data-i18n-title="micTitleMuted">
+          <span class="mic-glyph" aria-hidden="true"></span>
+          <span id="mic-label" data-i18n="muted">Muted</span>
+        </button>
+        <span id="count" class="hud-pill" data-i18n="justYou">Just you</span>
+      </div>
+      <button id="leave" class="hud-btn" title="Leave the office" data-i18n="leave" data-i18n-title="leaveTitle">Leave</button>
+    </div>
+
+    <!-- Calm nudge: appears when someone is within talking range and you're muted -->
+    <div id="mute-nudge" class="nudge" hidden>
+      <span class="nudge-dot" aria-hidden="true"></span>
+      <span data-i18n="nudgeText">Someone's nearby — unmute to talk</span>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

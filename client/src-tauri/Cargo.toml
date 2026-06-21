@@ -1,0 +1,37 @@
+[package]
+name = "hiroba-client"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Hiroba desktop client"
+repository = "https://github.com/hiroba/hiroba"
+
+[lib]
+name = "hiroba_client_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["macos-private-api"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# OAuth login (AUTH_PLAN §2): loopback listener + PKCE + /token exchange all
+# live on the Rust side so the webview never sees the verifier.
+tokio = { version = "1", features = ["net", "time", "io-util"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rand = "0.8"
+sha2 = "0.10"
+base64 = "0.22"
+# System browser launcher — providers reject embedded-webview logins.
+open = "5"
+# OS keychain for the Hiroba session JWT (replaces plaintext localStorage).
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
