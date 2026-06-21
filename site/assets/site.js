@@ -3,6 +3,8 @@
 (() => {
   'use strict';
 
+  const { t } = window.HirobaSiteI18n ?? { t: {} };
+
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   /* ---------------------------------------------------------------- reveal */
@@ -31,20 +33,31 @@
   const tabsEl = document.getElementById('demo-tabs');
   const ctx = canvas.getContext('2d');
 
-  const SPACES = ['ロビー', '開発', 'デザイン'];
+  const SPACE_IDS = ['lobby', 'dev', 'design'];
+  const spaceLabel = (id) => {
+    if (id === 'lobby') return t.demoSpaceLobby ?? 'Lobby';
+    if (id === 'dev') return t.demoSpaceDev ?? 'Dev';
+    if (id === 'design') return t.demoSpaceDesign ?? 'Design';
+    return id;
+  };
+
   const NEAR = 130; // px: proximity radius for the voice link
   const PAD = 0.1; // normalized margin around the floor
 
   const members = [
-    { name: '自分', color: '#d8552e', space: 'ロビー', self: true },
-    { name: '高橋 蓮', color: '#5a8f6a', space: 'ロビー' },
-    { name: '青木 悠', color: '#34506b', space: '開発' },
-    { name: '佐藤 環', color: '#c0913b', space: '開発', call: true },
-    { name: '田中 陽菜', color: '#8d6a9f', space: 'デザイン', dnd: true },
-    { name: '三浦 美羽', color: '#a99e8c', space: null, away: true },
+    { id: 'self', color: '#d8552e', space: 'lobby', self: true },
+    { id: 'ren', color: '#5a8f6a', space: 'lobby' },
+    { id: 'yuu', color: '#34506b', space: 'dev' },
+    { id: 'kan', color: '#c0913b', space: 'dev', call: true },
+    { id: 'hina', color: '#8d6a9f', space: 'design', dnd: true },
+    { id: 'miu', color: '#a99e8c', space: null, away: true },
   ];
-  // members who wander between spaces over time (自分 stays in the lobby)
-  const movers = members.filter((m) => ['高橋 蓮', '青木 悠'].includes(m.name));
+  const memberName = (m) => {
+    const key = `demoMember${m.id.charAt(0).toUpperCase()}${m.id.slice(1)}`;
+    return t[key] ?? m.id;
+  };
+  // members who wander between spaces over time (self stays in the lobby)
+  const movers = members.filter((m) => m.id === 'ren' || m.id === 'yuu');
 
   const rnd = (a, b) => a + Math.random() * (b - a);
   const place = (m) => {
@@ -60,21 +73,21 @@
     m.fade = 0; // -1 leaving, +1 entering, 0 settled
   });
 
-  let view = 'ロビー';
+  let view = 'lobby';
 
   // simple per-space furniture, in normalized floor coordinates
   const FURNITURE = {
-    ロビー: [
+    lobby: [
       { kind: 'rug', x: 0.5, y: 0.52, rx: 0.22, ry: 0.18 },
       { kind: 'plant', x: 0.08, y: 0.12 },
       { kind: 'plant', x: 0.92, y: 0.88 },
     ],
-    開発: [
+    dev: [
       { kind: 'desk', x: 0.3, y: 0.32, w: 0.24, h: 0.14 },
       { kind: 'desk', x: 0.68, y: 0.66, w: 0.24, h: 0.14 },
       { kind: 'plant', x: 0.9, y: 0.12 },
     ],
-    デザイン: [
+    design: [
       { kind: 'desk', x: 0.5, y: 0.48, w: 0.34, h: 0.18 },
       { kind: 'plant', x: 0.1, y: 0.85 },
     ],
@@ -82,10 +95,10 @@
 
   /* ----- sidebar roster + tabs (DOM, driven by the same state) ----- */
   const statusOf = (m) => {
-    if (m.away) return '離席';
-    if (m.dnd) return 'DND';
-    if (m.call) return '通話中';
-    return m.space;
+    if (m.away) return t.demoStatusAway ?? 'Away';
+    if (m.dnd) return t.demoStatusDnd ?? 'DND';
+    if (m.call) return t.demoStatusCall ?? 'On call';
+    return m.space ? spaceLabel(m.space) : '';
   };
   const dotClass = (m) => {
     if (m.away) return 'dot away';
@@ -100,18 +113,18 @@
         (m) => `
       <li${m.self ? ' class="self"' : ''}>
         <span class="${dotClass(m)}" style="${m.away || m.dnd || m.call ? '' : `background:${m.color}`}"></span>
-        <span class="who">${m.name}</span>
+        <span class="who">${memberName(m)}</span>
         <span class="where">${statusOf(m)}${m.self ? ' ←' : ''}</span>
-        <span class="page-chip">呼びかけ</span>
+        <span class="page-chip">${t.demoPageChip ?? 'Page'}</span>
       </li>`
       )
       .join('');
   }
 
   function renderTabs() {
-    tabsEl.innerHTML = SPACES.map((s) => {
-      const n = members.filter((m) => m.space === s && !m.away).length;
-      return `<button type="button" data-space="${s}" class="${s === view ? 'active' : ''}">${s}<span class="count">${n}</span></button>`;
+    tabsEl.innerHTML = SPACE_IDS.map((id) => {
+      const n = members.filter((m) => m.space === id && !m.away).length;
+      return `<button type="button" data-space="${id}" class="${id === view ? 'active' : ''}">${spaceLabel(id)}<span class="count">${n}</span></button>`;
     }).join('');
   }
   tabsEl.addEventListener('click', (e) => {
@@ -169,7 +182,7 @@
       switchTimer = rnd(6, 11);
       const m = movers[Math.floor(Math.random() * movers.length)];
       if (m.fade === 0) {
-        const options = SPACES.filter((s) => s !== m.space);
+        const options = SPACE_IDS.filter((s) => s !== m.space);
         m.nextSpace = options[Math.floor(Math.random() * options.length)];
         m.fade = -1;
       }
@@ -307,7 +320,7 @@
         ctx.stroke();
       }
       ctx.fillStyle = '#6e6557';
-      ctx.fillText(m.name, x, y + 28);
+      ctx.fillText(memberName(m), x, y + 28);
       ctx.globalAlpha = 1;
     }
   }

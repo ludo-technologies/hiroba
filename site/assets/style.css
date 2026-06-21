@@ -149,6 +149,35 @@ p { margin: 0; }
 .site-nav a:hover { color: var(--accent-deep); text-decoration: none; }
 .site-nav a[aria-current="page"] { color: var(--accent-deep); }
 
+.lang-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 253, 248, 0.72);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.lang-switch a {
+  padding: 4px 9px;
+  border-radius: 999px;
+  color: var(--ink-soft);
+  text-decoration: none;
+}
+
+.lang-switch a:hover {
+  color: var(--accent-deep);
+}
+
+.lang-switch a.active {
+  background: var(--accent);
+  color: #fffdf8;
+}
+
 .nav-cta {
   display: inline-block;
   background: var(--ink);

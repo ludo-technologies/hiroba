@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Hiroba — 超軽量バーチャルオフィス</title>
-  <meta name="description" content="Hirobaは、一日中つけっぱなしにできる超軽量のバーチャルオフィス。メンバーの在席がひと目で分かり、ワンクリックで声をかけられる。OSS（Apache-2.0）＋ ホスト型。" />
-  <meta property="og:title" content="Hiroba — 超軽量バーチャルオフィス" />
-  <meta property="og:description" content="会議ツールではなく在席空間。アイドルCPUほぼ0%、メモリ数十MB。音声はサーバーを通らないP2P。" />
+  <title>Hiroba — Featherweight virtual office</title>
+  <meta name="description" content="Hiroba is a featherweight virtual office you can leave running all day. See who's around at a glance and reach out with one click. Open source (Apache-2.0) + hosted." />
+  <meta property="og:title" content="Hiroba — Featherweight virtual office" />
+  <meta property="og:description" content="Not a meeting tool — a presence space. Idle CPU near 0%, tens of MB of RAM. Voice stays off the server via P2P." />
   <meta property="og:type" content="website" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23d8552e'/%3E%3Ctext x='32' y='46' font-size='40' font-family='serif' font-weight='700' text-anchor='middle' fill='%23fff'%3E広%3C/text%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -14,7 +14,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;600;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="assets/style.css" />
 </head>
-<body>
+<body data-page="index">
 
 <header class="site-header">
   <div class="wrap">
@@ -23,14 +23,18 @@
       Hiroba
       <span class="brand-sub">ひろば</span>
     </a>
-    <nav class="site-nav" aria-label="メイン">
-      <a href="#values">特徴</a>
-      <a href="#how">仕組み</a>
-      <a href="#numbers">軽さ</a>
-      <a href="pricing.html">料金</a>
+    <nav class="site-nav" data-i18n-arialabel="navAriaLabel" aria-label="Main">
+      <a href="#values" data-i18n="navFeatures">Features</a>
+      <a href="#how" data-i18n="navHow">How it works</a>
+      <a href="#numbers" data-i18n="navLight">Lightweight</a>
+      <a href="pricing.html" data-i18n="navPricing">Pricing</a>
       <a href="https://github.com/ludo-technologies/hiroba" target="_blank" rel="noopener">GitHub</a>
+      <div class="lang-switch" role="group" aria-label="Language">
+        <a href="?lang=en" data-lang="en" lang="en">EN</a>
+        <a href="?lang=ja" data-lang="ja" lang="ja">JA</a>
+      </div>
       <!-- TODO(§12): ホスト型サインアップのドメイン確定後、href をアプリのサインアップURLに差し替える -->
-      <a class="nav-cta" href="#start">はじめる</a>
+      <a class="nav-cta" href="#start" data-i18n="navStart">Get started</a>
     </nav>
   </div>
 </header>
@@ -39,36 +43,33 @@
 
   <!-- ============================== Hero ============================== -->
   <section class="hero">
-    <span class="hero-vert" aria-hidden="true">広場</span>
+    <span class="hero-vert" aria-hidden="true" data-i18n="heroVert">Plaza</span>
     <div class="wrap">
       <div class="hero-copy">
-        <p class="eyebrow">「ちょっといい？」が、リモートでも言える</p>
-        <h1><span class="nowrap"><em>超軽量</em></span><br /><span class="nowrap">バーチャルオフィス。</span></h1>
-        <p class="hero-lede">
-          チームの在席がひと目で分かり、アバターを近づけるか、ワンクリックの呼びかけで、
-          隣の席にいる感覚ですぐ話せる。そしてアイドル時CPUほぼ0%・メモリ数十MB——
-          一日中つけっぱなしでも忘れるほど軽いから、みんながフロアに“居続けられる”。
-          それが Hiroba です。
+        <p class="eyebrow" data-i18n="heroEyebrow">"Got a sec?" still works remotely</p>
+        <h1 data-i18n-html="heroTitle"><span class="nowrap"><em>Featherweight</em></span><br /><span class="nowrap">virtual office.</span></h1>
+        <p class="hero-lede" data-i18n="heroLede">
+          See who's around at a glance. Walk your avatar over or page someone with one click — it feels like tapping the desk next to you. Idle CPU near 0%, tens of MB of RAM, light enough to forget it's running all day so everyone can stay on the floor. That's Hiroba.
         </p>
         <div class="hero-ctas">
           <!-- TODO(§12): ドメイン確定後、ホスト型サインアップURLへ差し替え -->
-          <a class="btn btn-primary" href="mailto:contact@ludo-tech.org?subject=%5BHiroba%5D%20%E6%97%A9%E6%9C%9F%E3%82%A2%E3%82%AF%E3%82%BB%E3%82%B9%E5%B8%8C%E6%9C%9B&body=%E7%B5%84%E7%B9%94%E5%90%8D%EF%BC%9A%0A%E4%BA%BA%E6%95%B0%EF%BC%9A%0A%E3%81%B2%E3%81%A8%E3%81%93%E3%81%A8%EF%BC%9A">
-            組織をつくる<span class="arrow">→</span>
+          <a class="btn btn-primary" data-i18n-href="mailEarlyAccess" href="mailto:contact@ludo-tech.org?subject=%5BHiroba%5D%20Early%20access%20request&amp;body=Organization%3A%0AHeadcount%3A%0ANotes%3A%0A">
+            <span data-i18n="ctaCreateOrg">Create an organization</span><span class="arrow">→</span>
           </a>
-          <a class="btn btn-ghost" href="https://github.com/ludo-technologies/hiroba" target="_blank" rel="noopener">
-            self-host で始める
+          <a class="btn btn-ghost" href="https://github.com/ludo-technologies/hiroba" target="_blank" rel="noopener" data-i18n="ctaSelfHost">
+            Start with self-host
           </a>
         </div>
         <p class="hero-proof">
-          <span>アイドルCPU ほぼ0%</span>
-          <span>メモリ 数十MB</span>
-          <span>OSS · Apache-2.0</span>
+          <span data-i18n="heroProofCpu">Idle CPU near 0%</span>
+          <span data-i18n="heroProofMem">Tens of MB RAM</span>
+          <span data-i18n="heroProofOss">OSS · Apache-2.0</span>
         </p>
       </div>
 
       <!-- Live demo: the actual product idiom — vanilla Canvas 2D dots -->
       <div>
-        <div class="app-mock" role="img" aria-label="Hirobaの画面イメージ。左に組織メンバーの一覧、右に選択中スペースの2D空間。アバターが歩き回り、近づくと声がつながる。">
+        <div class="app-mock" role="img" data-i18n-arialabel="mockAriaLabel" aria-label="Hiroba UI preview: member roster on the left, 2D space on the right. Avatars wander; voice links when they get close.">
           <div class="mock-titlebar" aria-hidden="true">
             <i></i><i></i><i></i>
             <span>Hiroba — Ludo</span>
@@ -84,13 +85,13 @@
                 <canvas id="hiroba-canvas"></canvas>
               </div>
               <div class="mock-statusbar">
-                <span class="mic">ミュート中</span>
-                <span>通話中: なし</span>
+                <span class="mic" data-i18n="mockMuted">Muted</span>
+                <span data-i18n="mockNoCall">On call: none</span>
               </div>
             </div>
           </div>
         </div>
-        <p class="mock-caption">↑ 動いています。タブを押すとスペースが切り替わります — 製品と同じ、ただの Canvas 2D。</p>
+        <p class="mock-caption" data-i18n="mockCaption">↑ Live demo. Click tabs to switch spaces — same as the product: plain Canvas 2D.</p>
       </div>
     </div>
   </section>
@@ -99,30 +100,29 @@
   <section class="section deep" id="problem">
     <div class="wrap">
       <div class="sec-head" data-reveal>
-        <p class="sec-no"><b>一</b>Why</p>
-        <h2>バーチャルオフィスは、<br />重くなりすぎた。</h2>
-        <p class="sec-lede">
-          ビデオ・画面共有・録画・連携——便利になるほど、常駐させるには重いツールになっていく。
-          一日中つなぎっぱなしにする「在席ツール」に必要なのは、高度な会議機能ではなく、気配と軽さです。
+        <p class="sec-no"><b>一</b><span data-i18n="problemSecNo">Why</span></p>
+        <h2 data-i18n-html="problemTitle">Virtual offices got<br />too heavy.</h2>
+        <p class="sec-lede" data-i18n="problemLede">
+          Video, screen share, recording, integrations — the more features pile on, the harder it is to leave running. A presence tool needs atmosphere and lightness, not advanced meeting features.
         </p>
       </div>
       <div class="compare" data-reveal>
         <div class="them">
-          <h3>従来の多機能型ツール</h3>
+          <h3 data-i18n="problemThemTitle">Traditional all-in-one tools</h3>
           <ul>
-            <li>通信量（音声中心でも）<b>約1GB/日</b></li>
-            <li>ビデオ・画面共有を多用すると<b>3〜5GB/日</b></li>
-            <li>常駐時のメモリ<b>数百MB〜</b></li>
-            <li>位置づけ<b>会議ツールの代替</b></li>
+            <li data-i18n-html="problemThem1">Traffic (even voice-first) <b>~1 GB/day</b></li>
+            <li data-i18n-html="problemThem2">Heavy video &amp; screen share <b>3–5 GB/day</b></li>
+            <li data-i18n-html="problemThem3">Idle memory <b>hundreds of MB+</b></li>
+            <li data-i18n-html="problemThem4">Positioning <b>meeting-tool replacement</b></li>
           </ul>
         </div>
         <div class="us">
-          <h3>Hiroba</h3>
+          <h3 data-i18n="problemUsTitle">Hiroba</h3>
           <ul>
-            <li>通信量<b>音声のみ・低帯域</b></li>
-            <li>アイドル時CPU<b>ほぼ0%</b></li>
-            <li>常駐時のメモリ<b>数十MB台</b></li>
-            <li>位置づけ<b>常駐前提の在席ツール</b></li>
+            <li data-i18n-html="problemUs1">Traffic <b>voice only, low bandwidth</b></li>
+            <li data-i18n-html="problemUs2">Idle CPU <b>near 0%</b></li>
+            <li data-i18n-html="problemUs3">Idle memory <b>tens of MB</b></li>
+            <li data-i18n-html="problemUs4">Positioning <b>always-on presence tool</b></li>
           </ul>
         </div>
       </div>
@@ -133,38 +133,37 @@
   <section class="section" id="values">
     <div class="wrap">
       <div class="sec-head" data-reveal>
-        <p class="sec-no"><b>二</b>Features</p>
-        <h2>Hiroba でできること。</h2>
-        <p class="sec-lede">
-          バーチャルオフィスに必要な最小限——在席・気配・声だけを備えています。
-          ビデオ会議・画面共有・録画は、軽さのためにあえて非搭載。会議はいまお使いのツールのままで。
+        <p class="sec-no"><b>二</b><span data-i18n="valuesSecNo">Features</span></p>
+        <h2 data-i18n="valuesTitle">What Hiroba does.</h2>
+        <p class="sec-lede" data-i18n="valuesLede">
+          The minimum for a virtual office — presence, atmosphere, and voice. No video meetings, screen share, or recording by design; keep your existing meeting tool for that.
         </p>
       </div>
       <div class="five" data-reveal>
         <article>
           <span class="num">一</span>
-          <h3>アバターで出社する</h3>
-          <p>朝、フロアに自分のアバターを置く。それが出社。リモートでも「居場所」ができる。</p>
+          <h3 data-i18n="feature1Title">Show up as an avatar</h3>
+          <p data-i18n="feature1Desc">Drop your avatar on the floor in the morning. That's "coming in." Remote work gets a place to be.</p>
         </article>
         <article>
           <span class="num">二</span>
-          <h3>誰がどこにいるか見える</h3>
-          <p>常設のメンバー一覧で、在席・離席・通話中・取り込み中が常にひと目で分かる。</p>
+          <h3 data-i18n="feature2Title">See who's where</h3>
+          <p data-i18n="feature2Desc">A persistent roster shows who's here, away, on a call, or do-not-disturb — at a glance.</p>
         </article>
         <article>
           <span class="num">三</span>
-          <h3>フロアを歩き回れる</h3>
-          <p>2Dの見下ろしフロアを移動できる。「ちょっと席まで行って話しかける」が画面の中でできる。</p>
+          <h3 data-i18n="feature3Title">Walk the floor</h3>
+          <p data-i18n="feature3Desc">Move around a top-down 2D floor. "Walk over and say hi" happens inside the screen.</p>
         </article>
         <article>
           <span class="num">四</span>
-          <h3>近づけば、声がつながる</h3>
-          <p>チームの部屋は入るだけでグループ通話。離れた相手にもワンクリックで「呼びかけ」。</p>
+          <h3 data-i18n="feature4Title">Voice when you're close</h3>
+          <p data-i18n="feature4Desc">Team rooms are group calls by default. Page anyone with one click, even across spaces.</p>
         </article>
         <article>
           <span class="num">五</span>
-          <h3>つけっぱなしでも軽い</h3>
-          <p>アイドル時CPUほぼ0%・メモリ数十MB。8時間常駐させても、PCの邪魔をしない。</p>
+          <h3 data-i18n="feature5Title">Light enough to leave on</h3>
+          <p data-i18n="feature5Desc">Idle CPU near 0%, tens of MB of RAM. Eight hours open and your machine barely notices.</p>
         </article>
       </div>
     </div>
@@ -174,16 +173,16 @@
   <section class="section deep" id="how">
     <div class="wrap">
       <div class="sec-head" data-reveal>
-        <p class="sec-no"><b>三</b>How</p>
-        <h2>オフィスの中身は、ロビーとチームの部屋。</h2>
-        <p class="sec-lede">組織にひとつの仮想フロア。中に全員のロビーと、チームごとの小部屋があるだけ。迷う構造はありません。</p>
+        <p class="sec-no"><b>三</b><span data-i18n="howSecNo">How</span></p>
+        <h2 data-i18n="howTitle">One floor: lobby plus team rooms.</h2>
+        <p class="sec-lede" data-i18n="howLede">Each org gets one virtual floor with a shared lobby and small team rooms. No maze to learn.</p>
       </div>
       <div class="how">
         <div class="floor-fig" data-reveal>
-          <p class="org-label">ORGANIZATION（組織のフロア）</p>
+          <p class="org-label" data-i18n="floorOrgLabel">ORGANIZATION (your floor)</p>
           <div class="floor-rooms">
             <div class="room lobby">
-              <h4>ロビー — 組織共通のオープンフロア</h4>
+              <h4 data-i18n="roomLobbyTitle">Lobby — shared open floor</h4>
               <div class="ppl">
                 <i style="background:#d8552e"></i>
                 <i style="background:#5a8f6a"></i>
@@ -191,44 +190,44 @@
                 <i style="background:#8d6a9f"></i>
                 <i style="background:#34506b"></i>
               </div>
-              <span class="hint">近づくと声がフェードイン</span>
+              <span class="hint" data-i18n="roomLobbyHint">Voice fades in as you approach</span>
             </div>
             <div class="room">
-              <h4>チーム A（〜5人）</h4>
+              <h4 data-i18n="roomATitle">Team A (~5 people)</h4>
               <div class="ppl">
                 <i style="background:#34506b"></i>
                 <i style="background:#5a8f6a"></i>
                 <i style="background:#c0913b"></i>
               </div>
-              <span class="hint">実質グループ通話</span>
+              <span class="hint" data-i18n="roomAHint">Effectively a group call</span>
             </div>
             <div class="room">
-              <h4>チーム B（〜5人）</h4>
+              <h4 data-i18n="roomBTitle">Team B (~5 people)</h4>
               <div class="ppl">
                 <i style="background:#8d6a9f"></i>
                 <i style="background:#d8552e"></i>
               </div>
-              <span class="hint">タブで出入り</span>
+              <span class="hint" data-i18n="roomBHint">Hop in via tabs</span>
             </div>
           </div>
-          <p class="page-arc">呼びかけ＝スペースを跨ぐ即時1:1。相手がどこに居ても、ワンクリックで声が届く</p>
+          <p class="page-arc" data-i18n="pageArc">Paging = instant 1:1 across spaces. One click reaches them wherever they are</p>
         </div>
         <div class="how-points">
           <article data-reveal>
-            <h3>ロビーは「気配」の場所</h3>
-            <p>近接音声のオープンフロア。歩み寄ると声がフェードインする。雑談やすれ違いが生まれる場所です。</p>
+            <h3 data-i18n="howPoint1Title">Lobby is for atmosphere</h3>
+            <p data-i18n="howPoint1Desc">An open floor with proximity voice. Walk closer and audio fades in — where casual chats happen.</p>
           </article>
           <article data-reveal>
-            <h3>チームは「小さな声の輪」</h3>
-            <p>5人前後のチームスペースは全員が常時つながる実質グループ通話。タブひとつで輪に出入りできます。</p>
+            <h3 data-i18n="howPoint2Title">Teams are small voice circles</h3>
+            <p data-i18n="howPoint2Desc">Team spaces (~5 people) stay connected like a group call. Switch tabs to join or leave the circle.</p>
           </article>
           <article data-reveal>
-            <h3>呼びかけは「肩を叩く」</h3>
-            <p>一覧から相手を選んで呼びかけると、スペースを跨いで即時1:1の声がつながる。取り込み中（DND）はきちんと遮断。ワンクリックで切断。</p>
+            <h3 data-i18n="howPoint3Title">Paging is a tap on the shoulder</h3>
+            <p data-i18n="howPoint3Desc">Pick someone from the roster to page — instant 1:1 voice across spaces. DND is respected. One click to hang up.</p>
           </article>
           <article data-reveal>
-            <h3>声はサーバーを通らない</h3>
-            <p>音声はWebRTCのP2Pメッシュで直接つながり、サーバーは位置と在席の中継だけ。だから軽く、運用も単純です。</p>
+            <h3 data-i18n="howPoint4Title">Voice never hits the server</h3>
+            <p data-i18n="howPoint4Desc">Audio goes peer-to-peer over WebRTC; the server only relays position and presence. That's why it stays light.</p>
           </article>
         </div>
       </div>
@@ -239,37 +238,35 @@
   <section class="section" id="numbers">
     <div class="wrap">
       <div class="sec-head" data-reveal>
-        <p class="sec-no"><b>四</b>Light</p>
-        <h2>なぜ、ここまで軽くするのか。</h2>
-        <p class="sec-lede">
-          在席ツールは8時間つけっぱなしが前提。動作が重ければ各自が閉じてしまい、
-          誰もいないオフィスだけが残ります。軽さは売り文句ではなく、
-          バーチャルオフィスが“オフィスとして機能する”ための前提条件です。
+        <p class="sec-no"><b>四</b><span data-i18n="numbersSecNo">Light</span></p>
+        <h2 data-i18n="numbersTitle">Why we optimize for lightness.</h2>
+        <p class="sec-lede" data-i18n="numbersLede">
+          A presence tool assumes eight hours of uptime. If it's heavy, people close it and you're left with an empty office. Lightness isn't marketing — it's what makes a virtual office work.
         </p>
       </div>
       <div class="stats" data-reveal>
         <div class="stat">
           <span class="v">0<small>%</small></span>
-          <span class="k">アイドル時CPU</span>
-          <span class="note">移動・発話なしのとき、ほぼゼロ</span>
+          <span class="k" data-i18n="statCpuK">Idle CPU</span>
+          <span class="note" data-i18n="statCpuNote">Near zero when still and silent</span>
         </div>
         <div class="stat">
-          <span class="v">数十<small>MB</small></span>
-          <span class="k">常駐メモリ</span>
-          <span class="note">ブラウザSPA比で一桁以上の削減</span>
+          <span class="v" data-i18n-html="statMemV">Tens<small>MB</small></span>
+          <span class="k" data-i18n="statMemK">Resident memory</span>
+          <span class="note" data-i18n="statMemNote">An order of magnitude below typical browser SPAs</span>
         </div>
         <div class="stat">
           <span class="v">&lt;300<small>ms</small></span>
-          <span class="k">音声遅延</span>
-          <span class="note">P2P直結。体感で違和感のない範囲</span>
+          <span class="k" data-i18n="statLatencyK">Voice latency</span>
+          <span class="note" data-i18n="statLatencyNote">Direct P2P — feels natural</span>
         </div>
         <div class="stat">
-          <span class="v">数秒<small>で起動</small></span>
-          <span class="k">起動時間</span>
-          <span class="note">Tauri製。Electronより小さく軽く</span>
+          <span class="v" data-i18n-html="statBootV">Seconds<small> to boot</small></span>
+          <span class="k" data-i18n="statBootK">Startup time</span>
+          <span class="note" data-i18n="statBootNote">Tauri client — smaller and lighter than Electron</span>
         </div>
       </div>
-      <p class="stats-disclaimer" data-reveal>数値は設計目標値（要件定義 NFR-01〜05）。実測の継続検証とともに更新します。</p>
+      <p class="stats-disclaimer" data-reveal data-i18n="statsDisclaimer">Figures are design targets (NFR-01–05). We'll publish measured results as verification continues.</p>
     </div>
   </section>
 
@@ -277,11 +274,10 @@
   <section class="section night" id="oss">
     <div class="wrap">
       <div class="sec-head" data-reveal>
-        <p class="sec-no"><b>五</b>Open Source</p>
-        <h2>オープンソースです。</h2>
-        <p class="sec-lede">
-          サーバーもクライアントも、すべて Apache-2.0 で公開。
-          中身を読んで確かめられて、自分のサーバーでも動かせます。
+        <p class="sec-no"><b>五</b><span data-i18n="ossSecNo">Open Source</span></p>
+        <h2 data-i18n="ossTitle">It's open source.</h2>
+        <p class="sec-lede" data-i18n="ossLede">
+          Server and client are Apache-2.0. Read the code, verify the claims, run your own server.
         </p>
       </div>
       <div class="oss-grid">
@@ -290,17 +286,17 @@
           <pre><code><span class="p">$</span> git clone https://github.com/ludo-technologies/hiroba
 <span class="p">$</span> cd hiroba/server <span class="c">&amp;&amp;</span> cargo run
 <span class="ok">✓</span> hiroba-server listening on 0.0.0.0:8787
-<span class="c"># 単一バイナリ・DB不要。これだけでフロアが立ち上がります</span></code></pre>
+<span class="c" data-i18n="ossTermComment"># Single binary, no DB. That's all it takes to spin up a floor.</span></code></pre>
         </div>
         <ul class="oss-points" data-reveal>
-          <li><b>単一バイナリ・DBレス</b>Rust製サーバーは外部依存なし。社内ネットワークでも数分で self-host できます。</li>
-          <li><b>音声はサーバーを通らない</b>サーバーが扱うのは位置と在席の制御データだけ。音声はWebRTCのP2Pで直接つながります。</li>
-          <li><b>仕様まで公開</b>ワイヤープロトコル（PROTOCOL.md）や要件・実装状況のドキュメントも、すべてリポジトリにあります。</li>
-          <li><b>self-host は一級市民</b>ホスト型と同じコードベース。無料・席数無制限で、機能の出し惜しみはありません。</li>
+          <li data-i18n-html="ossPoint1"><b>Single binary, no DB</b>Rust server with no external deps. Self-host on a corporate LAN in minutes.</li>
+          <li data-i18n-html="ossPoint2"><b>Voice stays off the server</b>The server handles position and presence only. Audio is WebRTC peer-to-peer.</li>
+          <li data-i18n-html="ossPoint3"><b>Specs in the open</b>Wire protocol (PROTOCOL.md), requirements, and implementation status live in the repo.</li>
+          <li data-i18n-html="ossPoint4"><b>Self-host is first-class</b>Same codebase as hosted. Free, unlimited seats, no feature gating.</li>
         </ul>
       </div>
       <p class="oss-cta" data-reveal>
-        <a class="btn btn-primary" href="https://github.com/ludo-technologies/hiroba" target="_blank" rel="noopener">GitHub でコードを見る<span class="arrow">→</span></a>
+        <a class="btn btn-primary" href="https://github.com/ludo-technologies/hiroba" target="_blank" rel="noopener"><span data-i18n="ossCta">View code on GitHub</span><span class="arrow">→</span></a>
       </p>
     </div>
   </section>
@@ -309,35 +305,35 @@
   <section class="section" id="start">
     <div class="wrap">
       <div class="sec-head" data-reveal>
-        <p class="sec-no"><b>六</b>Start</p>
-        <h2>始め方は、ふたつ。</h2>
-        <p class="sec-lede">運用おまかせのホスト型と、自前で立てるOSS。同じコードベースから生まれる二つの配布です。</p>
+        <p class="sec-no"><b>六</b><span data-i18n="startSecNo">Start</span></p>
+        <h2 data-i18n="startTitle">Two ways in.</h2>
+        <p class="sec-lede" data-i18n="startLede">Hosted (we run it) or OSS self-host (you run it). Two distributions from one codebase.</p>
       </div>
       <div class="ways">
         <div class="way hosted" data-reveal>
-          <p class="way-tag">Hosted</p>
-          <h3>ホスト型</h3>
-          <p>インフラはこちらで運用。ログインして組織をつくり、招待リンクを配るだけ。非技術チームでもすぐ使えます。</p>
+          <p class="way-tag" data-i18n="hostedTag">Hosted</p>
+          <h3 data-i18n="hostedTitle">Hosted</h3>
+          <p data-i18n="hostedDesc">We operate the infra. Sign in, create an org, share invite links. Non-technical teams can start fast.</p>
           <ul>
-            <li>OAuthログイン（Google / GitHub など）</li>
-            <li>組織の作成・招待リンク・メンバー管理</li>
-            <li>TURN込みで「ほぼ必ず繋がる」接続性</li>
-            <li>シート課金（料金ページ参照）</li>
+            <li data-i18n="hostedLi1">OAuth sign-in (Google / GitHub, etc.)</li>
+            <li data-i18n="hostedLi2">Org creation, invite links, member management</li>
+            <li data-i18n="hostedLi3">TURN included for "almost always connects" reachability</li>
+            <li data-i18n="hostedLi4">Per-seat billing (see pricing)</li>
           </ul>
           <!-- TODO(§12): ドメイン確定後、ホスト型サインアップURLへ差し替え -->
-          <a class="btn btn-primary" href="mailto:contact@ludo-tech.org?subject=%5BHiroba%5D%20%E6%97%A9%E6%9C%9F%E3%82%A2%E3%82%AF%E3%82%BB%E3%82%B9%E5%B8%8C%E6%9C%9B&body=%E7%B5%84%E7%B9%94%E5%90%8D%EF%BC%9A%0A%E4%BA%BA%E6%95%B0%EF%BC%9A%0A%E3%81%B2%E3%81%A8%E3%81%93%E3%81%A8%EF%BC%9A">早期アクセスに登録<span class="arrow">→</span></a>
+          <a class="btn btn-primary" data-i18n-href="mailEarlyAccess" href="mailto:contact@ludo-tech.org?subject=%5BHiroba%5D%20Early%20access%20request&amp;body=Organization%3A%0AHeadcount%3A%0ANotes%3A%0A"><span data-i18n="hostedCta">Join early access</span><span class="arrow">→</span></a>
         </div>
         <div class="way" data-reveal>
-          <p class="way-tag">Open Source</p>
-          <h3>OSS self-host</h3>
-          <p>単一バイナリのサーバーを自前で起動。DBレス・ゲスト入室で、社内ネットワークでも数分で動きます。</p>
+          <p class="way-tag" data-i18n="ossWayTag">Open Source</p>
+          <h3 data-i18n="ossWayTitle">OSS self-host</h3>
+          <p data-i18n="ossWayDesc">Run the single-binary server yourself. DB-less, guest entry — works on an internal network in minutes.</p>
           <ul>
-            <li>Apache-2.0（特許条項つき）</li>
-            <li>単一バイナリ・外部依存なし（DB不要）</li>
-            <li>ゲスト/簡易入室、OAuthは任意で有効化</li>
-            <li>セットアップ手順・プロトコル仕様を公開</li>
+            <li data-i18n="ossWayLi1">Apache-2.0 (with patent grant)</li>
+            <li data-i18n="ossWayLi2">Single binary, no external deps (no DB)</li>
+            <li data-i18n="ossWayLi3">Guest / simple join; OAuth optional</li>
+            <li data-i18n="ossWayLi4">Setup guide and protocol spec published</li>
           </ul>
-          <a class="btn btn-ghost" href="https://github.com/ludo-technologies/hiroba" target="_blank" rel="noopener">GitHubで見る<span class="arrow">→</span></a>
+          <a class="btn btn-ghost" href="https://github.com/ludo-technologies/hiroba" target="_blank" rel="noopener"><span data-i18n="ossWayCta">View on GitHub</span><span class="arrow">→</span></a>
         </div>
       </div>
     </div>
@@ -348,10 +344,10 @@
     <div class="wrap">
       <div class="invited" data-reveal>
         <div>
-          <h3>招待リンクを受け取った方へ</h3>
+          <h3 data-i18n="invitedTitle">Got an invite link?</h3>
         </div>
-        <p>デスクトップアプリをインストールして、届いた招待リンクを開くだけで組織のフロアに参加できます。アカウントはお使いのGoogle / GitHubアカウントでそのまま。</p>
-        <a class="btn btn-ghost" href="https://github.com/ludo-technologies/hiroba/releases" target="_blank" rel="noopener">アプリをダウンロード</a>
+        <p data-i18n="invitedDesc">Install the desktop app and open the invite link to join your org's floor. Sign in with your Google or GitHub account.</p>
+        <a class="btn btn-ghost" href="https://github.com/ludo-technologies/hiroba/releases" target="_blank" rel="noopener" data-i18n="invitedCta">Download the app</a>
       </div>
     </div>
   </section>
@@ -359,12 +355,12 @@
   <!-- ============================== CTA ============================== -->
   <section class="cta-band">
     <div class="wrap">
-      <h2 data-reveal>チームのバーチャルオフィス、<br />試してみませんか。</h2>
-      <p data-reveal>つけっぱなしでも邪魔にならない軽さです。self-host なら今日から動かせます。</p>
+      <h2 data-reveal data-i18n-html="indexCtaTitle">Ready to try a virtual office<br />for your team?</h2>
+      <p data-reveal data-i18n="indexCtaDesc">Light enough to leave on without getting in the way. Self-host works today.</p>
       <div class="hero-ctas" data-reveal>
         <!-- TODO(§12): ドメイン確定後、ホスト型サインアップURLへ差し替え -->
-        <a class="btn btn-primary" href="mailto:contact@ludo-tech.org?subject=%5BHiroba%5D%20%E6%97%A9%E6%9C%9F%E3%82%A2%E3%82%AF%E3%82%BB%E3%82%B9%E5%B8%8C%E6%9C%9B&body=%E7%B5%84%E7%B9%94%E5%90%8D%EF%BC%9A%0A%E4%BA%BA%E6%95%B0%EF%BC%9A%0A%E3%81%B2%E3%81%A8%E3%81%93%E3%81%A8%EF%BC%9A">組織をつくる<span class="arrow">→</span></a>
-        <a class="btn btn-ghost" href="pricing.html">料金を見る</a>
+        <a class="btn btn-primary" data-i18n-href="mailEarlyAccess" href="mailto:contact@ludo-tech.org?subject=%5BHiroba%5D%20Early%20access%20request&amp;body=Organization%3A%0AHeadcount%3A%0ANotes%3A%0A"><span data-i18n="ctaCreateOrg">Create an organization</span><span class="arrow">→</span></a>
+        <a class="btn btn-ghost" href="pricing.html" data-i18n="indexCtaPricing">See pricing</a>
       </div>
     </div>
   </section>
@@ -379,37 +375,37 @@
           <span class="brand-mark" aria-hidden="true">広</span>
           Hiroba
         </a>
-        <p class="footer-tag">
-          忘れるほど軽い、チームのためのバーチャルオフィス。
-          オープンソース（Apache-2.0）で開発され、運用不要のホスト型としても提供されます。
+        <p class="footer-tag" data-i18n="footerTag">
+          A featherweight virtual office for your team. Built open source (Apache-2.0) and also offered as a hosted, zero-ops option.
         </p>
       </div>
       <div>
-        <h4>Product</h4>
+        <h4 data-i18n="footerProduct">Product</h4>
         <ul>
-          <li><a href="#values">特徴</a></li>
-          <li><a href="#how">仕組み</a></li>
-          <li><a href="pricing.html">料金</a></li>
-          <li><a href="https://github.com/ludo-technologies/hiroba/releases" target="_blank" rel="noopener">ダウンロード</a></li>
+          <li><a href="#values" data-i18n="navFeatures">Features</a></li>
+          <li><a href="#how" data-i18n="navHow">How it works</a></li>
+          <li><a href="pricing.html" data-i18n="navPricing">Pricing</a></li>
+          <li><a href="https://github.com/ludo-technologies/hiroba/releases" target="_blank" rel="noopener" data-i18n="footerDownload">Download</a></li>
         </ul>
       </div>
       <div>
-        <h4>Open Source</h4>
+        <h4 data-i18n="footerOpenSource">Open Source</h4>
         <ul>
           <li><a href="https://github.com/ludo-technologies/hiroba" target="_blank" rel="noopener">GitHub</a></li>
-          <li><a href="https://github.com/ludo-technologies/hiroba/blob/master/docs/SELF_HOSTING.md" target="_blank" rel="noopener">self-host ガイド</a></li>
-          <li><a href="https://github.com/ludo-technologies/hiroba/blob/master/PROTOCOL.md" target="_blank" rel="noopener">プロトコル仕様</a></li>
-          <li><a href="mailto:contact@ludo-tech.org">お問い合わせ</a></li>
+          <li><a href="https://github.com/ludo-technologies/hiroba/blob/master/docs/SELF_HOSTING.md" target="_blank" rel="noopener" data-i18n="footerSelfHostGuide">Self-host guide</a></li>
+          <li><a href="https://github.com/ludo-technologies/hiroba/blob/master/PROTOCOL.md" target="_blank" rel="noopener" data-i18n="footerProtocol">Protocol spec</a></li>
+          <li><a href="mailto:contact@ludo-tech.org" data-i18n="footerContact">Contact</a></li>
         </ul>
       </div>
     </div>
     <div class="footer-legal">
-      <p>ソースコードは Apache License 2.0 で公開されています。「Hiroba」の名称・ロゴ等のブランド素材は Apache-2.0 ライセンスの対象外です。</p>
-      <p>© 2026 Ludo Technologies</p>
+      <p data-i18n="footerLegal1">Source code is published under the Apache License 2.0. The "Hiroba" name, logo, and other brand assets are not covered by Apache-2.0.</p>
+      <p data-i18n="footerLegal2">© 2026 Ludo Technologies</p>
     </div>
   </div>
 </footer>
 
+<script src="assets/i18n.js"></script>
 <script src="assets/site.js" defer></script>
 </body>
 </html>
