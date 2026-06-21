@@ -131,6 +131,9 @@ const EN = {
   createTeam: "Create a team space",
   teamName: "Team name",
   teamTitle: (name: string) => `${name} (team)`,
+  // Built-in space display names (keyed by the server's stable space id).
+  spaceLobby: "Lobby",
+  spaceDev: "Dev",
 
   // Paging / call banner
   inCallWith: (name: string) => `In call with ${name}`,
@@ -254,6 +257,9 @@ const JA: typeof EN = {
   createTeam: "チームスペースを作成",
   teamName: "チーム名",
   teamTitle: (name: string) => `${name}(チーム)`,
+  // Built-in space display names (keyed by the server's stable space id).
+  spaceLobby: "ロビー",
+  spaceDev: "開発",
 
   // Paging / call banner
   inCallWith: (name: string) => `${name} と通話中`,
@@ -266,6 +272,16 @@ const JA: typeof EN = {
 
 /** The active message catalog. */
 export const t: typeof EN = locale === "ja" ? JA : EN;
+
+/**
+ * Localized display name for a space. Built-in spaces (the server's stable
+ * `lobby` / `dev` ids) are localized; user-created spaces keep their own name.
+ */
+export function spaceLabel(id: string, name: string): string {
+  if (id === "lobby") return t.spaceLobby;
+  if (id === "dev") return t.spaceDev;
+  return name;
+}
 
 /**
  * Resolve `data-i18n*` attributes on static DOM nodes. Call once at boot,

@@ -190,7 +190,7 @@ async fn handle_callback(mut stream: TcpStream, expected_state: &str) -> Callbac
     }
 
     if let Some(err) = error {
-        let _ = respond(&mut stream, 200, "ログインはキャンセルされました。このタブを閉じて構いません。").await;
+        let _ = respond(&mut stream, 200, "Login canceled. You can close this tab.").await;
         return CallbackOutcome::Denied(err);
     }
     if state.as_deref() != Some(expected_state) {
@@ -202,7 +202,7 @@ async fn handle_callback(mut stream: TcpStream, expected_state: &str) -> Callbac
             let _ = respond(
                 &mut stream,
                 200,
-                "ログインが完了しました。このタブを閉じて Hiroba に戻ってください。",
+                "Login complete. You can close this tab and return to Hiroba.",
             )
             .await;
             CallbackOutcome::Code(code)

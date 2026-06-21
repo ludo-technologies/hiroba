@@ -29,7 +29,7 @@ import {
 } from "./ui.js";
 import { shouldDraw, shouldKeepAwake } from "./loop.js";
 import { resolveIceServers } from "./config.js";
-import { t } from "./i18n.js";
+import { spaceLabel, t } from "./i18n.js";
 import {
   clearSession,
   decodeClaims,
@@ -595,7 +595,8 @@ function initSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[]
 
 /** Display name for a space id (falls back to the id if unknown). */
 function spaceName(spaceId: string): string {
-  return session?.spaces.find((s) => s.id === spaceId)?.name ?? spaceId;
+  const sp = session?.spaces.find((s) => s.id === spaceId);
+  return sp ? spaceLabel(sp.id, sp.name) : spaceId;
 }
 
 /** Right-side status text for a roster member. */

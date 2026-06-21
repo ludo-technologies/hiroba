@@ -73,7 +73,7 @@ impl SpaceDescriptor {
     pub fn lobby() -> Self {
         Self {
             id: "lobby".to_string(),
-            name: "ロビー".to_string(),
+            name: "Lobby".to_string(),
             kind: SpaceKind::Lobby,
             width: 1600.0,
             height: 1200.0,

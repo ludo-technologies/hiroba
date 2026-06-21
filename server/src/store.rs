@@ -210,7 +210,7 @@ mod tests {
         let store = Store::open_in_memory();
         store.upsert_org("acme", "Acme");
         store.insert_space("acme", &SpaceDescriptor::lobby(), 0, 1);
-        store.insert_space("acme", &SpaceDescriptor::team("dev", "開発"), 1, 1);
+        store.insert_space("acme", &SpaceDescriptor::team("dev", "Dev"), 1, 1);
         store.insert_space("acme", &SpaceDescriptor::team("team1", "Design"), 2, 2);
 
         let catalogs = store.load_all();

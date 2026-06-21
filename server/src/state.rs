@@ -379,7 +379,7 @@ pub struct Org {
 }
 
 impl Org {
-    /// Create an org seeded with a lobby plus a default team space ("開発"),
+    /// Create an org seeded with a lobby plus a default team space ("Dev"),
     /// matching the PROTOCOL.md example catalog. With a store, the new org and
     /// its seed catalog are persisted here, so a restart reloads them via
     /// [`Org::from_catalog`] instead of re-running this constructor.
@@ -387,7 +387,7 @@ impl Org {
         let id = id.into();
         let name = name.into();
         let lobby = SpaceDescriptor::lobby();
-        let dev = SpaceDescriptor::team("dev", "開発");
+        let dev = SpaceDescriptor::team("dev", "Dev");
 
         if let Some(s) = &store {
             s.upsert_org(&id, &name);

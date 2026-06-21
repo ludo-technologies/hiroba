@@ -15,7 +15,7 @@
  */
 
 import type { SpaceDescriptor } from "./protocol.js";
-import { applyStaticI18n, locale, t } from "./i18n.js";
+import { applyStaticI18n, locale, spaceLabel, t } from "./i18n.js";
 import { extractInviteCode } from "./auth.js";
 
 // ---------------------------------------------------------------------------
@@ -220,11 +220,11 @@ export interface RosterEntry {
   color: string;
   /** Uploaded avatar data URL, shown in place of the color dot when present. */
   avatar?: string;
-  /** Right-side status / space text (e.g. "ロビー", "通話中", "離席"). */
+  /** Right-side status / space text (e.g. "Lobby", "In call", "Away"). */
   label: string;
   tone: "active" | "away" | "dnd" | "in_call" | "offline";
   isSelf: boolean;
-  /** Whether to offer a "呼びかけ" (page) button on this row. */
+  /** Whether to offer a "page" button on this row. */
   canPage: boolean;
 }
 
@@ -693,8 +693,9 @@ export class UIManager {
         b.classList.add("active");
         b.setAttribute("aria-current", "true");
       }
-      b.textContent = sp.name;
-      b.title = sp.kind === "team" ? t.teamTitle(sp.name) : sp.name;
+      const label = spaceLabel(sp.id, sp.name);
+      b.textContent = label;
+      b.title = sp.kind === "team" ? t.teamTitle(label) : label;
       b.addEventListener("click", () => {
         if (sp.id !== currentSpaceId) this.callbacks.onEnterSpace(sp.id);
       });
