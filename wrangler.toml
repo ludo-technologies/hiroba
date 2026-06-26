@@ -1,0 +1,13 @@
+# Cloudflare Pages config for the Hiroba marketing site.
+#   wrangler pages deploy            # build output + functions/ under site/
+#   wrangler pages secret put RESEND_API_KEY   # the only secret; never in repo
+#
+# Non-secret defaults live here so deploys are reproducible. The waitlist
+# function (site/functions/api/waitlist.js) reads these from env.
+name = "hiroba-site"
+pages_build_output_dir = "site"
+compatibility_date = "2026-06-22"
+
+[vars]
+WAITLIST_TO = "contact@ludo-tech.org"
+WAITLIST_FROM = "Hiroba <waitlist@ludo-tech.org>"

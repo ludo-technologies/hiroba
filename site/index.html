@@ -53,7 +53,7 @@
         </p>
         <div class="hero-ctas">
           <!-- TODO(§12): ドメイン確定後、ホスト型サインアップURLへ差し替え -->
-          <a class="btn btn-primary" data-i18n-href="mailEarlyAccess" href="mailto:contact@ludo-tech.org?subject=%5BHiroba%5D%20Early%20access%20request&amp;body=Organization%3A%0AHeadcount%3A%0ANotes%3A%0A">
+          <a class="btn btn-primary" data-i18n-href="mailEarlyAccess" href="#early-access">
             <span data-i18n="ctaCreateOrg">Create an organization</span><span class="arrow">→</span>
           </a>
           <a class="btn btn-ghost" href="https://github.com/ludo-technologies/hiroba" target="_blank" rel="noopener" data-i18n="ctaSelfHost">
@@ -321,7 +321,7 @@
             <li data-i18n="hostedLi4">Per-seat billing (see pricing)</li>
           </ul>
           <!-- TODO(§12): ドメイン確定後、ホスト型サインアップURLへ差し替え -->
-          <a class="btn btn-primary" data-i18n-href="mailEarlyAccess" href="mailto:contact@ludo-tech.org?subject=%5BHiroba%5D%20Early%20access%20request&amp;body=Organization%3A%0AHeadcount%3A%0ANotes%3A%0A"><span data-i18n="hostedCta">Join early access</span><span class="arrow">→</span></a>
+          <a class="btn btn-primary" data-i18n-href="mailEarlyAccess" href="#early-access"><span data-i18n="hostedCta">Join early access</span><span class="arrow">→</span></a>
         </div>
         <div class="way" data-reveal>
           <p class="way-tag" data-i18n="ossWayTag">Open Source</p>
@@ -339,19 +339,54 @@
     </div>
   </section>
 
-  <!-- ============================== Invited ============================== -->
-  <section class="section deep" style="padding-top: 0;">
+  <!-- ============================== Early access (waitlist) ============================== -->
+  <section class="section" id="early-access">
     <div class="wrap">
-      <div class="invited" data-reveal>
-        <div>
-          <h3 data-i18n="invitedTitle">Got an invite link?</h3>
-        </div>
-        <p data-i18n="invitedDesc">Install the desktop app and open the invite link to join your org's floor. Sign in with your Google or GitHub account.</p>
-        <div class="invited-actions">
-          <a class="btn btn-ghost" href="#" data-download="primary" data-i18n="invitedCta">Download the app</a>
-          <p class="download-more" data-download-more hidden></p>
-        </div>
+      <div class="sec-head" data-reveal>
+        <p class="sec-no"><b>七</b><span data-i18n="waitlistSecNo">Early access</span></p>
+        <h2 data-i18n="waitlistTitle">Join the early-access waitlist.</h2>
+        <p class="sec-lede" data-i18n="waitlistLede">Hosted is invite-only for now. Leave your email and we'll send a download link the moment your spot opens — no setup, nothing to install yet.</p>
       </div>
+      <form class="waitlist-form" data-reveal action="/api/waitlist" method="POST" novalidate>
+        <!-- Honeypot: hidden from humans, catches bots. Do not fill. -->
+        <div class="hp" aria-hidden="true">
+          <label>Company website<input type="text" name="company_url" tabindex="-1" autocomplete="off" /></label>
+        </div>
+        <input type="hidden" name="locale" value="en" data-locale-field />
+        <div class="wl-row">
+          <label class="wl-field wl-wide">
+            <span data-i18n="waitlistEmailLabel">Work email</span>
+            <input type="email" name="email" required autocomplete="email"
+                   data-i18n-placeholder="waitlistEmailPlaceholder" placeholder="you@company.com" />
+          </label>
+        </div>
+        <div class="wl-row">
+          <label class="wl-field">
+            <span data-i18n="waitlistOrgLabel">Organization <em>(optional)</em></span>
+            <input type="text" name="org" autocomplete="organization"
+                   data-i18n-placeholder="waitlistOrgPlaceholder" placeholder="Acme Inc." />
+          </label>
+          <label class="wl-field">
+            <span data-i18n="waitlistHeadcountLabel">Team size <em>(optional)</em></span>
+            <input type="text" name="headcount" inputmode="numeric"
+                   data-i18n-placeholder="waitlistHeadcountPlaceholder" placeholder="e.g. 8" />
+          </label>
+        </div>
+        <div class="wl-row">
+          <label class="wl-field wl-wide">
+            <span data-i18n="waitlistNotesLabel">Anything else <em>(optional)</em></span>
+            <textarea name="notes" rows="3"
+                      data-i18n-placeholder="waitlistNotesPlaceholder" placeholder="How you'd use Hiroba, timeline, questions…"></textarea>
+          </label>
+        </div>
+        <div class="wl-actions">
+          <button type="submit" class="btn btn-primary">
+            <span data-i18n="waitlistSubmit">Join the waitlist</span><span class="arrow">→</span>
+          </button>
+          <p class="wl-status" data-waitlist-status role="status" aria-live="polite" hidden></p>
+        </div>
+        <p class="wl-fineprint" data-i18n="waitlistFineprint">We'll only email you about early access. No spam, no sharing.</p>
+      </form>
     </div>
   </section>
 
@@ -362,7 +397,7 @@
       <p data-reveal data-i18n="indexCtaDesc">Light enough to leave on without getting in the way. Self-host works today.</p>
       <div class="hero-ctas" data-reveal>
         <!-- TODO(§12): ドメイン確定後、ホスト型サインアップURLへ差し替え -->
-        <a class="btn btn-primary" data-i18n-href="mailEarlyAccess" href="mailto:contact@ludo-tech.org?subject=%5BHiroba%5D%20Early%20access%20request&amp;body=Organization%3A%0AHeadcount%3A%0ANotes%3A%0A"><span data-i18n="ctaCreateOrg">Create an organization</span><span class="arrow">→</span></a>
+        <a class="btn btn-primary" data-i18n-href="mailEarlyAccess" href="#early-access"><span data-i18n="ctaCreateOrg">Create an organization</span><span class="arrow">→</span></a>
         <a class="btn btn-ghost" href="pricing.html" data-i18n="indexCtaPricing">See pricing</a>
       </div>
     </div>
@@ -388,7 +423,7 @@
           <li><a href="#values" data-i18n="navFeatures">Features</a></li>
           <li><a href="#how" data-i18n="navHow">How it works</a></li>
           <li><a href="pricing.html" data-i18n="navPricing">Pricing</a></li>
-          <li><a href="#" data-download="footer" data-i18n="footerDownload">Download</a></li>
+          <li><a href="#early-access" data-i18n="footerEarlyAccess">Early access</a></li>
         </ul>
       </div>
       <div>
@@ -409,7 +444,7 @@
 </footer>
 
 <script src="assets/i18n.js"></script>
-<script src="assets/download.js" defer></script>
+<script src="assets/waitlist.js" defer></script>
 <script src="assets/site.js" defer></script>
 </body>
 </html>

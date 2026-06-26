@@ -1228,3 +1228,82 @@ p { margin: 0; }
 @media (max-width: 760px) {
   .footer-grid { grid-template-columns: 1fr; gap: 32px; }
 }
+
+/* ============================== Early-access waitlist ============================== */
+.waitlist-form {
+  max-width: 640px;
+  margin: 0 auto;
+  display: grid;
+  gap: 16px;
+}
+.waitlist-form .wl-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.waitlist-form .wl-field {
+  display: grid;
+  gap: 6px;
+}
+.waitlist-form .wl-wide { grid-column: 1 / -1; }
+.waitlist-form .wl-field > span {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+.waitlist-form .wl-field em {
+  font-style: normal;
+  color: var(--ink-faint);
+  font-weight: 400;
+}
+.waitlist-form input,
+.waitlist-form textarea {
+  font-family: var(--gothic);
+  font-size: 0.95rem;
+  color: var(--ink);
+  background: var(--paper-card);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  padding: 11px 13px;
+  width: 100%;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.waitlist-form textarea { resize: vertical; min-height: 84px; }
+.waitlist-form input::placeholder,
+.waitlist-form textarea::placeholder { color: var(--ink-faint); }
+.waitlist-form input:focus,
+.waitlist-form textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.waitlist-form .wl-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.waitlist-form .wl-status {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+.waitlist-form .wl-status.is-ok { color: var(--moss); }
+.waitlist-form .wl-status.is-error { color: var(--accent-deep); }
+.waitlist-form button[disabled] { opacity: 0.6; cursor: progress; transform: none; }
+.waitlist-form .wl-fineprint {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--ink-faint);
+}
+/* Honeypot — visually and programmatically removed from the flow. */
+.waitlist-form .hp {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+@media (max-width: 600px) {
+  .waitlist-form .wl-row { grid-template-columns: 1fr; }
+}

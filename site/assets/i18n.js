@@ -18,10 +18,10 @@
         ? 'ja'
         : 'en';
 
-  const mailEarlyAccess =
-    locale === 'ja'
-      ? 'mailto:contact@ludo-tech.org?subject=%5BHiroba%5D%20%E6%97%A9%E6%9C%9F%E3%82%A2%E3%82%AF%E3%82%BB%E3%82%B9%E5%B8%8C%E6%9C%9B&body=%E7%B5%84%E7%B9%94%E5%90%8D%EF%BC%9A%0A%E4%BA%BA%E6%95%B0%EF%BC%9A%0A%E3%81%B2%E3%81%A8%E3%81%93%E3%81%A8%EF%BC%9A'
-      : 'mailto:contact@ludo-tech.org?subject=%5BHiroba%5D%20Early%20access%20request&body=Organization%3A%0AHeadcount%3A%0ANotes%3A%0A';
+  // Early-access CTAs now scroll to the on-page waitlist form (#early-access)
+  // instead of opening a mail client. Kept under the same key so the existing
+  // data-i18n-href hooks need no markup changes.
+  const mailEarlyAccess = '#early-access';
 
   const EN = {
     // Shared <head>
@@ -51,6 +51,7 @@
       'A featherweight virtual office for your team. Built open source (Apache-2.0) and also offered as a hosted, zero-ops option.',
     footerProduct: 'Product',
     footerDownload: 'Download',
+    footerEarlyAccess: 'Early access',
     footerOpenSource: 'Open Source',
     footerSelfHostGuide: 'Self-host guide',
     footerProtocol: 'Protocol spec',
@@ -317,6 +318,26 @@
     demoStatusCall: 'On call',
     demoPageChip: 'Page',
 
+    // Index — early-access waitlist
+    waitlistSecNo: 'Early access',
+    waitlistTitle: 'Join the early-access waitlist.',
+    waitlistLede:
+      'Hosted is invite-only for now. Leave your email and we’ll send a download link the moment your spot opens — no setup, nothing to install yet.',
+    waitlistEmailLabel: 'Work email',
+    waitlistEmailPlaceholder: 'you@company.com',
+    waitlistOrgLabel: 'Organization (optional)',
+    waitlistOrgPlaceholder: 'Acme Inc.',
+    waitlistHeadcountLabel: 'Team size (optional)',
+    waitlistHeadcountPlaceholder: 'e.g. 8',
+    waitlistNotesLabel: 'Anything else (optional)',
+    waitlistNotesPlaceholder: 'How you’d use Hiroba, timeline, questions…',
+    waitlistSubmit: 'Join the waitlist',
+    waitlistFineprint: 'We’ll only email you about early access. No spam, no sharing.',
+    waitlistSending: 'Sending…',
+    waitlistSuccess: 'You’re on the list. We’ll email you a download link when it’s ready.',
+    waitlistErrorEmail: 'Please enter a valid email address.',
+    waitlistError: 'Something went wrong. Please try again, or email contact@ludo-tech.org.',
+
     mailEarlyAccess,
   };
 
@@ -346,6 +367,7 @@
       '忘れるほど軽い、チームのためのバーチャルオフィス。オープンソース（Apache-2.0）で開発され、運用不要のホスト型としても提供されます。',
     footerProduct: 'Product',
     footerDownload: 'ダウンロード',
+    footerEarlyAccess: '早期アクセス',
     footerOpenSource: 'Open Source',
     footerSelfHostGuide: 'self-host ガイド',
     footerProtocol: 'プロトコル仕様',
@@ -597,6 +619,26 @@
     demoStatusCall: '通話中',
     demoPageChip: '呼びかけ',
 
+    // Index — early-access waitlist
+    waitlistSecNo: '早期アクセス',
+    waitlistTitle: '早期アクセスのウェイトリストに登録。',
+    waitlistLede:
+      'ホスト版は現在ご招待制です。メールアドレスをご登録いただければ、枠が空き次第ダウンロードのご案内をお送りします。今すぐの設定やインストールは不要です。',
+    waitlistEmailLabel: '仕事用メールアドレス',
+    waitlistEmailPlaceholder: 'you@company.com',
+    waitlistOrgLabel: '組織名（任意）',
+    waitlistOrgPlaceholder: '株式会社〇〇',
+    waitlistHeadcountLabel: 'チーム人数（任意）',
+    waitlistHeadcountPlaceholder: '例：8',
+    waitlistNotesLabel: 'その他（任意）',
+    waitlistNotesPlaceholder: '使い方の想定・導入時期・ご質問など…',
+    waitlistSubmit: 'ウェイトリストに登録',
+    waitlistFineprint: 'ご連絡は早期アクセスに関するもののみ。スパムや第三者提供はありません。',
+    waitlistSending: '送信中…',
+    waitlistSuccess: '登録しました。準備が整い次第、ダウンロードのご案内をお送りします。',
+    waitlistErrorEmail: '有効なメールアドレスを入力してください。',
+    waitlistError: '送信に失敗しました。時間をおいて再度お試しいただくか、contact@ludo-tech.org までご連絡ください。',
+
     mailEarlyAccess,
   };
 
@@ -634,6 +676,10 @@
     for (const el of document.querySelectorAll('[data-i18n-href]')) {
       const v = text(el.dataset.i18nHref);
       if (v !== null) el.setAttribute('href', v);
+    }
+    for (const el of document.querySelectorAll('[data-i18n-placeholder]')) {
+      const v = text(el.dataset.i18nPlaceholder);
+      if (v !== null) el.setAttribute('placeholder', v);
     }
     for (const el of document.querySelectorAll('[data-i18n-title]')) {
       const v = text(el.dataset.i18nTitle);
