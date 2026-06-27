@@ -172,14 +172,22 @@ export async function onRequestPost({ request, env }) {
         ? {
             subject: 'Hiroba ウェイトリストに登録しました',
             text:
-              'Hiroba のウェイトリストにご登録ありがとうございます。\n' +
-              '準備が整い次第、ダウンロードのご案内をこのメールアドレスにお送りします。\n\n— Hiroba / Ludo Technologies',
+              'Hiroba のウェイトリストにご登録ありがとうございます。\n\n' +
+              'Hiroba は、メンバーの「いる感」が一目でわかる2Dバーチャルオフィスです。\n' +
+              '配布の準備が整い次第、このメールアドレスにダウンロードリンクをお送りします。\n\n' +
+              'もしよければ、このメールに返信して使ってみたい場面を教えてください。優先的にご案内します。\n\n' +
+              'GitHub（OSS）: https://github.com/ludo-technologies/hiroba\n\n' +
+              '— Hiroba / Ludo Technologies',
           }
         : {
             subject: 'You are on the Hiroba waitlist',
             text:
-              'Thanks for joining the Hiroba waitlist.\n' +
-              'We will email this address with a download link as soon as we are ready.\n\n— Hiroba / Ludo Technologies',
+              'Thanks for joining the Hiroba waitlist.\n\n' +
+              "Hiroba is a presence-first 2D virtual office — you can see who's around at a glance.\n" +
+              "We'll email this address with a download link as soon as it's ready.\n\n" +
+              "If you'd like, just reply and tell us where you'd use it — we'll prioritize your invite.\n\n" +
+              'GitHub (open source): https://github.com/ludo-technologies/hiroba\n\n' +
+              '— Hiroba / Ludo Technologies',
           };
     try {
       await sendEmail(apiKey, { from, to: email, subject: confirm.subject, text: confirm.text });
