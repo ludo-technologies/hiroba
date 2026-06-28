@@ -8,10 +8,10 @@
   <meta property="og:title" content="Pricing — Hiroba" />
   <meta property="og:description" content="Self-host is free. Hosted is simple per-seat billing." />
   <meta property="og:type" content="website" />
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23d8552e'/%3E%3Ctext x='32' y='46' font-size='40' font-family='serif' font-weight='700' text-anchor='middle' fill='%23fff'%3E広%3C/text%3E%3C/svg%3E" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='none' stroke='%233f6fb0' stroke-opacity='0.32' stroke-width='3'/%3E%3Ccircle cx='32' cy='32' r='21' fill='%233f6fb0'/%3E%3Ctext x='32' y='40' font-size='24' font-family='sans-serif' font-weight='700' text-anchor='middle' fill='%23fff'%3E広%3C/text%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;600;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Hanken+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="assets/style.css" />
 </head>
 <body data-page="pricing">
@@ -79,7 +79,7 @@
           <ul>
             <li data-i18n="planHostedLi1">OAuth sign-in (Google / GitHub, etc.)</li>
             <li data-i18n="planHostedLi2">Org creation, invite links, member management</li>
-            <li data-i18n="planHostedLi3">TURN included ("almost always connects", even on corp networks)</li>
+            <li data-i18n="planHostedLi3">Stays connected on corporate networks</li>
             <li data-i18n="planHostedLi4">We handle infra and updates</li>
             <li data-i18n="planHostedLi5">Email support</li>
           </ul>
@@ -124,8 +124,8 @@
               <td data-i18n="cmpOrgSelf">Share server URL, etc. — flexible</td>
             </tr>
             <tr>
-              <th data-i18n="cmpRowTurn">NAT traversal (TURN)</th>
-              <td class="yes" data-i18n="cmpTurnHosted">✓ Included. "Almost always connects"</td>
+              <th data-i18n="cmpRowTurn">Connectivity on strict networks</th>
+              <td class="yes" data-i18n="cmpTurnHosted">✓ Included. Stable on corporate networks</td>
               <td class="opt" data-i18n="cmpTurnSelf">△ Public STUN by default; run coturn if needed</td>
             </tr>
             <tr>
@@ -158,7 +158,7 @@
       <div class="faq" data-reveal>
         <details>
           <summary data-i18n="faq1Q">Is it really that light?</summary>
-          <p class="a" data-i18n="faq1A">Lightness is a core product value. Design targets (NFR) call for near-0% idle CPU, tens of MB resident memory, and voice-only low bandwidth. The client is Tauri + Canvas 2D (not Electron); the server never relays audio (P2P). Numbers are targets — we'll publish measurements as we verify.</p>
+          <p class="a" data-i18n="faq1A">Lightness is a core product value. Design targets (NFR) call for near-0% idle CPU, a small resident footprint, and voice-only low bandwidth. The client is Tauri + Canvas 2D (not Electron); the server never relays audio (P2P). Numbers are targets — we'll publish measurements as we verify.</p>
         </details>
         <details>
           <summary data-i18n="faq2Q">When will you add video or screen share?</summary>

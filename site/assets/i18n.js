@@ -30,7 +30,7 @@
       'Hiroba is a featherweight virtual office you can leave running all day. See who\u2019s around at a glance and reach out with one click. Open source (Apache-2.0) + hosted.',
     indexOgTitle: 'Hiroba — Featherweight virtual office',
     indexOgDescription:
-      'Not a meeting tool — a presence space. Idle CPU near 0%, tens of MB of RAM. Voice stays off the server via P2P.',
+      'Not a meeting tool — a presence space. Idle CPU near 0%, light on memory. Voice stays off the server via P2P.',
 
     pricingDocTitle: 'Pricing — Hiroba',
     pricingMetaDescription:
@@ -66,43 +66,31 @@
     heroTitle:
       '<span class="nowrap"><em>Featherweight</em></span><br /><span class="nowrap">virtual office.</span>',
     heroLede:
-      'See who\u2019s around at a glance. Walk your avatar over or page someone with one click \u2014 it feels like tapping the desk next to you. Idle CPU near 0%, tens of MB of RAM, light enough to forget it\u2019s running all day so everyone can stay on the floor. That\u2019s Hiroba.',
+      'See who\u2019s around at a glance. Walk over to them or page someone with one click \u2014 it feels like tapping the desk next to you. Idle CPU near 0%, light on memory, light enough to forget it\u2019s running all day so everyone can stay on the floor. That\u2019s Hiroba.',
     ctaCreateOrg: 'Create an organization',
     ctaSelfHost: 'Start with self-host',
     heroProofCpu: 'Idle CPU near 0%',
-    heroProofMem: 'Tens of MB RAM',
+    heroProofMem: 'Light on memory',
     heroProofOss: 'OSS \u00b7 Apache-2.0',
     mockAriaLabel:
       'Hiroba UI preview: member roster on the left, 2D space on the right. Avatars wander; voice links when they get close.',
     mockMuted: 'Muted',
     mockNoCall: 'On call: none',
-    mockCaption:
-      '\u2191 Live demo. Click tabs to switch spaces \u2014 same as the product: plain Canvas 2D.',
 
     // Index — problem
     problemSecNo: 'Why',
-    problemTitle: 'Virtual offices got<br />too heavy.',
+    problemTitle: 'The office sense of presence,<br />now remote.',
     problemLede:
-      'Video, screen share, recording, integrations \u2014 the more features pile on, the harder it is to leave running. A presence tool needs atmosphere and lightness, not advanced meeting features.',
-    problemThemTitle: 'Traditional all-in-one tools',
-    problemThem1: 'Traffic (even voice-first) <b>~1 GB/day</b>',
-    problemThem2: 'Heavy video & screen share <b>3\u20135 GB/day</b>',
-    problemThem3: 'Idle memory <b>hundreds of MB+</b>',
-    problemThem4: 'Positioning <b>meeting-tool replacement</b>',
-    problemUsTitle: 'Hiroba',
-    problemUs1: 'Traffic <b>voice only, low bandwidth</b>',
-    problemUs2: 'Idle CPU <b>near 0%</b>',
-    problemUs3: 'Idle memory <b>tens of MB</b>',
-    problemUs4: 'Positioning <b>always-on presence tool</b>',
+      "Who's sitting nearby, whether you can speak up right now \u2014 things the office made obvious go invisible when remote. Getting them back doesn't take advanced meeting features; it takes a tool light enough to leave running all day.",
 
     // Index — values
     valuesSecNo: 'Features',
     valuesTitle: 'What Hiroba does.',
     valuesLede:
       'The minimum for a virtual office \u2014 presence, atmosphere, and voice. No video meetings, screen share, or recording by design; keep your existing meeting tool for that.',
-    feature1Title: 'Show up as an avatar',
+    feature1Title: 'Take a seat on the floor',
     feature1Desc:
-      'Drop your avatar on the floor in the morning. That\u2019s \u201ccoming in.\u201d Remote work gets a place to be.',
+      'Take a seat on the floor in the morning. That\u2019s \u201ccoming in.\u201d Remote work gets a place of your own.',
     feature2Title: 'See who\u2019s where',
     feature2Desc:
       'A persistent roster shows who\u2019s here, away, on a call, or do-not-disturb \u2014 at a glance.',
@@ -114,7 +102,7 @@
       'Team rooms are group calls by default. Page anyone with one click, even across spaces.',
     feature5Title: 'Light enough to leave on',
     feature5Desc:
-      'Idle CPU near 0%, tens of MB of RAM. Eight hours open and your machine barely notices.',
+      'Idle CPU near 0%, light on memory. Eight hours open and your machine barely notices.',
 
     // Index — how
     howSecNo: 'How',
@@ -149,9 +137,9 @@
       'A presence tool assumes eight hours of uptime. If it\u2019s heavy, people close it and you\u2019re left with an empty office. Lightness isn\u2019t marketing \u2014 it\u2019s what makes a virtual office work.',
     statCpuK: 'Idle CPU',
     statCpuNote: 'Near zero when still and silent',
-    statMemV: 'Tens<small>MB</small>',
+    statMemV: 'Light',
     statMemK: 'Resident memory',
-    statMemNote: 'An order of magnitude below typical browser SPAs',
+    statMemNote: 'Designed to stay small, even left running all day',
     statLatencyK: 'Voice latency',
     statLatencyNote: 'Direct P2P \u2014 feels natural',
     statBootV: 'Seconds<small> to boot</small>',
@@ -181,13 +169,14 @@
     startTitle: 'Two ways in.',
     startLede:
       'Hosted (we run it) or OSS self-host (you run it). Two distributions from one codebase.',
+    wayRecommended: 'Recommended',
     hostedTag: 'Hosted',
     hostedTitle: 'Hosted',
     hostedDesc:
       'We operate the infra. Sign in, create an org, share invite links. Non-technical teams can start fast.',
     hostedLi1: 'OAuth sign-in (Google / GitHub, etc.)',
     hostedLi2: 'Org creation, invite links, member management',
-    hostedLi3: 'TURN included for \u201calmost always connects\u201d reachability',
+    hostedLi3: 'Stays connected on corporate networks',
     hostedLi4: 'Per-seat billing (see pricing)',
     hostedCta: 'Join early access',
     ossWayTag: 'Open Source',
@@ -248,7 +237,7 @@
       'Stripe billing. 30-day free trial (no card). Change seats monthly.',
     planHostedLi1: 'OAuth sign-in (Google / GitHub, etc.)',
     planHostedLi2: 'Org creation, invite links, member management',
-    planHostedLi3: 'TURN included (\u201calmost always connects\u201d, even on corp networks)',
+    planHostedLi3: 'Stays connected on corporate networks',
     planHostedLi4: 'We handle infra and updates',
     planHostedLi5: 'Email support',
     planHostedCta: 'Join early access',
@@ -267,8 +256,8 @@
     cmpRowOrg: 'Joining an org',
     cmpOrgHosted: 'Invite links (issued by admins)',
     cmpOrgSelf: 'Share server URL, etc. \u2014 flexible',
-    cmpRowTurn: 'NAT traversal (TURN)',
-    cmpTurnHosted: '\u2713 Included. \u201cAlmost always connects\u201d',
+    cmpRowTurn: 'Connectivity on strict networks',
+    cmpTurnHosted: '✓ Included. Stable on corporate networks',
     cmpTurnSelf: '\u25b3 Public STUN by default; run coturn if needed',
     cmpRowPersist: 'Data persistence',
     cmpPersistHosted: '\u2713 Orgs, members, invites stored',
@@ -285,7 +274,7 @@
     faqTitle: 'Common questions',
     faq1Q: 'Is it really that light?',
     faq1A:
-      'Lightness is a core product value. Design targets (NFR) call for near-0% idle CPU, tens of MB resident memory, and voice-only low bandwidth. The client is Tauri + Canvas 2D (not Electron); the server never relays audio (P2P). Numbers are targets \u2014 we\u2019ll publish measurements as we verify.',
+      'Lightness is a core product value. Design targets (NFR) call for near-0% idle CPU, a small resident footprint, and voice-only low bandwidth. The client is Tauri + Canvas 2D (not Electron); the server never relays audio (P2P). Numbers are targets \u2014 we\u2019ll publish measurements as we verify.',
     faq2Q: 'When will you add video or screen share?',
     faq2A:
       'We won\u2019t. That\u2019s a design choice, not a backlog item. Meeting features trade off against always-on lightness, so Hiroba focuses on presence and voice \u2014 \u201cbefore the meeting.\u201d When it\u2019s meeting time, use your usual tool.',
@@ -347,7 +336,7 @@
       'Hirobaは、一日中つけっぱなしにできる超軽量のバーチャルオフィス。メンバーの在席がひと目で分かり、ワンクリックで声をかけられる。OSS（Apache-2.0）＋ ホスト型。',
     indexOgTitle: 'Hiroba — 超軽量バーチャルオフィス',
     indexOgDescription:
-      '会議ツールではなく在席空間。アイドルCPUほぼ0%、メモリ数十MB。音声はサーバーを通らないP2P。',
+      '会議ツールではなく在席空間。アイドルCPUほぼ0%、省メモリ。音声はサーバーを通らないP2P。',
 
     pricingDocTitle: '料金 — Hiroba',
     pricingMetaDescription:
@@ -381,40 +370,28 @@
     heroTitle:
       '<span class="nowrap"><em>超軽量</em></span><br /><span class="nowrap">バーチャルオフィス。</span>',
     heroLede:
-      'チームの在席がひと目で分かり、アバターを近づけるか、ワンクリックの呼びかけで、隣の席にいる感覚ですぐ話せる。そしてアイドル時CPUほぼ0%・メモリ数十MB——一日中つけっぱなしでも忘れるほど軽いから、みんながフロアに“居続けられる”。それが Hiroba です。',
+      'チームの在席がひと目で分かり、相手に歩み寄るか、ワンクリックの呼びかけで、隣の席にいる感覚ですぐ話せる。そしてアイドル時CPUほぼ0%・省メモリ。一日中つけっぱなしでも忘れるほど軽いから、みんながフロアに“居続けられる”。それが Hiroba です。',
     ctaCreateOrg: '組織をつくる',
     ctaSelfHost: 'self-host で始める',
     heroProofCpu: 'アイドルCPU ほぼ0%',
-    heroProofMem: 'メモリ 数十MB',
+    heroProofMem: 'メモリ常駐は控えめ',
     heroProofOss: 'OSS · Apache-2.0',
     mockAriaLabel:
       'Hirobaの画面イメージ。左に組織メンバーの一覧、右に選択中スペースの2D空間。アバターが歩き回り、近づくと声がつながる。',
     mockMuted: 'ミュート中',
     mockNoCall: '通話中: なし',
-    mockCaption:
-      '↑ 動いています。タブを押すとスペースが切り替わります — 製品と同じ、ただの Canvas 2D。',
 
     problemSecNo: 'Why',
-    problemTitle: 'バーチャルオフィスは、<br />重くなりすぎた。',
+    problemTitle: 'オフィスにあった気配を、<br />リモートにも。',
     problemLede:
-      'ビデオ・画面共有・録画・連携——便利になるほど、常駐させるには重いツールになっていく。一日中つなぎっぱなしにする「在席ツール」に必要なのは、高度な会議機能ではなく、気配と軽さです。',
-    problemThemTitle: '従来の多機能型ツール',
-    problemThem1: '通信量（音声中心でも）<b>約1GB/日</b>',
-    problemThem2: 'ビデオ・画面共有を多用すると<b>3〜5GB/日</b>',
-    problemThem3: '常駐時のメモリ<b>数百MB〜</b>',
-    problemThem4: '位置づけ<b>会議ツールの代替</b>',
-    problemUsTitle: 'Hiroba',
-    problemUs1: '通信量<b>音声のみ・低帯域</b>',
-    problemUs2: 'アイドル時CPU<b>ほぼ0%</b>',
-    problemUs3: '常駐時のメモリ<b>数十MB台</b>',
-    problemUs4: '位置づけ<b>常駐前提の在席ツール</b>',
+      '隣に誰がいて、いま話しかけていいか。出社していれば分かったことが、リモートでは見えなくなった。取り戻すのに必要なのは、高度な会議機能ではなく、一日中つなぎっぱなしにできる軽さです。',
 
     valuesSecNo: 'Features',
     valuesTitle: 'Hiroba でできること。',
     valuesLede:
-      'バーチャルオフィスに必要な最小限——在席・気配・声だけを備えています。ビデオ会議・画面共有・録画は、軽さのためにあえて非搭載。会議はいまお使いのツールのままで。',
-    feature1Title: 'アバターで出社する',
-    feature1Desc: '朝、フロアに自分のアバターを置く。それが出社。リモートでも「居場所」ができる。',
+      'バーチャルオフィスに必要な最小限、在席・気配・声だけを備えています。ビデオ会議・画面共有・録画は、軽さのためにあえて非搭載。会議はいまお使いのツールのままで。',
+    feature1Title: 'フロアに席を取る',
+    feature1Desc: '朝、フロアに席を取る。それが出社。リモートでも自分の「居場所」ができる。',
     feature2Title: '誰がどこにいるか見える',
     feature2Desc:
       '常設のメンバー一覧で、在席・離席・通話中・取り込み中が常にひと目で分かる。',
@@ -426,7 +403,7 @@
       'チームの部屋は入るだけでグループ通話。離れた相手にもワンクリックで「呼びかけ」。',
     feature5Title: 'つけっぱなしでも軽い',
     feature5Desc:
-      'アイドル時CPUほぼ0%・メモリ数十MB。8時間常駐させても、PCの邪魔をしない。',
+      'アイドル時CPUほぼ0%・省メモリ。8時間常駐させても、PCの邪魔をしない。',
 
     howSecNo: 'How',
     howTitle: 'オフィスの中身は、ロビーとチームの部屋。',
@@ -459,9 +436,9 @@
       '在席ツールは8時間つけっぱなしが前提。動作が重ければ各自が閉じてしまい、誰もいないオフィスだけが残ります。軽さは売り文句ではなく、バーチャルオフィスが“オフィスとして機能する”ための前提条件です。',
     statCpuK: 'アイドル時CPU',
     statCpuNote: '移動・発話なしのとき、ほぼゼロ',
-    statMemV: '数十<small>MB</small>',
+    statMemV: '軽量',
     statMemK: '常駐メモリ',
-    statMemNote: 'ブラウザSPA比で一桁以上の削減',
+    statMemNote: '一日中つけても常駐を小さく保つ設計',
     statLatencyK: '音声遅延',
     statLatencyNote: 'P2P直結。体感で違和感のない範囲',
     statBootV: '数秒<small>で起動</small>',
@@ -489,13 +466,14 @@
     startTitle: '始め方は、ふたつ。',
     startLede:
       '運用おまかせのホスト型と、自前で立てるOSS。同じコードベースから生まれる二つの配布です。',
+    wayRecommended: 'おすすめ',
     hostedTag: 'Hosted',
     hostedTitle: 'ホスト型',
     hostedDesc:
       'インフラはこちらで運用。ログインして組織をつくり、招待リンクを配るだけ。非技術チームでもすぐ使えます。',
     hostedLi1: 'OAuthログイン（Google / GitHub など）',
     hostedLi2: '組織の作成・招待リンク・メンバー管理',
-    hostedLi3: 'TURN込みで「ほぼ必ず繋がる」接続性',
+    hostedLi3: '企業ネットワークでも、安定してつながる',
     hostedLi4: 'シート課金（料金ページ参照）',
     hostedCta: '早期アクセスに登録',
     ossWayTag: 'Open Source',
@@ -553,7 +531,7 @@
       'Stripe 決済。30日間の無料トライアル（カード不要）。席数は月単位で変更可能。',
     planHostedLi1: 'OAuthログイン（Google / GitHub など）',
     planHostedLi2: '組織の作成・招待リンク・メンバー管理',
-    planHostedLi3: 'TURN込みの接続性（企業NW内でも“ほぼ必ず繋がる”）',
+    planHostedLi3: '企業ネットワークでも、安定してつながる',
     planHostedLi4: 'インフラ運用・アップデートはおまかせ',
     planHostedLi5: 'メールサポート',
     planHostedCta: '早期アクセスに登録',
@@ -571,8 +549,8 @@
     cmpRowOrg: '組織への参加',
     cmpOrgHosted: '招待リンク（管理者が発行）',
     cmpOrgSelf: 'サーバーURLの共有 など自由',
-    cmpRowTurn: 'NAT越え（TURN）',
-    cmpTurnHosted: '✓ 込み。“ほぼ必ず繋がる”を保証',
+    cmpRowTurn: '厳しいネットワーク下での接続',
+    cmpTurnHosted: '✓ 込み。企業ネットワークでも安定接続',
     cmpTurnSelf: '△ 公開STUNが既定。必要なら自前でcoturn',
     cmpRowPersist: 'データの永続化',
     cmpPersistHosted: '✓ 組織・メンバー・招待を保存',
@@ -588,10 +566,10 @@
     faqTitle: 'よくある質問',
     faq1Q: '本当に軽いんですか？',
     faq1A:
-      '軽さを製品の中核価値として設計しています。アイドル時CPUほぼ0%・常駐メモリ数十MB・音声のみの低帯域を設計目標（NFR）に置き、クライアントはElectronではなくTauri＋Canvas 2D、サーバーは音声データを一切中継しないP2P構成です。数値は目標値であり、実測の検証結果を順次公開します。',
+      '軽さを製品の中核価値として設計しています。アイドル時CPUほぼ0%・小さな常駐フットプリント・音声のみの低帯域を設計目標（NFR）に置き、クライアントはElectronではなくTauri＋Canvas 2D、サーバーは音声データを一切中継しないP2P構成です。数値は目標値であり、実測の検証結果を順次公開します。',
     faq2Q: 'ビデオ通話や画面共有はいつ追加されますか？',
     faq2A:
-      '追加しません。これは未実装ではなく設計判断です。会議ツールの機能は常駐の軽さと引き換えになるため、Hirobaは「会議の手前」——在席・気配・声——に専念します。会議になったら、いつもお使いの会議ツールをご利用ください。',
+      '追加しません。これは未実装ではなく設計判断です。会議ツールの機能は常駐の軽さと引き換えになるため、Hirobaは「会議の手前」、つまり在席・気配・声に専念します。会議になったら、いつもお使いの会議ツールをご利用ください。',
     faq3Q: '音声データはどこを通りますか？',
     faq3A:
       '原則、participantsの間をWebRTCのP2Pで直接流れ、サーバーを通過しません。サーバーが扱うのは位置・在席・シグナリングといった制御データのみです。NAT環境によりP2Pが確立できない場合のみ、ホスト型ではTURNリレーを経由します（音声は暗号化されています）。',

@@ -220,7 +220,7 @@
     ctx.clearRect(0, 0, w, h);
 
     // floor grid
-    ctx.strokeStyle = 'rgba(226, 217, 200, 0.55)';
+    ctx.strokeStyle = 'rgba(86, 100, 96, 0.16)';
     ctx.lineWidth = 1;
     const cell = 34;
     ctx.beginPath();
@@ -236,8 +236,8 @@
 
     // furniture
     for (const f of FURNITURE[view] || []) {
-      ctx.fillStyle = '#f1eadd';
-      ctx.strokeStyle = '#e2d9c8';
+      ctx.fillStyle = '#e9ede9';
+      ctx.strokeStyle = '#d8ded7';
       ctx.lineWidth = 1.5;
       if (f.kind === 'rug') {
         ctx.beginPath();
@@ -251,11 +251,11 @@
       } else if (f.kind === 'plant') {
         ctx.beginPath();
         ctx.arc(f.x * w, f.y * h, 9, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(90, 143, 106, 0.28)';
+        ctx.fillStyle = 'rgba(47, 158, 99, 0.24)';
         ctx.fill();
         ctx.beginPath();
         ctx.arc(f.x * w, f.y * h, 4.5, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(90, 143, 106, 0.55)';
+        ctx.fillStyle = 'rgba(47, 158, 99, 0.5)';
         ctx.fill();
       }
     }
@@ -272,7 +272,7 @@
         const d = Math.hypot(ax - bx, ay - by);
         if (d > NEAR) continue;
         const k = (1 - d / NEAR) * Math.min(a.alpha, b.alpha);
-        ctx.strokeStyle = `rgba(216, 85, 46, ${0.55 * k})`;
+        ctx.strokeStyle = `rgba(63, 111, 176, ${0.55 * k})`;
         ctx.lineWidth = 1.8;
         ctx.setLineDash([3, 5]);
         ctx.beginPath();
@@ -285,7 +285,7 @@
         for (const [px, py] of [[ax, ay], [bx, by]]) {
           ctx.beginPath();
           ctx.arc(px, py, pulse, 0, Math.PI * 2);
-          ctx.strokeStyle = `rgba(216, 85, 46, ${0.28 * k})`;
+          ctx.strokeStyle = `rgba(63, 111, 176, ${0.3 * k})`;
           ctx.lineWidth = 1.2;
           ctx.stroke();
         }
@@ -302,7 +302,7 @@
       // shadow
       ctx.beginPath();
       ctx.ellipse(x, y + 13, 9, 3.2, 0, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(60, 45, 25, 0.16)';
+      ctx.fillStyle = 'rgba(22, 32, 27, 0.14)';
       ctx.fill();
       // body
       ctx.beginPath();
@@ -310,16 +310,16 @@
       ctx.fillStyle = m.color;
       ctx.fill();
       ctx.lineWidth = 2.5;
-      ctx.strokeStyle = '#fffdf8';
+      ctx.strokeStyle = '#ffffff';
       ctx.stroke();
       if (m.self) {
         ctx.beginPath();
         ctx.arc(x, y, 15.5, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(216, 85, 46, 0.6)';
+        ctx.strokeStyle = 'rgba(63, 111, 176, 0.6)';
         ctx.lineWidth = 1.5;
         ctx.stroke();
       }
-      ctx.fillStyle = '#6e6557';
+      ctx.fillStyle = '#566460';
       ctx.fillText(memberName(m), x, y + 28);
       ctx.globalAlpha = 1;
     }
