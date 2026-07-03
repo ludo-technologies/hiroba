@@ -68,19 +68,20 @@ pub struct SpaceDescriptor {
 
 impl SpaceDescriptor {
     /// The well-known lobby: org-wide plaza, normal proximity voice.
-    /// 4:3 like team spaces — the client letterboxes to the room's aspect
-    /// ratio, so matching it keeps both rooms the same on-screen size.
+    /// Same 800×600 footprint as team spaces so avatars render at the same
+    /// on-screen size; radii are half the old 1600×1200 defaults so proximity
+    /// voice keeps the same feel in the smaller room.
     pub fn lobby() -> Self {
         Self {
             id: "lobby".to_string(),
             name: "Lobby".to_string(),
             kind: SpaceKind::Lobby,
-            width: 1600.0,
-            height: 1200.0,
-            near_radius: 300.0,
-            far_radius: 360.0,
+            width: 800.0,
+            height: 600.0,
+            near_radius: 150.0,
+            far_radius: 180.0,
             tick_hz: 12,
-            capacity: 32,
+            capacity: 5,
         }
     }
 

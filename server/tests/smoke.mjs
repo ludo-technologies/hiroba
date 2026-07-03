@@ -52,8 +52,9 @@ class Client {
   ok(wA?.org?.id && wA?.org?.name, "welcome.org has id + name");
   ok(wA?.spaceId === "lobby", "A lands in the lobby");
   ok(wA?.space?.kind === "lobby", "welcome.space.kind = lobby");
-  ok(wA?.space?.nearRadius === 300, "lobby nearRadius = 300 (camelCase)");
-  ok(wA?.space?.farRadius === 360, "lobby farRadius = 360 (camelCase)");
+  ok(wA?.space?.nearRadius === 150, "lobby nearRadius = 150 (camelCase)");
+  ok(wA?.space?.farRadius === 180, "lobby farRadius = 180 (camelCase)");
+  ok(wA?.space?.capacity === 5, "lobby capacity = 5");
   ok(wA?.space?.tickHz >= 10 && wA?.space?.tickHz <= 15, "lobby tickHz in 10..15");
   ok(typeof wA?.space?.capacity === "number", "space carries a capacity");
   ok(wA?.you?.muted === true, "A starts muted (FR-12)");

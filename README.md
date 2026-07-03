@@ -46,8 +46,8 @@ spaces, points that move around, and voice that fades in as you get close.
 
 The server only moves *control* data: the org roster, per-space positions,
 proximity decisions, and the WebRTC handshake. **Audio never flows through the
-server** — peers connect directly (P2P mesh). A team room of ≤5 (or a lobby of
-~10) is comfortable on a mesh. State is split into two scopes — an **org roster**
+server** — peers connect directly (P2P mesh). A team room or lobby of ≤5 is
+comfortable on a mesh. State is split into two scopes — an **org roster**
 sent to everyone, and **per-space** position/proximity/audio sent only to those
 in that space. The wire format is specified in [`PROTOCOL.md`](PROTOCOL.md).
 

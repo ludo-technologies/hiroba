@@ -193,8 +193,8 @@ pub struct OrgInner {
 /// Choose a spawn position for the n-th member in a space. Index 0 lands
 /// dead-centre; subsequent members are placed on a golden-angle (phyllotaxis)
 /// spiral so no two ever stack — the old fixed `TAU / 8` ring aliased every
-/// 8th member onto an identical coordinate, so the 9th..32nd arrivals in a
-/// lobby (capacity 32) all collided with someone already there.
+/// 8th member onto an identical coordinate, so later arrivals in a full
+/// space all collided with someone already there.
 ///
 /// The spread is capped below `near_radius` so every arrival spawns within
 /// earshot of a centre occupant ("you hear the room the moment you walk in"),

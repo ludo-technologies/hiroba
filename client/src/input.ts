@@ -20,7 +20,7 @@
 import type { SpaceDescriptor } from "./protocol.js";
 
 // Movement speed in world-units per second.
-// At 300 nearRadius the world is 1600 wide, so ~200 u/s crosses the world in 8s.
+// At 150 nearRadius the world is 800 wide, so ~200 u/s crosses the world in 4s.
 const MOVE_SPEED = 200;
 
 // How many pixels of slop to ignore in position comparison when deciding

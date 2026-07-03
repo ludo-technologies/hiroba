@@ -68,12 +68,12 @@ space catalog. Defaults:
 
 | field        | lobby default | team default        | meaning                                              |
 |--------------|---------------|---------------------|------------------------------------------------------|
-| `width`      | 1600          | 800                 | world width in units                                 |
-| `height`     | 1200          | 600                 | world height in units                                |
-| `nearRadius` | 300           | ≥ space diagonal    | distance ≤ this ⇒ peers are "near" ⇒ audio connects  |
-| `farRadius`  | 360           | ≥ space diagonal    | distance ≥ this ⇒ peers disconnect (hysteresis)      |
+| `width`      | 800           | 800                 | world width in units                                 |
+| `height`     | 600           | 600                 | world height in units                                |
+| `nearRadius` | 150           | ≥ space diagonal    | distance ≤ this ⇒ peers are "near" ⇒ audio connects  |
+| `farRadius`  | 180           | ≥ space diagonal    | distance ≥ this ⇒ peers disconnect (hysteresis)      |
 | `tickHz`     | 12            | 12                  | server position-broadcast rate (NFR-04: 10–15 Hz)    |
-| `capacity`   | (large)       | 5                   | max simultaneous members in the space                |
+| `capacity`   | 5             | 5                   | max simultaneous members in the space                |
 
 **Team spaces set `nearRadius`/`farRadius` to at least the space diagonal**, so
 every member is always "near" everyone else → the space behaves as a single
@@ -90,8 +90,8 @@ disconnect only when it rises above `farRadius`. Proximity is computed
 Used in `welcome.spaces`, `welcome.space`, and `spaces` broadcasts:
 ```json
 { "id": "lobby", "name": "Lobby", "kind": "lobby",
-  "width": 1600, "height": 1200, "nearRadius": 300, "farRadius": 360,
-  "tickHz": 12, "capacity": 32 }
+  "width": 800, "height": 600, "nearRadius": 150, "farRadius": 180,
+  "tickHz": 12, "capacity": 5 }
 ```
 `kind` is `"lobby"` or `"team"`.
 
@@ -213,9 +213,9 @@ Server relays `page_end` (with `from`) to the other peer and clears both peers'
   "org": { "id": "ludo", "name": "Ludo" },
   "you":  { "id": "7", "name": "Aoi", "color": "#4f9dde", "x": 800, "y": 600, "muted": true },
   "spaceId": "lobby",
-  "space": { "id": "lobby", "name": "Lobby", "kind": "lobby", "width": 1600, "height": 1200, "nearRadius": 300, "farRadius": 360, "tickHz": 12, "capacity": 32 },
+  "space": { "id": "lobby", "name": "Lobby", "kind": "lobby", "width": 800, "height": 600, "nearRadius": 150, "farRadius": 180, "tickHz": 12, "capacity": 5 },
   "spaces": [
-    { "id": "lobby", "name": "Lobby", "kind": "lobby", "width": 1600, "height": 1200, "nearRadius": 300, "farRadius": 360, "tickHz": 12, "capacity": 32 },
+    { "id": "lobby", "name": "Lobby", "kind": "lobby", "width": 800, "height": 600, "nearRadius": 150, "farRadius": 180, "tickHz": 12, "capacity": 5 },
     { "id": "dev", "name": "Dev", "kind": "team", "width": 800, "height": 600, "nearRadius": 1100, "farRadius": 1100, "tickHz": 12, "capacity": 5 }
   ],
   "peers": [
@@ -269,7 +269,7 @@ client/product choice; the wire simply reports disconnect.)
 
 ### `space_joined` — a peer entered **your current space**
 ```json
-{ "t": "space_joined", "peer": { "id": "9", "name": "Sora", "color": "#7ac77a", "x": 1200, "y": 640, "muted": true } }
+{ "t": "space_joined", "peer": { "id": "9", "name": "Sora", "color": "#7ac77a", "x": 520, "y": 320, "muted": true } }
 ```
 
 ### `space_left` — a peer left **your current space** (switched away or disconnected)

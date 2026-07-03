@@ -75,9 +75,8 @@ type FloorItem =
 
 // Visual constants — tuned for a calm, legible, warm office.
 // Person tokens are sized in *world units* (not screen px) so they keep a
-// fixed proportion to the floor: in a 5-person team space (800×600) they read
-// large and present, while the 1600×1200 lobby — built for a crowd — shows
-// the same person at half the screen size.
+// fixed proportion to the floor at any window size. Lobby and team spaces
+// share the same 800×600 footprint, so avatars render at the same scale.
 const PEER_RADIUS = 40; // world units
 const SELF_RADIUS = 46; // world units
 const FONT_LABEL = '12.5px system-ui, -apple-system, "Segoe UI", sans-serif';
