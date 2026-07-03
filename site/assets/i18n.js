@@ -73,7 +73,7 @@
     heroProofMem: 'Light on memory',
     heroProofOss: 'OSS \u00b7 Apache-2.0',
     mockAriaLabel:
-      'Hiroba UI preview: member roster on the left, 2D space on the right. Avatars wander; voice links when they get close.',
+      'Hiroba UI preview: member roster on the left, a furnished office floor on the right. Avatars walk between desks and lounges; voice ripples when people talk nearby.',
     mockMuted: 'Muted',
     mockNoCall: 'On call: none',
 
@@ -368,7 +368,7 @@
     heroVert: '広場',
     heroEyebrow: '「ちょっといい？」が、リモートでも言える',
     heroTitle:
-      '<span class="nowrap"><em>超軽量</em></span><br /><span class="nowrap">バーチャルオフィス。</span>',
+      '<span class="nowrap"><em>超軽量</em></span><br /><span class="nowrap">バーチャル</span><span class="nowrap">オフィス。</span>',
     heroLede:
       'チームの在席がひと目で分かり、相手に歩み寄るか、ワンクリックの呼びかけで、隣の席にいる感覚ですぐ話せる。そしてアイドル時CPUほぼ0%・省メモリ。一日中つけっぱなしでも忘れるほど軽いから、みんながフロアに“居続けられる”。それが Hiroba です。',
     ctaCreateOrg: '組織をつくる',
@@ -377,7 +377,7 @@
     heroProofMem: 'メモリ常駐は控えめ',
     heroProofOss: 'OSS · Apache-2.0',
     mockAriaLabel:
-      'Hirobaの画面イメージ。左に組織メンバーの一覧、右に選択中スペースの2D空間。アバターが歩き回り、近づくと声がつながる。',
+      'Hirobaの画面イメージ。左に組織メンバーの一覧、右に家具の並ぶオフィスフロア。アバターがデスクやラウンジの間を歩き、近くで話すと声の波紋が広がる。',
     mockMuted: 'ミュート中',
     mockNoCall: '通話中: なし',
 

@@ -273,8 +273,8 @@ p { margin: 0; }
 .hero .wrap {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1.02fr) minmax(0, 0.98fr);
-  gap: 56px;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 48px;
   align-items: center;
 }
 
@@ -333,6 +333,8 @@ p { margin: 0; }
   font-style: normal;
   color: var(--accent-deep);
 }
+/* JA glyphs are full-width — step the title down so it clears the demo column */
+.hero h1:lang(ja) { font-size: clamp(2rem, 3.9vw, 2.85rem); }
 
 .hero-lede {
   font-size: 1.04rem;
@@ -436,8 +438,8 @@ p { margin: 0; }
 
 .mock-body {
   display: grid;
-  grid-template-columns: 134px 1fr;
-  min-height: 348px;
+  grid-template-columns: 150px 1fr;
+  min-height: 420px;
 }
 
 .mock-sidebar {
@@ -559,7 +561,7 @@ p { margin: 0; }
 .mock-stage {
   flex: 1;
   position: relative;
-  min-height: 250px;
+  min-height: 300px;
   background: var(--surface);
 }
 .mock-stage canvas {
