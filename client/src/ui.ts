@@ -45,6 +45,15 @@ const DEFAULT_AUTH_SERVER: string = import.meta.env.DEV
   ? import.meta.env.VITE_HIROBA_AUTH_SERVER || "http://127.0.0.1:8788"
   : import.meta.env.VITE_HIROBA_AUTH_SERVER!;
 
+function isLoopbackUrl(value: string): boolean {
+  try {
+    const host = new URL(value).hostname.toLowerCase();
+    return host === "127.0.0.1" || host === "localhost" || host === "::1";
+  } catch {
+    return false;
+  }
+}
+
 /** Primary-button label, reused across state transitions. */
 const ENTER_LABEL = t.enter;
 
@@ -985,7 +994,13 @@ export class UIManager {
       elJoinToken.value = token;
       elAdvanced.open = true;
     }
-    if (authServer) elJoinAuth.value = authServer;
+    if (authServer) {
+      if (!import.meta.env.DEV && isLoopbackUrl(authServer)) {
+        localStorage.removeItem(LS_AUTH);
+      } else {
+        elJoinAuth.value = authServer;
+      }
+    }
     if (name) elJoinName.value = name;
     if (color) {
       elJoinColor.value = color;
