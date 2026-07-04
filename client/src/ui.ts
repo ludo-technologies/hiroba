@@ -29,17 +29,21 @@ const LS_SERVER = "hiroba_server";
 const LS_TOKEN = "hiroba_token";
 const LS_AUTH = "hiroba_auth_server";
 
-// Default signaling / auth URLs. A distribution build injects production URLs
-// at build time via Vite's `VITE_HIROBA_SERVER` / `VITE_HIROBA_AUTH_SERVER`
-// (set in the environment or a `.env` file); local dev falls back to the
-// loopback servers. `||` (not `??`) so an empty-string env var also falls
-// back. A user's Advanced override in localStorage takes precedence: the
-// inputs are seeded with these defaults in `_restoreFromStorage` and then
-// overwritten by any saved value.
-const DEFAULT_SERVER =
-  import.meta.env.VITE_HIROBA_SERVER || "ws://127.0.0.1:8787/ws";
-const DEFAULT_AUTH_SERVER =
-  import.meta.env.VITE_HIROBA_AUTH_SERVER || "http://127.0.0.1:8788";
+// Default signaling / auth URLs, baked in at build time via Vite's
+// `VITE_HIROBA_SERVER` / `VITE_HIROBA_AUTH_SERVER` (set in the environment or
+// a `.env` file). The loopback fallback exists ONLY under `vite dev`: the
+// `import.meta.env.DEV` branch is statically eliminated from production
+// bundles, and vite.config.ts refuses to build without both vars — so a
+// distribution build can never silently point at 127.0.0.1 (the `!` below is
+// backed by that build-time check). A user's Advanced override in localStorage
+// takes precedence: the inputs are seeded with these defaults in
+// `_restoreFromStorage` and then overwritten by any saved value.
+const DEFAULT_SERVER: string = import.meta.env.DEV
+  ? import.meta.env.VITE_HIROBA_SERVER || "ws://127.0.0.1:8787/ws"
+  : import.meta.env.VITE_HIROBA_SERVER!;
+const DEFAULT_AUTH_SERVER: string = import.meta.env.DEV
+  ? import.meta.env.VITE_HIROBA_AUTH_SERVER || "http://127.0.0.1:8788"
+  : import.meta.env.VITE_HIROBA_AUTH_SERVER!;
 
 /** Primary-button label, reused across state transitions. */
 const ENTER_LABEL = t.enter;

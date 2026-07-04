@@ -89,7 +89,12 @@ Controls: **WASD / arrow keys** to move; the **tabs** (top) switch spaces; the
 cd server && cargo build --release
 
 # Client: native installers/bundles under client/src-tauri/target/release/bundle/
-cd client && npm install && npm run tauri build
+# The server URLs to bake in are required — the build fails without them
+# (there is intentionally no loopback fallback in release bundles).
+cd client && npm install
+VITE_HIROBA_SERVER="wss://hiroba.example/ws" \
+VITE_HIROBA_AUTH_SERVER="https://auth.hiroba.example" \
+npm run tauri build
 ```
 
 ## Self-hosting

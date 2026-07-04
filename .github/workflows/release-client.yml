@@ -93,6 +93,11 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Bake the hosted-service URLs into the distributed app. Without
+          # these the frontend build fails (vite.config.ts) rather than
+          # shipping a binary that points at 127.0.0.1.
+          VITE_HIROBA_SERVER: wss://ws.hirobaoffice.com/ws
+          VITE_HIROBA_AUTH_SERVER: https://auth.hirobaoffice.com
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}

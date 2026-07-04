@@ -126,9 +126,10 @@ Two things to know before turning this on:
 
 ### Pointing distribution builds at your servers (client)
 
-The desktop client's join form defaults to `ws://127.0.0.1:8787/ws` and
-`http://127.0.0.1:8788`. When you build the app for your users, bake your URLs
-in at build time so nobody has to open *Advanced* on first run:
+When you build the app for your users, your server URLs are baked in at build
+time so nobody has to open *Advanced* on first run. Both variables are
+**required** — the build fails without them (loopback defaults exist only under
+`vite dev`, never in a distributed bundle):
 
 ```bash
 cd client
