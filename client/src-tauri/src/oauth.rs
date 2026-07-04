@@ -272,6 +272,12 @@ fn percent_decode(s: &str) -> String {
 // OS keychain storage (AUTH_PLAN §2/§6-7: no plaintext localStorage)
 // ---------------------------------------------------------------------------
 
+// Debug builds get their own service so a dev sign-in (against a local auth
+// server) never leaks into an installed release build, mirroring the
+// dev-identifier WebView-storage isolation in tauri.dev.conf.json.
+#[cfg(debug_assertions)]
+const KEYCHAIN_SERVICE: &str = "org.hiroba.app.dev";
+#[cfg(not(debug_assertions))]
 const KEYCHAIN_SERVICE: &str = "org.hiroba.app";
 
 fn entry(key: &str) -> Result<keyring::Entry, String> {

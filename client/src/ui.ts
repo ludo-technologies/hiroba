@@ -54,6 +54,16 @@ function isLoopbackUrl(value: string): boolean {
   }
 }
 
+/** Persist a URL only when it deviates from the build-time default. Storing
+ *  the resolved value would pin the user to whatever default this build
+ *  shipped — so a later build could never move them to a new default, and a
+ *  dev run's loopback would leak into a release build (dev and release share
+ *  the WebView storage under the same Tauri identifier). */
+function persistUrlDeviation(key: string, value: string, defaultValue: string): void {
+  if (value === defaultValue) localStorage.removeItem(key);
+  else localStorage.setItem(key, value);
+}
+
 /** Primary-button label, reused across state transitions. */
 const ENTER_LABEL = t.enter;
 
@@ -408,7 +418,7 @@ export class UIManager {
         elJoinAuth.focus();
         return;
       }
-      localStorage.setItem(LS_AUTH, authUrl);
+      persistUrlDeviation(LS_AUTH, authUrl, DEFAULT_AUTH_SERVER);
       elJoinError.setAttribute("hidden", "");
       // The field accepts a bare code or a shared /invite/<token> link.
       this.callbacks.onLogin(provider, authUrl, extractInviteCode(elJoinInvite.value));
@@ -1006,18 +1016,24 @@ export class UIManager {
       elJoinColor.value = color;
       this.custom = !PALETTE.some((c) => c.toLowerCase() === color.toLowerCase());
     }
-    if (server) elJoinServer.value = server;
-    // If the saved server isn't the local default, reveal Advanced so the
-    // user can see/confirm where they're connecting.
-    if (server && server !== DEFAULT_SERVER) elAdvanced.open = true;
+    if (server) {
+      if (!import.meta.env.DEV && isLoopbackUrl(server)) {
+        localStorage.removeItem(LS_SERVER);
+      } else {
+        elJoinServer.value = server;
+        // If the saved server isn't the local default, reveal Advanced so the
+        // user can see/confirm where they're connecting.
+        if (server !== DEFAULT_SERVER) elAdvanced.open = true;
+      }
+    }
     this._syncSwatchSelection();
   }
 
   private _persistToStorage(name: string, color: string, serverUrl: string, token: string): void {
     localStorage.setItem(LS_NAME, name);
     localStorage.setItem(LS_COLOR, color);
-    localStorage.setItem(LS_SERVER, serverUrl);
-    localStorage.setItem(LS_AUTH, elJoinAuth.value.trim());
+    persistUrlDeviation(LS_SERVER, serverUrl, DEFAULT_SERVER);
+    persistUrlDeviation(LS_AUTH, elJoinAuth.value.trim(), DEFAULT_AUTH_SERVER);
     // Plain-browser fallback only: under Tauri, tokens live in the keychain
     // and never touch localStorage (AUTH_PLAN §2).
     if (token && !this.tauri) localStorage.setItem(LS_TOKEN, token);

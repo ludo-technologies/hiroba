@@ -70,7 +70,8 @@ cargo run                      # or: HIROBA_ADDR=0.0.0.0:9000 cargo run
 # 2. Start the client (in another terminal)
 cd client
 npm install
-npm run tauri dev
+npm run tauri:dev   # dev identifier (org.hiroba.app.dev) keeps WebView
+                    # storage isolated from an installed release build
 ```
 
 In the client's join screen, enter a display name, pick an avatar color, and

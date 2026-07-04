@@ -418,6 +418,18 @@ function openConnection(values: JoinFormValues): Promise<{ net: HirobaNet; msg: 
     };
     net.onError(fail);
     net.onClose(fail);
+    // A pre-welcome `error` frame (auth_failed, org_suspended, …) beats the
+    // close that follows it, so the user sees the real reason instead of a
+    // generic "could not connect".
+    net.on(
+      "error",
+      (e) => {
+        if (settled) return;
+        settled = true;
+        reject(new Error(e.detail.code));
+      },
+      { once: true },
+    );
     net
       .connect(values.serverUrl)
       .then(() => {
@@ -464,8 +476,9 @@ async function handleJoin(values: JoinFormValues): Promise<void> {
     startSession(net, msg, iceServers);
     moveHintActive = true;
     ui.showMoveHint();
-  } catch {
-    ui.showJoin(t.errConnect);
+  } catch (err) {
+    const code = err instanceof Error ? err.message : "";
+    ui.showJoin(code === "auth_failed" ? t.errAuthFailed : t.errConnect);
   }
 }
 
