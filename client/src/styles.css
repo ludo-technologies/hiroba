@@ -1119,7 +1119,8 @@ body {
 }
 
 /* Update banner — same pill as the call banner, accent-toned. Sits bottom
-   right so it never covers the call banner or toasts. */
+   right so it never covers the call banner or toasts. Above the join/reconnect
+   overlay (z 100): updating must stay reachable from the sign-in screen. */
 .update-banner {
   position: fixed;
   bottom: 18px;
@@ -1132,7 +1133,7 @@ body {
   border: 1px solid var(--accent-soft);
   border-radius: var(--radius-pill);
   box-shadow: var(--shadow-hud);
-  z-index: 58;
+  z-index: 110;
   font-size: 13px;
   font-weight: 600;
   color: var(--ink);
@@ -1192,7 +1193,9 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  z-index: 80;
+  /* Above the join/reconnect overlay (z 100): update-failure and billing
+     toasts fire while the sign-in card is up. */
+  z-index: 110;
   pointer-events: none;
 }
 
