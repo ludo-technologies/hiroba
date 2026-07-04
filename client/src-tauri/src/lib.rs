@@ -3,8 +3,10 @@
 //! The client is deliberately thin: all presence, rendering, and WebRTC logic
 //! lives in the WebView (TypeScript). This Rust layer hosts the OS WebView and
 //! the few things a webview cannot do safely (NFR-02, NFR-09):
-//!   - the interactive OAuth login (system browser + loopback + PKCE), and
-//!   - OS-keychain storage for the resulting session token (AUTH_PLAN §2).
+//!   - the interactive OAuth login (system browser + loopback + PKCE),
+//!   - OS-keychain storage for the resulting session token (AUTH_PLAN §2), and
+//!   - auto-update: signature-verified installs + relaunch (updater/process
+//!     plugins; the frontend drives them from updater.ts).
 
 mod oauth;
 
@@ -23,6 +25,8 @@ fn open_external(url: String) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             oauth::oauth_login,
             oauth::secret_save,

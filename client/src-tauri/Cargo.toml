@@ -28,6 +28,11 @@ base64 = "0.22"
 open = "5"
 # OS keychain for the Hiroba session JWT (replaces plaintext localStorage).
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+# Auto-update: fetch latest.json from GitHub Releases, verify the minisign
+# signature against the pubkey in tauri.conf.json, install, then relaunch
+# (relaunch comes from the process plugin). Driven from updater.ts.
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 
 [profile.release]
 opt-level = "z"

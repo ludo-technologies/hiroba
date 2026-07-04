@@ -149,6 +149,10 @@ const elCallBanner = $<HTMLDivElement>("call-banner");
 const elCallText = $<HTMLSpanElement>("call-text");
 const elHangup = $<HTMLButtonElement>("hangup");
 const elToasts = $<HTMLDivElement>("toasts");
+const elUpdateBanner = $<HTMLDivElement>("update-banner");
+const elUpdateText = $<HTMLSpanElement>("update-text");
+const elUpdateInstall = $<HTMLButtonElement>("update-install");
+const elUpdateLater = $<HTMLButtonElement>("update-later");
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -769,6 +773,35 @@ export class UIManager {
     elToasts.appendChild(el);
     window.setTimeout(() => el.classList.add("leaving"), 2600);
     window.setTimeout(() => el.remove(), 3100);
+  }
+
+  // -------------------------------------------------------------------------
+  // Update banner (desktop auto-update; driven by updater.ts)
+  // -------------------------------------------------------------------------
+
+  /** Offer an available update. `onInstall` downloads, installs, relaunches. */
+  showUpdateBanner(version: string, onInstall: () => void): void {
+    elUpdateText.textContent = t.updateAvailable(version);
+    elUpdateInstall.disabled = false;
+    elUpdateInstall.textContent = t.updateInstall;
+    // Plain assignment (not addEventListener) so a re-offer never stacks handlers.
+    elUpdateInstall.onclick = () => {
+      elUpdateInstall.disabled = true;
+      elUpdateInstall.textContent = t.updateDownloading;
+      elUpdateLater.setAttribute("hidden", "");
+      onInstall();
+    };
+    elUpdateLater.onclick = () => elUpdateBanner.setAttribute("hidden", "");
+    elUpdateLater.removeAttribute("hidden");
+    elUpdateBanner.removeAttribute("hidden");
+  }
+
+  /** Re-arm the banner after a failed download/install and say so. */
+  updateBannerFailed(): void {
+    elUpdateInstall.disabled = false;
+    elUpdateInstall.textContent = t.updateInstall;
+    elUpdateLater.removeAttribute("hidden");
+    this.showToast(t.updateFailed, "error");
   }
 
   private _bindSidebar(): void {

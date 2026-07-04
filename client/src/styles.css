@@ -1118,6 +1118,73 @@ body {
   filter: brightness(1.08);
 }
 
+/* Update banner — same pill as the call banner, accent-toned. Sits bottom
+   right so it never covers the call banner or toasts. */
+.update-banner {
+  position: fixed;
+  bottom: 18px;
+  right: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px 9px 15px;
+  background: linear-gradient(180deg, #fff, var(--paper));
+  border: 1px solid var(--accent-soft);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-hud);
+  z-index: 58;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  animation: nudge-in 0.3s var(--ease);
+}
+
+.update-banner[hidden] {
+  display: none;
+}
+
+#update-install {
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  padding: 6px 13px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+
+#update-install:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+#update-install:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.update-later {
+  border: none;
+  background: none;
+  color: var(--ink);
+  opacity: 0.55;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.update-later:hover {
+  opacity: 0.9;
+}
+
+.update-later[hidden] {
+  display: none;
+}
+
 .toasts {
   position: fixed;
   top: 62px;

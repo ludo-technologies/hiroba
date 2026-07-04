@@ -99,6 +99,13 @@ const EN = {
   onboardClick: "— or click the floor",
   nudgeText: "Someone's nearby — press M to talk",
 
+  // Auto-update banner
+  updateAvailable: (v: string) => `Hiroba ${v} is available`,
+  updateInstall: "Restart to update",
+  updateDownloading: "Updating…",
+  updateLater: "Later",
+  updateFailed: "Update failed — please try again later.",
+
   // HUD
   muted: "Muted",
   live: "Live",
@@ -224,6 +231,13 @@ const JA: typeof EN = {
   onboardWalk: "で移動",
   onboardClick: "(クリックでも移動できます)",
   nudgeText: "近くに誰かいます — M キーで話せます",
+
+  // Auto-update banner
+  updateAvailable: (v: string) => `Hiroba ${v} が利用できます`,
+  updateInstall: "更新して再起動",
+  updateDownloading: "更新中…",
+  updateLater: "後で",
+  updateFailed: "更新に失敗しました。しばらくしてからもう一度お試しください。",
 
   // HUD
   muted: "ミュート中",

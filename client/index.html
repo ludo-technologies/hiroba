@@ -298,6 +298,13 @@
       <button id="hangup" type="button" data-i18n="hangUp">Hang up</button>
     </div>
 
+    <!-- Update banner: a newer signed release exists; one click installs + relaunches -->
+    <div id="update-banner" class="update-banner" hidden role="status" aria-live="polite">
+      <span id="update-text">Update available</span>
+      <button id="update-install" type="button" data-i18n="updateInstall">Restart to update</button>
+      <button id="update-later" type="button" class="update-later" data-i18n="updateLater">Later</button>
+    </div>
+
     <!-- Transient toasts (page rejected, space full, …) -->
     <div id="toasts" class="toasts" aria-live="polite"></div>
 

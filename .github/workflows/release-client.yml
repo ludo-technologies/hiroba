@@ -9,8 +9,11 @@
 # (build falls back to an unsigned/unnotarized dmg if any are missing):
 #   APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID
 #
-# Windows signing (not configured yet):
+# Updater artifact signing (REQUIRED — bundle.createUpdaterArtifacts is on, so
+# the build fails loudly if these secrets are missing; no unsigned releases):
 #   TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+# Generate the keypair with `npm run tauri signer generate`; the matching
+# public key lives in tauri.conf.json (plugins.updater.pubkey).
 
 name: Release desktop client
 
@@ -98,6 +101,10 @@ jobs:
           # shipping a binary that points at 127.0.0.1.
           VITE_HIROBA_SERVER: wss://ws.hirobaoffice.com/ws
           VITE_HIROBA_AUTH_SERVER: https://auth.hirobaoffice.com
+          # Updater artifact signing — createUpdaterArtifacts makes the build
+          # fail if the key is missing, so an unsigned release can't ship.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -115,4 +122,7 @@ jobs:
             Server self-hosting: [docs/SELF_HOSTING.md](https://github.com/${{ github.repository }}/blob/main/docs/SELF_HOSTING.md)
           generateReleaseNotes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
+          # Attach latest.json so installed apps can discover this release
+          # via the updater endpoint (…/releases/latest/download/latest.json).
+          includeUpdaterJson: true
           args: ${{ matrix.args }}

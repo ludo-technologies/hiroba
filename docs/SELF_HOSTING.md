@@ -141,6 +141,20 @@ npm run tauri build
 A user's own *Advanced* override (saved in the app) still wins over the baked-in
 default.
 
+**Auto-update**: the app ships with the Tauri updater enabled, and the config
+in `client/src-tauri/tauri.conf.json` points at the upstream Hiroba GitHub
+releases with the upstream signing pubkey. If you distribute your own build,
+either
+
+- **replace** `plugins.updater.pubkey` / `endpoints` with your own (generate a
+  keypair with `npm run tauri signer generate`, host your own `latest.json`,
+  and export `TAURI_SIGNING_PRIVATE_KEY` when building) — otherwise your users
+  would be auto-updated onto upstream builds and silently lose your baked-in
+  server URLs; or
+- **disable it**: remove the `plugins.updater` block and set
+  `bundle.createUpdaterArtifacts` to `false` (this also lifts the signing-key
+  requirement at build time).
+
 > **Note on the webview CSP**: the app ships a CSP that restricts scripts to the
 > bundle (`script-src 'self'`), but `connect-src` deliberately allows any
 > `ws:`/`wss:`/`http:`/`https:` host — the server URL is user-configurable, so

@@ -26,9 +26,18 @@
       "csp": "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost ws: wss: http: https:"
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdCMUQ2RkMzRTIxMDg3QzQKUldURWh4RGl3MjhkZXo3MGtUV1UrNm1BVnVqMFBtYnNEcHFDWTFXSDFIQWhSNWZkYTV3VGhUZjQK",
+      "endpoints": [
+        "https://github.com/ludo-technologies/hiroba/releases/latest/download/latest.json"
+      ]
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
