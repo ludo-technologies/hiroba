@@ -1,33 +1,8 @@
 /* Hiroba landing site — OS-aware direct download links.
-   Fetches the latest GitHub Release assets once, then wires primary CTAs and
-   optional "other platform" links. Swap DOWNLOAD_BASE when mirroring to CDN. */
+   Reads a build-time manifest (injected by scripts/build-site.mjs) and wires
+   primary CTAs without calling the GitHub API at runtime. */
 (() => {
   'use strict';
-
-  const REPO = 'ludo-technologies/hiroba';
-  const RELEASE_API = `https://api.github.com/repos/${REPO}/releases/latest`;
-  // Mirror later: e.g. 'https://download.hiroba.app/latest'
-  const DOWNLOAD_BASE = `https://github.com/${REPO}/releases/latest/download`;
-
-  const PICKERS = [
-    { id: 'mac-arm', labelKey: 'downloadMacArm', match: (name) => /aarch64\.dmg$/i.test(name) },
-    {
-      id: 'mac-intel',
-      labelKey: 'downloadMacIntel',
-      match: (name) => /_x64\.dmg$/i.test(name),
-    },
-    {
-      id: 'mac-universal',
-      labelKey: 'downloadMacUniversal',
-      match: (name) => /universal\.dmg$/i.test(name),
-    },
-    {
-      id: 'win',
-      labelKey: 'downloadWin',
-      match: (name) => /\.msi$/i.test(name) || /-setup\.exe$/i.test(name),
-    },
-    { id: 'linux', labelKey: 'downloadLinux', match: (name) => /\.AppImage$/i.test(name) },
-  ];
 
   const PRIMARY_LABEL = {
     mac: 'downloadCtaMac',
@@ -36,12 +11,30 @@
     fallback: 'invitedCta',
   };
 
+  const MORE_LABEL = {
+    'mac-arm': 'downloadMacArm',
+    'mac-intel': 'downloadMacIntel',
+    'mac-universal': 'downloadMacUniversal',
+    win: 'downloadWin',
+    linux: 'downloadLinux',
+  };
+
   function t(key) {
     return window.HirobaSiteI18n?.t?.[key] ?? null;
   }
 
   function txt(key, fallback) {
     return t(key) ?? fallback;
+  }
+
+  function readManifest() {
+    const el = document.getElementById('hiroba-download-manifest');
+    if (!el?.textContent) return null;
+    try {
+      return JSON.parse(el.textContent);
+    } catch {
+      return null;
+    }
   }
 
   function detectOsFamily() {
@@ -88,19 +81,16 @@
     return 'unknown';
   }
 
-  function assetUrl(name) {
-    return `${DOWNLOAD_BASE}/${encodeURIComponent(name)}`;
-  }
-
-  function classifyAssets(assets) {
+  function manifestPicks(manifest) {
     const picks = new Map();
-    for (const asset of assets) {
-      const name = asset.name || '';
-      for (const rule of PICKERS) {
-        if (picks.has(rule.id)) continue;
-        if (rule.match(name)) {
-          picks.set(rule.id, { ...rule, name, url: assetUrl(name) });
-        }
+    for (const [id, asset] of Object.entries(manifest?.picks ?? {})) {
+      if (asset?.url) {
+        picks.set(id, {
+          id,
+          name: asset.name,
+          url: asset.url,
+          labelKey: MORE_LABEL[id],
+        });
       }
     }
     return picks;
@@ -113,7 +103,6 @@
       if (picks.has('mac-universal')) return picks.get('mac-universal');
       if (macArch === 'intel' && hasIntel) return picks.get('mac-intel');
       if (macArch === 'arm' && hasArm) return picks.get('mac-arm');
-      // Unknown arch with split installers: never guess — surface both links instead.
       if (macArch === 'unknown' && hasArm && hasIntel) return null;
       if (hasArm) return picks.get('mac-arm');
       if (hasIntel) return picks.get('mac-intel');
@@ -131,32 +120,6 @@
     return PRIMARY_LABEL.fallback;
   }
 
-  async function fetchLatestAssets() {
-    const cacheKey = 'hiroba:latest-release-assets';
-    try {
-      const cached = sessionStorage.getItem(cacheKey);
-      if (cached) return JSON.parse(cached);
-    } catch {
-      /* ignore */
-    }
-
-    const res = await fetch(RELEASE_API, {
-      headers: { Accept: 'application/vnd.github+json' },
-    });
-    if (!res.ok) return [];
-    const release = await res.json();
-    const assets = (release.assets || [])
-      .filter((a) => a?.name && a.state !== 'placeholder')
-      .map((a) => ({ name: a.name, url: assetUrl(a.name) }));
-
-    try {
-      sessionStorage.setItem(cacheKey, JSON.stringify(assets));
-    } catch {
-      /* ignore */
-    }
-    return assets;
-  }
-
   function isMacArchAmbiguous(osFamily, macArch, picks) {
     return (
       osFamily === 'mac' &&
@@ -167,42 +130,42 @@
     );
   }
 
+  function setDownloadHref(el, url) {
+    el.href = url;
+    el.removeAttribute('target');
+    el.removeAttribute('rel');
+  }
+
   function wirePrimary(els, pick, osFamily, macArch, picks) {
     const ambiguous = isMacArchAmbiguous(osFamily, macArch, picks);
     const label = txt(primaryLabelKey(osFamily), 'Download the app');
     for (const el of els) {
-      // Unknown Mac arch: the choice buttons rendered by wireMore take over
-      // as the primary action, so drop this button instead of disabling it.
       if (ambiguous) {
         el.hidden = true;
         continue;
       }
-      // No matching asset for this OS: keep the static fallback link
-      // (GitHub releases page) untouched.
       if (!pick) continue;
       el.hidden = false;
-      el.href = pick.url;
-      el.removeAttribute('target');
-      el.removeAttribute('rel');
-      el.textContent = label;
+      setDownloadHref(el, pick.url);
+      if (el.childElementCount === 0) {
+        el.textContent = label;
+      } else {
+        const labelEl = el.querySelector('[data-i18n]');
+        if (labelEl && osFamily !== 'other') labelEl.textContent = label;
+      }
     }
   }
 
   function wireFooter(els, pick) {
     for (const el of els) {
-      // Keep the static fallback href when there is nothing better to offer.
       if (!pick) continue;
-      el.href = pick.url;
-      el.removeAttribute('target');
-      el.removeAttribute('rel');
+      setDownloadHref(el, pick.url);
       el.removeAttribute('aria-disabled');
     }
   }
 
   function wireMore(container, picks, primary, osFamily, macArch) {
     if (!container) return;
-    // When the Mac arch is unknown these links are the primary action, not a
-    // footnote — render them as full primary buttons with a small note.
     const choiceMode = isMacArchAmbiguous(osFamily, macArch, picks);
     let items = [...picks.values()].filter((p) => p.url !== primary?.url);
     if (choiceMode) {
@@ -235,17 +198,17 @@
   }
 
   async function init() {
+    const manifest = readManifest();
     const primaryEls = document.querySelectorAll('[data-download="primary"]');
     const footerEls = document.querySelectorAll('[data-download="footer"]');
     const moreEl = document.querySelector('[data-download-more]');
     if (!primaryEls.length && !footerEls.length) return;
 
+    const picks = manifestPicks(manifest);
+    if (!picks.size) return;
+
     const osFamily = detectOsFamily();
     const macArch = osFamily === 'mac' ? await detectMacArch() : null;
-    const assets = await fetchLatestAssets();
-    const picks = classifyAssets(assets);
-    // API failure or rate limit: leave the static fallback links as-is.
-    if (!picks.size) return;
     const primary = pickPrimary(picks, osFamily, macArch);
     const macAmbiguous = isMacArchAmbiguous(osFamily, macArch, picks);
     const footerPick = macAmbiguous ? null : (primary ?? picks.values().next().value ?? null);

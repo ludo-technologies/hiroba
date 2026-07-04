@@ -18,7 +18,7 @@
         ? 'ja'
         : 'en';
 
-  // Primary CTAs scroll to the on-page download section.
+  // Legacy href for any remaining scroll-to-download links.
   const ctaDownloadHref = '#download';
 
   const EN = {
@@ -609,6 +609,7 @@
       if (v !== null) el.innerHTML = v;
     }
     for (const el of document.querySelectorAll('[data-i18n-href]')) {
+      if (el.hasAttribute('data-download')) continue;
       const v = text(el.dataset.i18nHref);
       if (v !== null) el.setAttribute('href', v);
     }
