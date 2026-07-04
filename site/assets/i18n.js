@@ -18,10 +18,8 @@
         ? 'ja'
         : 'en';
 
-  // Early-access CTAs now scroll to the on-page waitlist form (#early-access)
-  // instead of opening a mail client. Kept under the same key so the existing
-  // data-i18n-href hooks need no markup changes.
-  const mailEarlyAccess = '#early-access';
+  // Primary CTAs scroll to the on-page download section.
+  const ctaDownloadHref = '#download';
 
   const EN = {
     // Shared <head>
@@ -34,7 +32,7 @@
 
     pricingDocTitle: 'Pricing — Hiroba',
     pricingMetaDescription:
-      'Hiroba pricing. OSS self-host is free and unlimited. Hosted is simple per-seat billing (early-access pricing).',
+      'Hiroba pricing. OSS self-host is free and unlimited. Hosted is simple per-seat billing (launch pricing).',
     pricingOgTitle: 'Pricing — Hiroba',
     pricingOgDescription: 'Self-host is free. Hosted is simple per-seat billing.',
 
@@ -51,7 +49,6 @@
       'A featherweight virtual office for your team. Built open source (Apache-2.0) and also offered as a hosted, zero-ops option.',
     footerProduct: 'Product',
     footerDownload: 'Download',
-    footerEarlyAccess: 'Early access',
     footerOpenSource: 'Open Source',
     footerSelfHostGuide: 'Self-host guide',
     footerProtocol: 'Protocol spec',
@@ -67,8 +64,6 @@
       '<span class="nowrap"><em>Featherweight</em></span><br /><span class="nowrap">virtual office.</span>',
     heroLede:
       'See who\u2019s around at a glance. Walk over to them or page someone with one click \u2014 it feels like tapping the desk next to you. Idle CPU near 0%, light on memory, light enough to forget it\u2019s running all day so everyone can stay on the floor. That\u2019s Hiroba.',
-    ctaCreateOrg: 'Create an organization',
-    ctaSelfHost: 'Start with self-host',
     heroProofCpu: 'Idle CPU near 0%',
     heroProofMem: 'Light on memory',
     heroProofOss: 'OSS \u00b7 Apache-2.0',
@@ -178,7 +173,7 @@
     hostedLi2: 'Org creation, invite links, member management',
     hostedLi3: 'Stays connected on corporate networks',
     hostedLi4: 'Per-seat billing (see pricing)',
-    hostedCta: 'Join early access',
+    hostedCta: 'Download the app',
     ossWayTag: 'Open Source',
     ossWayTitle: 'OSS self-host',
     ossWayDesc:
@@ -188,9 +183,6 @@
     ossWayLi3: 'Guest / simple join; OAuth optional',
     ossWayLi4: 'Setup guide and protocol spec published',
     ossWayCta: 'View on GitHub',
-    invitedTitle: 'Got an invite link?',
-    invitedDesc:
-      'Install the desktop app and open the invite link to join your org\u2019s floor. Sign in with your Google or GitHub account.',
     invitedCta: 'Download the app',
     downloadCtaMac: 'Download for macOS',
     downloadCtaWin: 'Download for Windows',
@@ -202,7 +194,6 @@
     downloadLinux: 'Linux',
     downloadMoreSep: ' \u00b7 ',
     downloadChooseMac: 'Choose your Mac version below',
-    downloadUnavailable: 'Desktop app coming soon',
 
     // Index — CTA band
     indexCtaTitle: 'Ready to try a virtual office<br />for your team?',
@@ -240,7 +231,7 @@
     planHostedLi3: 'Stays connected on corporate networks',
     planHostedLi4: 'We handle infra and updates',
     planHostedLi5: 'Email support',
-    planHostedCta: 'Join early access',
+    planHostedCta: 'Download the app',
 
     // Pricing — compare
     compareSecNo: 'Compare',
@@ -307,27 +298,13 @@
     demoStatusCall: 'On call',
     demoPageChip: 'Page',
 
-    // Index — early-access waitlist
-    waitlistSecNo: 'Early access',
-    waitlistTitle: 'Join the early-access waitlist.',
-    waitlistLede:
-      'Hosted is invite-only for now. Leave your email and we’ll send a download link the moment your spot opens — no setup, nothing to install yet.',
-    waitlistEmailLabel: 'Work email',
-    waitlistEmailPlaceholder: 'you@company.com',
-    waitlistOrgLabel: 'Organization (optional)',
-    waitlistOrgPlaceholder: 'Acme Inc.',
-    waitlistHeadcountLabel: 'Team size (optional)',
-    waitlistHeadcountPlaceholder: 'e.g. 8',
-    waitlistNotesLabel: 'Anything else (optional)',
-    waitlistNotesPlaceholder: 'How you’d use Hiroba, timeline, questions…',
-    waitlistSubmit: 'Join the waitlist',
-    waitlistFineprint: 'We’ll only email you about early access. No spam, no sharing.',
-    waitlistSending: 'Sending…',
-    waitlistSuccess: 'You’re on the list. We’ll email you a download link when it’s ready.',
-    waitlistErrorEmail: 'Please enter a valid email address.',
-    waitlistError: 'Something went wrong. Please try again, or email contact@ludo-tech.org.',
+    // Index — download
+    downloadSecNo: 'Download',
+    downloadTitle: 'Download the desktop app.',
+    downloadLede:
+      'Builds for macOS, Windows, and Linux, served from GitHub Releases. macOS builds are signed and notarized.',
 
-    mailEarlyAccess,
+    ctaDownloadHref,
   };
 
   const JA = {
@@ -340,7 +317,7 @@
 
     pricingDocTitle: '料金 — Hiroba',
     pricingMetaDescription:
-      'Hirobaの料金。OSS self-hostは無料・無制限。ホスト型はシンプルなシート課金（早期アクセス価格）。',
+      'Hirobaの料金。OSS self-hostは無料・無制限。ホスト型はシンプルなシート課金（ローンチ価格）。',
     pricingOgTitle: '料金 — Hiroba',
     pricingOgDescription: 'self-hostは無料。ホスト型はシンプルなシート課金。',
 
@@ -356,7 +333,6 @@
       '忘れるほど軽い、チームのためのバーチャルオフィス。オープンソース（Apache-2.0）で開発され、運用不要のホスト型としても提供されます。',
     footerProduct: 'Product',
     footerDownload: 'ダウンロード',
-    footerEarlyAccess: '早期アクセス',
     footerOpenSource: 'Open Source',
     footerSelfHostGuide: 'self-host ガイド',
     footerProtocol: 'プロトコル仕様',
@@ -371,8 +347,6 @@
       '<span class="nowrap"><em>超軽量</em></span><br /><span class="nowrap">バーチャル</span><span class="nowrap">オフィス。</span>',
     heroLede:
       'チームの在席がひと目で分かり、相手に歩み寄るか、ワンクリックの呼びかけで、隣の席にいる感覚ですぐ話せる。そしてアイドル時CPUほぼ0%・省メモリ。一日中つけっぱなしでも忘れるほど軽いから、みんながフロアに“居続けられる”。それが Hiroba です。',
-    ctaCreateOrg: '組織をつくる',
-    ctaSelfHost: 'self-host で始める',
     heroProofCpu: 'アイドルCPU ほぼ0%',
     heroProofMem: 'メモリ常駐は控えめ',
     heroProofOss: 'OSS · Apache-2.0',
@@ -475,7 +449,7 @@
     hostedLi2: '組織の作成・招待リンク・メンバー管理',
     hostedLi3: '企業ネットワークでも、安定してつながる',
     hostedLi4: 'シート課金（料金ページ参照）',
-    hostedCta: '早期アクセスに登録',
+    hostedCta: 'アプリをダウンロード',
     ossWayTag: 'Open Source',
     ossWayTitle: 'OSS self-host',
     ossWayDesc:
@@ -485,9 +459,6 @@
     ossWayLi3: 'ゲスト/簡易入室、OAuthは任意で有効化',
     ossWayLi4: 'セットアップ手順・プロトコル仕様を公開',
     ossWayCta: 'GitHubで見る',
-    invitedTitle: '招待リンクを受け取った方へ',
-    invitedDesc:
-      'デスクトップアプリをインストールして、届いた招待リンクを開くだけで組織のフロアに参加できます。アカウントはお使いのGoogle / GitHubアカウントでそのまま。',
     invitedCta: 'アプリをダウンロード',
     downloadCtaMac: 'macOS 版をダウンロード',
     downloadCtaWin: 'Windows 版をダウンロード',
@@ -499,7 +470,6 @@
     downloadLinux: 'Linux',
     downloadMoreSep: ' · ',
     downloadChooseMac: 'お使いの Mac に合わせて選んでください',
-    downloadUnavailable: 'デスクトップアプリは近日公開',
 
     indexCtaTitle: 'チームのバーチャルオフィス、<br />試してみませんか。',
     indexCtaDesc:
@@ -534,7 +504,7 @@
     planHostedLi3: '企業ネットワークでも、安定してつながる',
     planHostedLi4: 'インフラ運用・アップデートはおまかせ',
     planHostedLi5: 'メールサポート',
-    planHostedCta: '早期アクセスに登録',
+    planHostedCta: 'アプリをダウンロード',
 
     compareSecNo: 'Compare',
     compareTitle: 'ホスト型と self-host の違い',
@@ -597,27 +567,13 @@
     demoStatusCall: '通話中',
     demoPageChip: '呼びかけ',
 
-    // Index — early-access waitlist
-    waitlistSecNo: '早期アクセス',
-    waitlistTitle: '早期アクセスのウェイトリストに登録。',
-    waitlistLede:
-      'ホスト版は現在ご招待制です。メールアドレスをご登録いただければ、枠が空き次第ダウンロードのご案内をお送りします。今すぐの設定やインストールは不要です。',
-    waitlistEmailLabel: '仕事用メールアドレス',
-    waitlistEmailPlaceholder: 'you@company.com',
-    waitlistOrgLabel: '組織名（任意）',
-    waitlistOrgPlaceholder: '株式会社〇〇',
-    waitlistHeadcountLabel: 'チーム人数（任意）',
-    waitlistHeadcountPlaceholder: '例：8',
-    waitlistNotesLabel: 'その他（任意）',
-    waitlistNotesPlaceholder: '使い方の想定・導入時期・ご質問など…',
-    waitlistSubmit: 'ウェイトリストに登録',
-    waitlistFineprint: 'ご連絡は早期アクセスに関するもののみ。スパムや第三者提供はありません。',
-    waitlistSending: '送信中…',
-    waitlistSuccess: '登録しました。準備が整い次第、ダウンロードのご案内をお送りします。',
-    waitlistErrorEmail: '有効なメールアドレスを入力してください。',
-    waitlistError: '送信に失敗しました。時間をおいて再度お試しいただくか、contact@ludo-tech.org までご連絡ください。',
+    // Index — download
+    downloadSecNo: 'Download',
+    downloadTitle: 'デスクトップアプリをダウンロード。',
+    downloadLede:
+      'macOS / Windows / Linux 向けのビルドを GitHub Releases で配布しています。macOS 版は署名・公証済みです。',
 
-    mailEarlyAccess,
+    ctaDownloadHref,
   };
 
   const t = locale === 'ja' ? JA : EN;

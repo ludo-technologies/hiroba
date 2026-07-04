@@ -613,7 +613,7 @@ p { margin: 0; }
 #numbers { --dot: var(--p-plum); }
 #oss { --dot: var(--p-clay); }
 #start { --dot: var(--p-moss); }
-#early-access { --dot: var(--p-indigo); }
+#download { --dot: var(--p-indigo); }
 body[data-page="pricing"] .section:nth-of-type(odd) { --dot: var(--p-plum); }
 body[data-page="pricing"] .section:nth-of-type(even) { --dot: var(--p-gold); }
 
@@ -1005,23 +1005,16 @@ body[data-page="pricing"] .section:nth-of-type(even) { --dot: var(--p-gold); }
   .ways { grid-template-columns: 1fr; }
 }
 
-/* --- invited (download row, injected by download.js) --------------------- */
+/* --- download CTA (links injected by download.js) ------------------------ */
 
-.invited {
-  border: 1px dashed var(--line-strong);
-  border-radius: var(--radius);
-  padding: 30px 34px;
+.download-cta {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 18px 32px;
-  background: var(--surface);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
 }
-.invited h3 { font-size: 1.05rem; letter-spacing: -0.01em; }
-.invited p { font-size: 0.9rem; color: var(--ink-soft); flex: 1 1 320px; }
-.invited-actions { flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
-.invited .btn { flex: none; }
-.invited .btn.is-disabled { pointer-events: none; opacity: 0.55; }
+.download-cta .btn { flex: none; }
+.download-cta .btn.is-disabled { pointer-events: none; opacity: 0.55; }
 .download-more {
   margin: 0;
   font-size: 0.78rem;
@@ -1287,71 +1280,4 @@ body[data-page="pricing"] .section:nth-of-type(even) { --dot: var(--p-gold); }
 }
 @media (max-width: 760px) {
   .footer-grid { grid-template-columns: 1fr; gap: 32px; }
-}
-
-/* ============================== Early-access waitlist ============================== */
-.waitlist-form {
-  max-width: 640px;
-  margin: 0 auto;
-  display: grid;
-  gap: 16px;
-}
-.waitlist-form .wl-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-.waitlist-form .wl-field { display: grid; gap: 6px; }
-.waitlist-form .wl-wide { grid-column: 1 / -1; }
-.waitlist-form .wl-field > span {
-  font-family: var(--mono);
-  font-size: 0.74rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--ink-soft);
-}
-.waitlist-form .wl-field em {
-  font-style: normal;
-  color: var(--ink-faint);
-  font-weight: 400;
-  text-transform: none;
-  letter-spacing: 0;
-}
-.waitlist-form input,
-.waitlist-form textarea {
-  font-family: var(--body);
-  font-size: 0.95rem;
-  color: var(--ink);
-  background: var(--surface);
-  border: 1px solid var(--line-strong);
-  border-radius: 10px;
-  padding: 11px 13px;
-  width: 100%;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-.waitlist-form textarea { resize: vertical; min-height: 84px; }
-.waitlist-form input::placeholder,
-.waitlist-form textarea::placeholder { color: var(--ink-faint); }
-.waitlist-form input:focus,
-.waitlist-form textarea:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
-.waitlist-form .wl-actions {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-.waitlist-form .wl-status { margin: 0; font-size: 0.88rem; font-weight: 500; }
-.waitlist-form .wl-status.is-ok { color: var(--live); }
-.waitlist-form .wl-status.is-error { color: var(--p-clay); }
-.waitlist-form button[disabled] { opacity: 0.6; cursor: progress; transform: none; }
-.waitlist-form .wl-fineprint { margin: 0; font-size: 0.78rem; color: var(--ink-faint); }
-/* Honeypot — visually and programmatically removed from the flow. */
-.waitlist-form .hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
-@media (max-width: 600px) {
-  .waitlist-form .wl-row { grid-template-columns: 1fr; }
 }

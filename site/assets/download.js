@@ -180,13 +180,9 @@
         el.textContent = label;
         continue;
       }
-      if (!pick) {
-        el.removeAttribute('href');
-        el.setAttribute('aria-disabled', 'true');
-        el.classList.add('is-disabled');
-        el.textContent = txt('downloadUnavailable', 'Desktop app coming soon');
-        continue;
-      }
+      // No matching asset for this OS: keep the static fallback link
+      // (GitHub releases page) untouched.
+      if (!pick) continue;
       el.href = pick.url;
       el.removeAttribute('target');
       el.removeAttribute('rel');
@@ -199,11 +195,8 @@
 
   function wireFooter(els, pick) {
     for (const el of els) {
-      if (!pick) {
-        el.removeAttribute('href');
-        el.setAttribute('aria-disabled', 'true');
-        continue;
-      }
+      // Keep the static fallback href when there is nothing better to offer.
+      if (!pick) continue;
       el.href = pick.url;
       el.removeAttribute('target');
       el.removeAttribute('rel');
@@ -247,6 +240,8 @@
     const macArch = osFamily === 'mac' ? await detectMacArch() : null;
     const assets = await fetchLatestAssets();
     const picks = classifyAssets(assets);
+    // API failure or rate limit: leave the static fallback links as-is.
+    if (!picks.size) return;
     const primary = pickPrimary(picks, osFamily, macArch);
     const macAmbiguous = isMacArchAmbiguous(osFamily, macArch, picks);
     const footerPick = macAmbiguous ? null : (primary ?? picks.values().next().value ?? null);
