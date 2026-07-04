@@ -61,6 +61,10 @@ body {
   overflow-x: hidden;
 }
 
+/* Author display rules (e.g. .btn's inline-flex) would otherwise beat the
+   UA's [hidden] { display: none }. */
+[hidden] { display: none !important; }
+
 /* the coordinate floor: a faint dot grid under everything */
 body::before {
   content: "";
@@ -1011,18 +1015,34 @@ body[data-page="pricing"] .section:nth-of-type(even) { --dot: var(--p-gold); }
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 12px;
+  gap: 14px;
 }
-.download-cta .btn { flex: none; }
-.download-cta .btn.is-disabled { pointer-events: none; opacity: 0.55; }
+/* The section's whole point is this button — oversize it. */
+.download-cta .btn {
+  flex: none;
+  font-size: 1.1rem;
+  padding: 17px 36px;
+}
 .download-more {
   margin: 0;
   font-size: 0.78rem;
   color: var(--ink-soft);
   line-height: 1.5;
 }
-.download-more a { color: var(--ink-soft); text-decoration: underline; text-underline-offset: 2px; }
-.download-more a:hover { color: var(--accent); }
+.download-more a:not(.btn) { color: var(--ink-soft); text-decoration: underline; text-underline-offset: 2px; }
+.download-more a:not(.btn):hover { color: var(--accent); }
+/* Unknown Mac arch: the two arch links are the primary action, shown as
+   full-size buttons under a small pick-your-arch note. */
+.download-more.is-choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.download-more.is-choice .dl-note {
+  flex-basis: 100%;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
 
 /* --- CTA band — the signature, full size: concentric proximity rings ----- */
 

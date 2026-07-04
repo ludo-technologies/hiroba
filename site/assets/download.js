@@ -169,27 +169,22 @@
 
   function wirePrimary(els, pick, osFamily, macArch, picks) {
     const ambiguous = isMacArchAmbiguous(osFamily, macArch, picks);
-    const label = ambiguous
-      ? txt('downloadChooseMac', 'Choose your Mac version below')
-      : txt(primaryLabelKey(osFamily), 'Download the app');
+    const label = txt(primaryLabelKey(osFamily), 'Download the app');
     for (const el of els) {
+      // Unknown Mac arch: the choice buttons rendered by wireMore take over
+      // as the primary action, so drop this button instead of disabling it.
       if (ambiguous) {
-        el.removeAttribute('href');
-        el.setAttribute('aria-disabled', 'true');
-        el.classList.add('is-disabled');
-        el.textContent = label;
+        el.hidden = true;
         continue;
       }
       // No matching asset for this OS: keep the static fallback link
       // (GitHub releases page) untouched.
       if (!pick) continue;
+      el.hidden = false;
       el.href = pick.url;
       el.removeAttribute('target');
       el.removeAttribute('rel');
-      el.removeAttribute('aria-disabled');
-      el.classList.remove('is-disabled');
-      if (el.dataset.i18n) el.textContent = label;
-      else el.textContent = label;
+      el.textContent = label;
     }
   }
 
@@ -206,27 +201,36 @@
 
   function wireMore(container, picks, primary, osFamily, macArch) {
     if (!container) return;
+    // When the Mac arch is unknown these links are the primary action, not a
+    // footnote — render them as full primary buttons with a small note.
+    const choiceMode = isMacArchAmbiguous(osFamily, macArch, picks);
     let items = [...picks.values()].filter((p) => p.url !== primary?.url);
-    if (isMacArchAmbiguous(osFamily, macArch, picks)) {
+    if (choiceMode) {
       items = [picks.get('mac-arm'), picks.get('mac-intel')].filter(Boolean);
     }
+    container.classList.toggle('is-choice', choiceMode);
     if (!items.length) {
       container.hidden = true;
       return;
     }
 
     const sep = txt('downloadMoreSep', ' · ');
-    container.replaceChildren(
-      ...items.flatMap((item, i) => {
-        const nodes = [];
-        if (i > 0) nodes.push(document.createTextNode(sep));
-        const a = document.createElement('a');
-        a.href = item.url;
-        a.textContent = txt(item.labelKey, item.name);
-        nodes.push(a);
-        return nodes;
-      })
-    );
+    const nodes = [];
+    if (choiceMode) {
+      const note = document.createElement('span');
+      note.className = 'dl-note';
+      note.textContent = txt('downloadChooseMac', 'Choose your Mac version below');
+      nodes.push(note);
+    }
+    items.forEach((item, i) => {
+      if (!choiceMode && i > 0) nodes.push(document.createTextNode(sep));
+      const a = document.createElement('a');
+      a.href = item.url;
+      if (choiceMode) a.className = 'btn btn-primary';
+      a.textContent = txt(item.labelKey, item.name);
+      nodes.push(a);
+    });
+    container.replaceChildren(...nodes);
     container.hidden = false;
   }
 

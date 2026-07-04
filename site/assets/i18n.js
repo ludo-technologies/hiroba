@@ -569,7 +569,8 @@
 
     // Index — download
     downloadSecNo: 'Download',
-    downloadTitle: 'デスクトップアプリをダウンロード。',
+    downloadTitle:
+      '<span class="nowrap">デスクトップアプリを</span><span class="nowrap">ダウンロード。</span>',
     downloadLede:
       'macOS / Windows / Linux 向けのビルドを GitHub Releases で配布しています。macOS 版は署名・公証済みです。',
 
