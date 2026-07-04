@@ -218,6 +218,55 @@
       <header class="side-head">
         <span class="org-dot" aria-hidden="true"></span>
         <span id="org-name" class="org-name">Hiroba</span>
+        <!-- Admin only (role from the session JWT); the server re-checks. -->
+        <div class="admin-menu-wrap">
+          <button
+            id="admin-menu-btn"
+            class="admin-menu-btn"
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded="false"
+            data-i18n-title="adminMenuTitle"
+            data-i18n-arialabel="adminMenuTitle"
+            hidden
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                 stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="3.2" />
+              <path d="M19.4 15a1.6 1.6 0 0 0 .32 1.76l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.76-.32 1.6 1.6 0 0 0-.97 1.46V21a2 2 0 1 1-4 0v-.09a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.76.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.6 1.6 0 0 0 .32-1.76 1.6 1.6 0 0 0-1.46-.97H3a2 2 0 1 1 0-4h.09a1.6 1.6 0 0 0 1.46-1.05 1.6 1.6 0 0 0-.32-1.76l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.6 1.6 0 0 0 1.76.32h.09a1.6 1.6 0 0 0 .97-1.46V3a2 2 0 1 1 4 0v.09a1.6 1.6 0 0 0 .97 1.46 1.6 1.6 0 0 0 1.76-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.76V9a1.6 1.6 0 0 0 1.46.97H21a2 2 0 1 1 0 4h-.09a1.6 1.6 0 0 0-1.46.97z" />
+            </svg>
+          </button>
+          <div id="admin-menu" class="admin-menu" role="menu" hidden>
+            <button
+              id="invite-panel-btn"
+              class="admin-menu-item"
+              type="button"
+              role="menuitem"
+              data-i18n="manageInvitesTitle"
+            >
+              Manage invitations
+            </button>
+            <button
+              id="members-panel-btn"
+              class="admin-menu-item"
+              type="button"
+              role="menuitem"
+              data-i18n="manageMembersTitle"
+            >
+              Manage members
+            </button>
+            <!-- Only does anything when the auth backend has billing on. -->
+            <button
+              id="billing-panel-btn"
+              class="admin-menu-item"
+              type="button"
+              role="menuitem"
+              data-i18n="manageBillingTitle"
+            >
+              Manage billing
+            </button>
+          </div>
+        </div>
       </header>
       <ul id="roster" class="roster" aria-label="Members" data-i18n-arialabel="ariaMembers"></ul>
       <footer class="side-foot">
@@ -226,28 +275,6 @@
         </button>
         <button id="status-dnd" class="status-toggle" type="button" aria-pressed="false" data-i18n="dnd">
           Do not disturb
-        </button>
-        <!-- Admin only (role from the session JWT); the server re-checks. -->
-        <button
-          id="invite-panel-btn"
-          class="status-toggle side-invite-btn"
-          type="button"
-          data-i18n="manageInvites"
-          data-i18n-title="manageInvitesTitle"
-          hidden
-        >
-          Invites
-        </button>
-        <!-- Admin only; only does anything when the auth backend has billing on. -->
-        <button
-          id="billing-panel-btn"
-          class="status-toggle side-billing-btn"
-          type="button"
-          data-i18n="manageBilling"
-          data-i18n-title="manageBillingTitle"
-          hidden
-        >
-          Billing
         </button>
       </footer>
     </aside>
@@ -285,6 +312,20 @@
         </div>
 
         <p id="invite-panel-error" class="error" role="alert" hidden></p>
+      </div>
+    </div>
+
+    <!-- Member management panel (admin): list / remove org members -->
+    <div id="members-panel" class="overlay" hidden>
+      <div class="card invite-card" role="dialog" aria-modal="true" aria-labelledby="members-panel-title">
+        <header class="invite-head">
+          <span id="members-panel-title" class="invite-title" data-i18n="manageMembersTitle">Manage members</span>
+          <button id="members-panel-close" type="button" class="ghost-btn" data-i18n="closePanel">Close</button>
+        </header>
+
+        <ul id="member-list" class="invite-list" aria-label="Members" data-i18n-arialabel="ariaMembers"></ul>
+
+        <p id="members-panel-error" class="error" role="alert" hidden></p>
       </div>
     </div>
 

@@ -131,6 +131,8 @@ const elOrgSetupName = $<HTMLInputElement>("org-setup-name");
 const elOrgSetupBtn = $<HTMLButtonElement>("org-setup-btn");
 const elOrgSetupBack = $<HTMLButtonElement>("org-setup-back");
 
+const elAdminMenuBtn = $<HTMLButtonElement>("admin-menu-btn");
+const elAdminMenu = $<HTMLDivElement>("admin-menu");
 const elBillingBtn = $<HTMLButtonElement>("billing-panel-btn");
 
 const elInvitePanel = $<HTMLDivElement>("invite-panel");
@@ -144,6 +146,12 @@ const elInviteCopyLink = $<HTMLButtonElement>("invite-copy-link");
 const elInviteCopyCode = $<HTMLButtonElement>("invite-copy-code");
 const elInviteList = $<HTMLUListElement>("invite-list");
 const elInvitePanelError = $<HTMLParagraphElement>("invite-panel-error");
+
+const elMembersPanel = $<HTMLDivElement>("members-panel");
+const elMembersPanelBtn = $<HTMLButtonElement>("members-panel-btn");
+const elMembersPanelClose = $<HTMLButtonElement>("members-panel-close");
+const elMemberList = $<HTMLUListElement>("member-list");
+const elMembersPanelError = $<HTMLParagraphElement>("members-panel-error");
 
 const elReconnect = $<HTMLDivElement>("reconnect");
 const elReconnectMsg = $<HTMLParagraphElement>("reconnect-msg");
@@ -203,6 +211,15 @@ export interface InviteEntry {
   creator: string;
 }
 
+/** An org member shown in the admin panel (mirrors GET /members). */
+export interface MemberEntry {
+  /** Provider-prefixed JWT subject, e.g. `google:1098…`. */
+  subject: string;
+  name: string;
+  role: string;
+  isSelf: boolean;
+}
+
 export interface UICallbacks {
   onJoin(values: JoinFormValues): void;
   /** Start an interactive OAuth login via the Tauri shell (FR-13). */
@@ -219,6 +236,10 @@ export interface UICallbacks {
   onIssueInvite(role: "member" | "admin"): void;
   /** Admin revokes an unused invite. */
   onRevokeInvite(token: string): void;
+  /** Admin opened the member panel — load the current member list. */
+  onOpenMembersPanel(): void;
+  /** Admin removes a member from the org (frees their seat). */
+  onRemoveMember(subject: string): void;
   /** Admin opens the Stripe Customer Portal (add card / change plan / cancel). */
   onOpenBilling(): void;
   onMicToggle(): void;
@@ -288,6 +309,7 @@ export class UIManager {
     this._bindAuth();
     this._bindOrgSetup();
     this._bindInvitePanel();
+    this._bindMembersPanel();
     this._bindHud();
     this._bindReconnect();
     this._bindSidebar();
@@ -482,18 +504,26 @@ export class UIManager {
   // Invite management panel (admin)
   // -------------------------------------------------------------------------
 
-  /** Show / hide the admin-only sidebar entry points (role=admin sessions only).
-   *  The billing button is shown for any admin; it reports gracefully if the
+  /** Show / hide the admin-only gear menu (role=admin sessions only).
+   *  The billing entry is shown for any admin; it reports gracefully if the
    *  deployment has no billing configured (self-host), so the client needn't
    *  know whether billing is on. */
   setAdminVisible(isAdmin: boolean): void {
     if (isAdmin) {
-      elInvitePanelBtn.removeAttribute("hidden");
-      elBillingBtn.removeAttribute("hidden");
+      elAdminMenuBtn.removeAttribute("hidden");
     } else {
-      elInvitePanelBtn.setAttribute("hidden", "");
-      elBillingBtn.setAttribute("hidden", "");
+      elAdminMenuBtn.setAttribute("hidden", "");
+      this._setAdminMenuOpen(false);
     }
+  }
+
+  private _setAdminMenuOpen(open: boolean): void {
+    if (open) {
+      elAdminMenu.removeAttribute("hidden");
+    } else {
+      elAdminMenu.setAttribute("hidden", "");
+    }
+    elAdminMenuBtn.setAttribute("aria-expanded", open ? "true" : "false");
   }
 
   showInvitePanel(): void {
@@ -571,9 +601,94 @@ export class UIManager {
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Member management panel (admin)
+  // -------------------------------------------------------------------------
+
+  showMembersPanel(): void {
+    elMembersPanel.removeAttribute("hidden");
+    elMembersPanelError.setAttribute("hidden", "");
+    elMemberList.replaceChildren();
+  }
+
+  hideMembersPanel(): void {
+    elMembersPanel.setAttribute("hidden", "");
+  }
+
+  showMembersPanelError(msg: string): void {
+    elMembersPanelError.textContent = msg;
+    elMembersPanelError.removeAttribute("hidden");
+  }
+
+  /** Rebuild the member list. Removal is two-step (arm, then confirm) so a
+   *  stray click can't kick someone; re-rendering resets any armed button. */
+  renderMemberList(members: MemberEntry[]): void {
+    elMemberList.replaceChildren();
+    for (const m of members) {
+      const li = document.createElement("li");
+      li.className = "invite-row member-row";
+
+      const role = document.createElement("span");
+      role.className = "invite-row-role";
+      role.textContent = m.role === "admin" ? t.roleAdmin : t.roleMember;
+      li.appendChild(role);
+
+      const name = document.createElement("span");
+      name.className = "invite-row-meta member-row-name";
+      name.textContent = m.isSelf ? t.youName(m.name) : m.name;
+      name.title = m.subject;
+      li.appendChild(name);
+
+      if (!m.isSelf) {
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "invite-revoke-btn";
+        remove.textContent = t.removeMember;
+        remove.addEventListener("click", () => {
+          if (remove.dataset.armed) {
+            this.callbacks.onRemoveMember(m.subject);
+          } else {
+            remove.dataset.armed = "1";
+            remove.textContent = t.confirmRemoveMember;
+          }
+        });
+        li.appendChild(remove);
+      }
+
+      elMemberList.appendChild(li);
+    }
+  }
+
+  private _bindMembersPanel(): void {
+    elMembersPanelBtn.addEventListener("click", () => {
+      this._setAdminMenuOpen(false);
+      this.callbacks.onOpenMembersPanel();
+    });
+    elMembersPanelClose.addEventListener("click", () => this.hideMembersPanel());
+    elMembersPanel.addEventListener("click", (e) => {
+      if (e.target === elMembersPanel) this.hideMembersPanel(); // click outside the card
+    });
+  }
+
   private _bindInvitePanel(): void {
-    elInvitePanelBtn.addEventListener("click", () => this.callbacks.onOpenInvitePanel());
-    elBillingBtn.addEventListener("click", () => this.callbacks.onOpenBilling());
+    elAdminMenuBtn.addEventListener("click", (e) => {
+      e.stopPropagation(); // keep the document close-handler from undoing the toggle
+      this._setAdminMenuOpen(elAdminMenu.hasAttribute("hidden"));
+    });
+    document.addEventListener("click", (e) => {
+      if (!elAdminMenu.contains(e.target as Node)) this._setAdminMenuOpen(false);
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") this._setAdminMenuOpen(false);
+    });
+    elInvitePanelBtn.addEventListener("click", () => {
+      this._setAdminMenuOpen(false);
+      this.callbacks.onOpenInvitePanel();
+    });
+    elBillingBtn.addEventListener("click", () => {
+      this._setAdminMenuOpen(false);
+      this.callbacks.onOpenBilling();
+    });
     elInvitePanelClose.addEventListener("click", () => this.hideInvitePanel());
     elInvitePanel.addEventListener("click", (e) => {
       if (e.target === elInvitePanel) this.hideInvitePanel(); // click outside the card

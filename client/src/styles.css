@@ -833,10 +833,86 @@ body {
 }
 
 .org-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 15px;
   font-weight: 700;
   color: var(--ink);
   letter-spacing: -0.2px;
+}
+
+/* Admin gear + dropdown: rare admin/settings actions live here so the
+   side-foot stays reserved for everyday presence toggles. */
+.admin-menu-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.admin-menu-btn {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-btn);
+  background: transparent;
+  color: var(--ink-mute);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.admin-menu-btn:hover,
+.admin-menu-btn[aria-expanded="true"] {
+  border-color: var(--edge-2);
+  background: var(--paper);
+  color: var(--ink-soft);
+}
+
+.admin-menu-btn[hidden] {
+  display: none;
+}
+
+.admin-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 176px;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  background: var(--paper);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-btn);
+  box-shadow: 0 8px 24px -12px rgba(60, 40, 20, 0.45);
+  z-index: 70;
+}
+
+.admin-menu[hidden] {
+  display: none;
+}
+
+.admin-menu-item {
+  border: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+  padding: 8px 10px;
+  border-radius: calc(var(--radius-btn) - 2px);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.admin-menu-item:hover {
+  background: var(--accent-soft);
+  color: var(--accent-lo);
 }
 
 .roster {
@@ -1430,40 +1506,8 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
- * Invite management (admin): sidebar entry + issue/list/revoke panel
+ * Invite management (admin): issue/list/revoke panel
  * --------------------------------------------------------------------------- */
-
-.side-invite-btn {
-  border-color: rgba(224, 122, 82, 0.35);
-  background: var(--accent-soft);
-  color: var(--accent-lo);
-  font-weight: 700;
-}
-
-.side-invite-btn:hover {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-
-.side-invite-btn[hidden] {
-  display: none;
-}
-
-/* Billing sits next to Invites but is the quieter, secondary admin action —
-   neutral until hovered so the accent stays on inviting people in. */
-.side-billing-btn {
-  font-weight: 600;
-}
-
-.side-billing-btn:hover {
-  border-color: rgba(224, 122, 82, 0.35);
-  color: var(--accent-lo);
-}
-
-.side-billing-btn[hidden] {
-  display: none;
-}
 
 .invite-card {
   width: min(440px, 100%);
@@ -1592,6 +1636,11 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Member names are the row's primary content, not metadata — full ink. */
+.member-row-name {
+  color: var(--ink-soft);
 }
 
 .invite-revoke-btn {

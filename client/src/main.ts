@@ -25,6 +25,7 @@ import {
   UIManager,
   type InviteEntry,
   type JoinFormValues,
+  type MemberEntry,
   type RosterEntry,
 } from "./ui.js";
 import { shouldDraw, shouldKeepAwake } from "./loop.js";
@@ -130,6 +131,8 @@ const ui = new UIManager(
     onOpenInvitePanel: handleOpenInvitePanel,
     onIssueInvite: handleIssueInvite,
     onRevokeInvite: handleRevokeInvite,
+    onOpenMembersPanel: handleOpenMembersPanel,
+    onRemoveMember: handleRemoveMember,
     onOpenBilling: handleOpenBilling,
     onMicToggle: handleMicToggle,
     onLeave: handleLeave,
@@ -361,6 +364,55 @@ async function handleRevokeInvite(token: string): Promise<void> {
     /* the refresh below shows the authoritative state either way */
   }
   await refreshInviteList();
+}
+
+// ---------------------------------------------------------------------------
+// Member management (admin)
+// ---------------------------------------------------------------------------
+
+async function handleOpenMembersPanel(): Promise<void> {
+  ui.showMembersPanel();
+  await refreshMemberList();
+}
+
+async function refreshMemberList(): Promise<void> {
+  if (!authSession) return;
+  try {
+    const resp = await fetch(`${ui.getAuthUrl()}/members`, {
+      headers: { Authorization: `Bearer ${authSession.token}` },
+    });
+    if (!resp.ok) throw new Error(t.errLoadMembers);
+    const data: {
+      members: { subject: string; name: string | null; email: string | null; role: string }[];
+    } = await resp.json();
+    const self = authSession.claims.sub;
+    const entries: MemberEntry[] = data.members.map((m) => ({
+      subject: m.subject,
+      name: m.name || m.email || m.subject,
+      role: m.role,
+      isSelf: m.subject === self,
+    }));
+    ui.renderMemberList(entries);
+  } catch {
+    ui.showMembersPanelError(t.errLoadMembers);
+  }
+}
+
+/** Remove a member (the button itself is two-step, so this fires confirmed).
+ *  The freed seat syncs to Stripe on the auth side; the member's session dies
+ *  when their JWT expires. */
+async function handleRemoveMember(subject: string): Promise<void> {
+  if (!authSession) return;
+  try {
+    const resp = await fetch(`${ui.getAuthUrl()}/members/${encodeURIComponent(subject)}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${authSession.token}` },
+    });
+    if (!resp.ok && resp.status !== 404) throw new Error(t.errRemoveMember);
+  } catch {
+    ui.showMembersPanelError(t.errRemoveMember);
+  }
+  await refreshMemberList(); // authoritative state either way
 }
 
 // ---------------------------------------------------------------------------

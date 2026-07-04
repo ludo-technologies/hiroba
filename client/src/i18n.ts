@@ -49,10 +49,9 @@ const EN = {
   creatingOrg: "Creating…",
   backToLogin: "Back to sign-in",
 
-  // Invite management (admin)
-  manageInvites: "Invites",
+  // Admin menu (gear in the sidebar header)
+  adminMenuTitle: "Admin settings",
   manageInvitesTitle: "Manage invitations",
-  manageBilling: "Billing",
   manageBillingTitle: "Manage billing",
   invitePanel: "Invites",
   closePanel: "Close",
@@ -85,6 +84,13 @@ const EN = {
   errAlreadyInOrg: "You already belong to an organization — please sign in again.",
   errIssueInvite: "Couldn't issue the invite. Please try again.",
   errLoadInvites: "Couldn't load invites.",
+
+  // Member management (admin)
+  manageMembersTitle: "Manage members",
+  removeMember: "Remove",
+  confirmRemoveMember: "Confirm?",
+  errLoadMembers: "Couldn't load members.",
+  errRemoveMember: "Couldn't remove that member. Please try again.",
   openingBilling: "Opening billing…",
   billingNotEnabled: "Billing isn't enabled for this deployment.",
   errBillingPortal: "Couldn't open the billing portal. Please try again.",
@@ -183,10 +189,9 @@ const JA: typeof EN = {
   creatingOrg: "作成中…",
   backToLogin: "サインインに戻る",
 
-  // Invite management (admin)
-  manageInvites: "招待",
+  // Admin menu (gear in the sidebar header)
+  adminMenuTitle: "管理メニュー",
   manageInvitesTitle: "招待の管理",
-  manageBilling: "お支払い",
   manageBillingTitle: "お支払いの管理",
   invitePanel: "招待",
   closePanel: "閉じる",
@@ -219,6 +224,13 @@ const JA: typeof EN = {
   errAlreadyInOrg: "すでに組織に所属しています。もう一度サインインしてください。",
   errIssueInvite: "招待を発行できませんでした。もう一度お試しください。",
   errLoadInvites: "招待の一覧を取得できませんでした。",
+
+  // Member management (admin)
+  manageMembersTitle: "メンバーの管理",
+  removeMember: "削除",
+  confirmRemoveMember: "本当に削除？",
+  errLoadMembers: "メンバーの一覧を取得できませんでした。",
+  errRemoveMember: "メンバーを削除できませんでした。もう一度お試しください。",
   openingBilling: "お支払い管理を開いています…",
   billingNotEnabled: "この環境では課金は有効化されていません。",
   errBillingPortal: "お支払い管理を開けませんでした。もう一度お試しください。",
