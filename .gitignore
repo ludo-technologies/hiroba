@@ -37,6 +37,7 @@ node_modules
 # Cloudflare Pages / Wrangler — local secrets and state (never commit keys)
 .dev.vars
 .wrangler/
+/site-dist
 
 # OS / editor
 .DS_Store

@@ -1,5 +1,6 @@
 # Cloudflare Pages config for the Hiroba marketing site.
-#   wrangler pages deploy            # static site only, no functions
+#   node scripts/build-site.mjs      # stamp asset ?v=<git sha>, copy to site-dist/
+#   wrangler pages deploy            # deploy site-dist/ (no functions)
 name = "hiroba-site"
-pages_build_output_dir = "site"
+pages_build_output_dir = "site-dist"
 compatibility_date = "2026-06-22"
