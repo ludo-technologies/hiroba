@@ -6,7 +6,9 @@
 //!   - the interactive OAuth login (system browser + loopback + PKCE),
 //!   - OS-keychain storage for the resulting session token (AUTH_PLAN §2), and
 //!   - auto-update: signature-verified installs + relaunch (updater/process
-//!     plugins; the frontend drives them from updater.ts).
+//!     plugins; the frontend drives them from updater.ts), and
+//!   - hiroba:// deep links (invite links; deep-link + single-instance
+//!     plugins; the frontend consumes them in deeplink.ts).
 
 mod oauth;
 
@@ -24,9 +26,36 @@ fn open_external(url: String) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    // Single-instance must be the first plugin registered: on Windows/Linux
+    // the OS hands a hiroba:// URL to a *new* process, which forwards it to
+    // the running instance (the crate's deep-link feature re-emits the URL
+    // there) and exits. We just bring the existing window forward.
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            use tauri::Manager;
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_focus();
+            }
+        }));
+    }
+    builder
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .setup(|_app| {
+            // Windows/Linux resolve hiroba:// via a registry/.desktop entry
+            // that points at the binary's current path; AppImages move around,
+            // so (re-)register on every launch. macOS reads the scheme from
+            // Info.plist — nothing to do at runtime.
+            #[cfg(any(windows, target_os = "linux"))]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                _app.deep_link().register_all()?;
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             oauth::oauth_login,
             oauth::secret_save,

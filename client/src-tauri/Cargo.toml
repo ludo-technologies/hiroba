@@ -33,6 +33,14 @@ keyring = { version = "3", features = ["apple-native", "windows-native", "sync-s
 # (relaunch comes from the process plugin). Driven from updater.ts.
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+# Invite deep links (hiroba://invite/<token>): registers the scheme and emits
+# open-url events to the webview (deeplink.ts).
+tauri-plugin-deep-link = "2"
+
+[target."cfg(any(target_os = \"macos\", windows, target_os = \"linux\"))".dependencies]
+# A second launch (Windows/Linux hand a hiroba:// URL to a fresh process)
+# forwards to the running instance; the deep-link feature re-emits its URL.
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 
 [profile.release]
 opt-level = "z"

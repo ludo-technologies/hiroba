@@ -147,6 +147,16 @@ export function extractInviteCode(raw: string): string {
   return m ? m[1] : raw.trim();
 }
 
+/**
+ * Parse a `hiroba://invite/<token>` deep link (the "open in app" button on
+ * the invite landing page). Returns the token, or null for any other URL.
+ * The charset/length bound mirrors the auth server's token guard.
+ */
+export function parseInviteDeepLink(url: string): string | null {
+  const m = /^hiroba:\/\/invite\/([A-Za-z0-9_-]{1,128})\/?$/.exec(url.trim());
+  return m ? m[1] : null;
+}
+
 // ---------------------------------------------------------------------------
 // Session persistence (keychain under Tauri)
 // ---------------------------------------------------------------------------

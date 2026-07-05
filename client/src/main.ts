@@ -30,6 +30,7 @@ import {
 } from "./ui.js";
 import { shouldDraw, shouldKeepAwake } from "./loop.js";
 import { startUpdateChecks } from "./updater.js";
+import { startDeepLinkListener } from "./deeplink.js";
 import { resolveIceServers } from "./config.js";
 import { spaceLabel, t } from "./i18n.js";
 import {
@@ -156,6 +157,10 @@ ui.showJoin();
 // Desktop auto-update: periodic check → banner → install + relaunch.
 // No-op in plain-browser sessions.
 startUpdateChecks(ui);
+
+// Invite deep links (hiroba://invite/<token>): prefill the join form so the
+// invited user only has to pick a sign-in provider. No-op outside Tauri.
+startDeepLinkListener((code) => ui.applyInvite(code));
 
 // Push-to-toggle mute shortcut (M) — standard in voice tools. Ignores typing
 // contexts and modifier chords so it never hijacks text input or app shortcuts.

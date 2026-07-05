@@ -27,6 +27,11 @@
     }
   },
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["hiroba"]
+      }
+    },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdCMUQ2RkMzRTIxMDg3QzQKUldURWh4RGl3MjhkZXo3MGtUV1UrNm1BVnVqMFBtYnNEcHFDWTFXSDFIQWhSNWZkYTV3VGhUZjQK",
       "endpoints": [

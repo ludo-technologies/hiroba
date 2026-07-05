@@ -910,6 +910,20 @@ export class UIManager {
   }
 
   // -------------------------------------------------------------------------
+  // Invite deep link (hiroba://invite/<token>; driven by deeplink.ts)
+  // -------------------------------------------------------------------------
+
+  /** Drop an arriving invite code into the join form and tell the user. The
+   *  code rides along on the next OAuth sign-in (`onLogin`'s invite param). */
+  applyInvite(code: string): void {
+    elJoinInvite.value = code;
+    // The field lives inside the collapsed "Server settings" details — open
+    // it so the user can see where the code landed.
+    elAdvanced.open = true;
+    this.showToast(t.inviteApplied);
+  }
+
+  // -------------------------------------------------------------------------
   // Update banner (desktop auto-update; driven by updater.ts)
   // -------------------------------------------------------------------------
 

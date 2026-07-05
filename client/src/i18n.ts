@@ -113,6 +113,9 @@ const EN = {
   updateLater: "Later",
   updateFailed: "Update failed — please try again later.",
 
+  // Invite deep link (hiroba://invite/<token>)
+  inviteApplied: "Invite code applied — sign in to join the org.",
+
   // HUD
   muted: "Muted",
   live: "Live",
@@ -252,6 +255,9 @@ const JA: typeof EN = {
   updateDownloading: "更新中…",
   updateLater: "後で",
   updateFailed: "更新に失敗しました。しばらくしてからもう一度お試しください。",
+
+  // Invite deep link (hiroba://invite/<token>)
+  inviteApplied: "招待コードを受け取りました。サインインすると参加できます。",
 
   // HUD
   muted: "ミュート中",
