@@ -168,6 +168,11 @@ export class Renderer {
     this.ctx = ctx;
 
     window.addEventListener("resize", () => this._resize());
+    // The canvas's layout can settle *after* construction with no window
+    // resize (first launch: stylesheet application / WebView attach races),
+    // so observe the element itself rather than trusting the one-shot below.
+    new ResizeObserver(() => this._resize()).observe(canvas);
+    this._watchDpr();
     this._resize();
     this.paintIdle(); // dark screen until a session initializes
   }
@@ -183,6 +188,9 @@ export class Renderer {
 
   /** Call once after `welcome`, and again on `space_snapshot` (space switch). */
   init(space: SpaceDescriptor, self: Peer): void {
+    // Re-measure before the first scene frame: the backing store may still
+    // hold a stale size if construction ran before layout/DPR settled.
+    this._resize();
     this.space = space;
     this.self = this._mkPeer(self, /* spawned */ true);
     // Start at the camera's resting point (room centre at fit-to-room zoom)
@@ -408,6 +416,23 @@ export class Renderer {
   // -------------------------------------------------------------------------
   // Resize
   // -------------------------------------------------------------------------
+
+  /**
+   * devicePixelRatio can change with no resize event and no layout change
+   * (Retina scale settling on first launch, dragging the window to another
+   * display). matchMedia is the portable signal — WebKit lacks
+   * ResizeObserver's device-pixel-content-box: watch for the *current*
+   * ratio ceasing to match, re-fit, and re-arm for the new ratio.
+   */
+  private _watchDpr(): void {
+    const mq = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+    const onChange = () => {
+      mq.removeEventListener("change", onChange);
+      this._resize();
+      this._watchDpr();
+    };
+    mq.addEventListener("change", onChange);
+  }
 
   private _resize(): void {
     const dpr = window.devicePixelRatio || 1;
