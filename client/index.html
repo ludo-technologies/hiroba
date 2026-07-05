@@ -31,6 +31,21 @@
     <!-- Join overlay (guest entry); hidden once connected -->
     <div id="join" class="overlay">
       <form id="join-form" class="card" novalidate>
+        <!-- Self-host connection details live behind this gear (rarely used;
+             irrelevant on the hosted service). -->
+        <button
+          id="join-settings-btn"
+          type="button"
+          class="join-settings-btn"
+          data-i18n-title="serverSettings"
+          data-i18n-arialabel="serverSettings"
+        >
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+               stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3.2" />
+            <path d="M19.4 15a1.6 1.6 0 0 0 .32 1.76l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.76-.32 1.6 1.6 0 0 0-.97 1.46V21a2 2 0 1 1-4 0v-.09a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.76.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.6 1.6 0 0 0 .32-1.76 1.6 1.6 0 0 0-1.46-.97H3a2 2 0 1 1 0-4h.09a1.6 1.6 0 0 0 1.46-1.05 1.6 1.6 0 0 0-.32-1.76l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.6 1.6 0 0 0 1.76.32h.09a1.6 1.6 0 0 0 .97-1.46V3a2 2 0 1 1 4 0v.09a1.6 1.6 0 0 0 .97 1.46 1.6 1.6 0 0 0 1.76-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.76V9a1.6 1.6 0 0 0 1.46.97H21a2 2 0 1 1 0 4h-.09a1.6 1.6 0 0 0-1.46.97z" />
+          </svg>
+        </button>
         <header class="brand">
           <span class="logo-mark" aria-hidden="true">
             <svg viewBox="0 0 40 40" width="40" height="40">
@@ -44,8 +59,6 @@
             <span class="brand-latin" data-i18n="brandTag">Your team's virtual office</span>
           </span>
         </header>
-        <p class="tagline" data-i18n="tagline">Step into the office, see who's around, and walk over for a chat.</p>
-
         <!-- OAuth login (FR-13 / AUTH_PLAN). Hidden in plain-browser builds,
              where the manual token field below stays the fallback. -->
         <div id="auth-block" class="auth-block">
@@ -71,7 +84,6 @@
             <span id="auth-user" class="auth-user"></span>
             <button id="auth-logout" type="button" class="ghost-btn" data-i18n="signOut">Sign out</button>
           </div>
-          <p class="auth-hint" data-i18n="authHint">…or continue below as a guest on a self-hosted office.</p>
         </div>
 
         <div class="identity">
@@ -121,55 +133,18 @@
           <input id="join-color" type="color" value="#e07a52" hidden />
         </div>
 
-        <details id="advanced" class="advanced">
-          <summary data-i18n="serverSettings">Server settings</summary>
-          <label class="field">
-            <span class="field-label" data-i18n="fieldServer">Server</span>
-            <!-- value seeded from ui.ts (VITE_HIROBA_SERVER or loopback) -->
-            <input
-              id="join-server"
-              type="text"
-              spellcheck="false"
-              autocapitalize="off"
-              autocomplete="off"
-            />
-          </label>
-          <label class="field">
-            <span class="field-label" data-i18n="fieldToken">Access token (optional)</span>
-            <input
-              id="join-token"
-              type="text"
-              placeholder="Leave blank for a guest session"
-              data-i18n-placeholder="tokenPlaceholder"
-              spellcheck="false"
-              autocapitalize="off"
-              autocomplete="off"
-            />
-          </label>
-          <label class="field">
-            <span class="field-label" data-i18n="fieldAuthServer">Auth server</span>
-            <!-- value seeded from ui.ts (VITE_HIROBA_AUTH_SERVER or loopback) -->
-            <input
-              id="join-auth"
-              type="text"
-              spellcheck="false"
-              autocapitalize="off"
-              autocomplete="off"
-            />
-          </label>
-          <label class="field">
-            <span class="field-label" data-i18n="fieldInvite">Invite code (optional)</span>
-            <input
-              id="join-invite"
-              type="text"
-              placeholder="Paste an invite to join its org on sign-in"
-              data-i18n-placeholder="invitePlaceholder"
-              spellcheck="false"
-              autocapitalize="off"
-              autocomplete="off"
-            />
-          </label>
-        </details>
+        <label class="field">
+          <span class="field-label" data-i18n="fieldInvite">Invite code (optional)</span>
+          <input
+            id="join-invite"
+            type="text"
+            placeholder="Paste an invite code or link"
+            data-i18n-placeholder="invitePlaceholder"
+            spellcheck="false"
+            autocapitalize="off"
+            autocomplete="off"
+          />
+        </label>
 
         <button id="join-btn" type="submit">
           <span class="btn-label" data-i18n="enter">Enter Hiroba</span>
@@ -200,6 +175,52 @@
 
         <p id="join-error" class="error" role="alert" hidden></p>
       </form>
+    </div>
+
+    <!-- Server settings (self-host connection details; opened from the join
+         card's gear). The inputs keep their ids — join/login logic reads them
+         by id regardless of where they live in the DOM. -->
+    <div id="server-settings" class="overlay" hidden>
+      <div class="card invite-card" role="dialog" aria-modal="true" aria-labelledby="server-settings-title">
+        <header class="invite-head">
+          <span id="server-settings-title" class="invite-title" data-i18n="serverSettings">Server settings</span>
+          <button id="server-settings-close" type="button" class="ghost-btn" data-i18n="closePanel">Close</button>
+        </header>
+        <label class="field">
+          <span class="field-label" data-i18n="fieldServer">Server</span>
+          <!-- value seeded from ui.ts (VITE_HIROBA_SERVER or loopback) -->
+          <input
+            id="join-server"
+            type="text"
+            spellcheck="false"
+            autocapitalize="off"
+            autocomplete="off"
+          />
+        </label>
+        <label class="field">
+          <span class="field-label" data-i18n="fieldToken">Access token (optional)</span>
+          <input
+            id="join-token"
+            type="text"
+            placeholder="Leave blank for a guest session"
+            data-i18n-placeholder="tokenPlaceholder"
+            spellcheck="false"
+            autocapitalize="off"
+            autocomplete="off"
+          />
+        </label>
+        <label class="field">
+          <span class="field-label" data-i18n="fieldAuthServer">Auth server</span>
+          <!-- value seeded from ui.ts (VITE_HIROBA_AUTH_SERVER or loopback) -->
+          <input
+            id="join-auth"
+            type="text"
+            spellcheck="false"
+            autocapitalize="off"
+            autocomplete="off"
+          />
+        </label>
+      </div>
     </div>
 
     <!-- Reconnecting overlay (shown on an unexpected drop while in a session) -->

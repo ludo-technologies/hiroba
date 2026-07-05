@@ -130,6 +130,9 @@ body {
   align-items: center;
   justify-content: center;
   padding: 24px;
+  /* Tall cards must never clip off-screen: the overlay scrolls, and the
+     card's auto margins (below) keep its top reachable. */
+  overflow-y: auto;
   background: rgba(36, 28, 20, 0.35);
   backdrop-filter: blur(7px);
   -webkit-backdrop-filter: blur(7px);
@@ -148,6 +151,9 @@ body {
 
 .card {
   position: relative;
+  /* Centers like align-items: center, but degrades to scrollable instead of
+     clipping when the card is taller than the viewport. */
+  margin: auto;
   background: linear-gradient(180deg, var(--paper), var(--paper-2));
   border: 1px solid rgba(255, 255, 255, 0.6);
   border-radius: var(--radius-card);
@@ -207,12 +213,6 @@ body {
   letter-spacing: 1.4px;
   text-transform: uppercase;
   color: var(--accent-lo);
-}
-
-.tagline {
-  margin-top: -4px;
-  font-size: 14px;
-  color: var(--ink-soft);
 }
 
 /* --- Identity row: live avatar preview + name --- */
@@ -388,50 +388,29 @@ body {
   background: var(--paper);
 }
 
-/* --- Advanced disclosure --- */
+/* --- Join-card gear (opens the server-settings dialog) --- */
 
-.advanced {
-  border-top: 1px solid var(--edge);
-  padding-top: 16px;
-}
-
-.advanced summary {
-  list-style: none;
-  cursor: pointer;
-  font-size: 11.5px;
-  font-weight: 700;
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
+.join-settings-btn {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-btn);
+  background: transparent;
   color: var(--ink-mute);
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  user-select: none;
-  transition: color 0.15s;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 
-.advanced summary:hover {
+.join-settings-btn:hover {
+  border-color: var(--edge-2);
+  background: var(--paper);
   color: var(--ink-soft);
-}
-
-.advanced summary::-webkit-details-marker {
-  display: none;
-}
-
-.advanced summary::before {
-  content: "›";
-  display: inline-block;
-  font-size: 16px;
-  color: var(--accent);
-  transition: transform 0.22s var(--ease);
-}
-
-.advanced[open] summary::before {
-  transform: rotate(90deg);
-}
-
-.advanced[open] summary {
-  margin-bottom: 14px;
 }
 
 /* --- Primary button --- */
@@ -1451,11 +1430,10 @@ body {
 
 /* While naming the org, the rest of the join form steps aside (the brand
  * header and error area stay). */
-#join-form.org-setup-mode > .tagline,
 #join-form.org-setup-mode > .auth-block,
 #join-form.org-setup-mode > .identity,
 #join-form.org-setup-mode > .field,
-#join-form.org-setup-mode > .advanced,
+#join-form.org-setup-mode > .join-settings-btn,
 #join-form.org-setup-mode > #join-btn {
   display: none;
 }

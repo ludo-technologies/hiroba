@@ -21,11 +21,9 @@ export const locale: Locale =
 const EN = {
   // Join card
   brandTag: "Your team's virtual office",
-  tagline: "Step into the office, see who's around, and walk over for a chat.",
   signInGoogle: "Sign in with Google",
   signInGithub: "Sign in with GitHub",
   signOut: "Sign out",
-  authHint: "…or continue below as a guest on a self-hosted office.",
   waitingBrowser: "Waiting for browser…",
   fieldName: "Display name",
   namePlaceholder: "Your name",
@@ -36,7 +34,7 @@ const EN = {
   tokenPlaceholder: "Leave blank for a guest session",
   fieldAuthServer: "Auth server",
   fieldInvite: "Invite code (optional)",
-  invitePlaceholder: "Paste an invite code or link to join its org on sign-in",
+  invitePlaceholder: "Paste an invite code or link",
   enter: "Enter Hiroba",
   connecting: "Connecting…",
 
@@ -164,11 +162,9 @@ const EN = {
 const JA: typeof EN = {
   // Join card
   brandTag: "チームのバーチャルオフィス",
-  tagline: "ふらっと出社して、近くの人とすぐ話せる。",
   signInGoogle: "Google でサインイン",
   signInGithub: "GitHub でサインイン",
   signOut: "サインアウト",
-  authHint: "…またはセルフホストのオフィスにゲストとして参加できます。",
   waitingBrowser: "ブラウザで認証中…",
   fieldName: "表示名",
   namePlaceholder: "名前",
@@ -179,7 +175,7 @@ const JA: typeof EN = {
   tokenPlaceholder: "空欄でゲスト参加",
   fieldAuthServer: "認証サーバー",
   fieldInvite: "招待コード(任意)",
-  invitePlaceholder: "招待コードまたはリンクを貼ると、サインイン時にその組織に参加します",
+  invitePlaceholder: "招待コードまたはリンクを貼り付け",
   enter: "オフィスに入る",
   connecting: "接続中…",
 

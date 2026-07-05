@@ -119,7 +119,9 @@ const elAuthUser = $<HTMLSpanElement>("auth-user");
 const elAuthLogout = $<HTMLButtonElement>("auth-logout");
 const elJoinBtn = $<HTMLButtonElement>("join-btn");
 const elJoinError = $<HTMLParagraphElement>("join-error");
-const elAdvanced = $<HTMLDetailsElement>("advanced");
+const elJoinSettingsBtn = $<HTMLButtonElement>("join-settings-btn");
+const elServerSettings = $<HTMLDivElement>("server-settings");
+const elServerSettingsClose = $<HTMLButtonElement>("server-settings-close");
 const elSwatches = $<HTMLDivElement>("color-swatches");
 const elAvatar = $<HTMLButtonElement>("avatar-preview");
 const elAvatarInitial = $<HTMLSpanElement>("avatar-initial");
@@ -306,6 +308,7 @@ export class UIManager {
     this._buildSwatches();
     this._restoreFromStorage();
     this._bindForm();
+    this._bindServerSettings();
     this._bindAuth();
     this._bindOrgSetup();
     this._bindInvitePanel();
@@ -349,6 +352,7 @@ export class UIManager {
   /** Hide the overlays and show the HUD + sidebar + tabs (on connection). */
   showSpace(): void {
     elJoin.setAttribute("hidden", "");
+    elServerSettings.setAttribute("hidden", "");
     elReconnect.setAttribute("hidden", "");
     elHud.removeAttribute("hidden");
     elSidebar.removeAttribute("hidden");
@@ -431,13 +435,26 @@ export class UIManager {
     elJoinInvite.value = "";
   }
 
+  /** Open the server-settings dialog (self-host connection details),
+   *  optionally landing focus on the field the user must fix. */
+  private showServerSettings(focus?: HTMLInputElement): void {
+    elServerSettings.removeAttribute("hidden");
+    focus?.focus();
+  }
+
+  private _bindServerSettings(): void {
+    elJoinSettingsBtn.addEventListener("click", () => this.showServerSettings());
+    elServerSettingsClose.addEventListener("click", () => {
+      elServerSettings.setAttribute("hidden", "");
+    });
+  }
+
   private _bindAuth(): void {
     const start = (provider: "google" | "github") => {
       const authUrl = elJoinAuth.value.trim();
       if (!authUrl) {
         this.showError(t.errAuthUrl);
-        elAdvanced.open = true;
-        elJoinAuth.focus();
+        this.showServerSettings(elJoinAuth);
         return;
       }
       persistUrlDeviation(LS_AUTH, authUrl, DEFAULT_AUTH_SERVER);
@@ -917,9 +934,6 @@ export class UIManager {
    *  code rides along on the next OAuth sign-in (`onLogin`'s invite param). */
   applyInvite(code: string): void {
     elJoinInvite.value = code;
-    // The field lives inside the collapsed "Server settings" details — open
-    // it so the user can see where the code landed.
-    elAdvanced.open = true;
     this.showToast(t.inviteApplied);
   }
 
@@ -1131,7 +1145,6 @@ export class UIManager {
     const token = this.tauri ? null : localStorage.getItem(LS_TOKEN);
     if (token) {
       elJoinToken.value = token;
-      elAdvanced.open = true;
     }
     if (authServer) {
       if (!import.meta.env.DEV && isLoopbackUrl(authServer)) {
@@ -1150,9 +1163,6 @@ export class UIManager {
         localStorage.removeItem(LS_SERVER);
       } else {
         elJoinServer.value = server;
-        // If the saved server isn't the local default, reveal Advanced so the
-        // user can see/confirm where they're connecting.
-        if (server !== DEFAULT_SERVER) elAdvanced.open = true;
       }
     }
     this._syncSwatchSelection();
@@ -1196,8 +1206,7 @@ export class UIManager {
       }
       if (!serverUrl) {
         this.showError(t.errServer);
-        elAdvanced.open = true;
-        elJoinServer.focus();
+        this.showServerSettings(elJoinServer);
         return;
       }
 
