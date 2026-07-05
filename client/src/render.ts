@@ -238,6 +238,27 @@ export class Renderer {
     return { x: (px - ox) / scale, y: (py - oy) / scale };
   }
 
+  /**
+   * Hit-test remote peers for pointer interaction. Returns the closest peer
+   * whose on-screen disc contains the point, or null. Uses the same world
+   * radius as `_drawPeer` (plus a small pad so taps are forgiving).
+   */
+  peerAtScreen(clientX: number, clientY: number): string | null {
+    const world = this.screenToWorld(clientX, clientY);
+    if (!world) return null;
+
+    const hitR = PEER_RADIUS * 1.08;
+    let best: { id: string; d: number } | null = null;
+
+    for (const p of this.peers.values()) {
+      if (p.leaving) continue;
+      const d = Math.hypot(world.x - p.x, world.y - p.y);
+      if (d <= hitR && (!best || d < best.d)) best = { id: p.id, d };
+    }
+
+    return best?.id ?? null;
+  }
+
   /** Show / move / clear (null) the click-to-walk destination marker. */
   setWalkTarget(target: { x: number; y: number } | null): void {
     this.walkTarget = target;

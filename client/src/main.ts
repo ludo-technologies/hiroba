@@ -180,8 +180,26 @@ function pointToWalk(e: PointerEvent): void {
   if (!world) return;
   session.input.setMoveTarget(world.x, world.y);
 }
+
+/** Whether a roster member can be paged (same rules as the sidebar button). */
+function canPagePeer(id: string): boolean {
+  if (!session) return false;
+  if (id === session.self.id) return false;
+  if (session.offline.has(id)) return false;
+  if (session.pages.has(id)) return false;
+  return session.roster.has(id);
+}
+
 canvas.addEventListener("pointerdown", (e) => {
   if (e.button !== 0) return;
+  if (!session || !e.isPrimary) return;
+
+  const peerId = renderer.peerAtScreen(e.clientX, e.clientY);
+  if (peerId && canPagePeer(peerId)) {
+    handlePage(peerId);
+    return;
+  }
+
   pointToWalk(e);
 });
 canvas.addEventListener("pointermove", (e) => {
