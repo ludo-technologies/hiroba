@@ -10,7 +10,9 @@
   Cache-Control: public, max-age=31536000, immutable
 
 # Download manifest — unversioned URL whose content changes per deploy, and
-# fetched cross-origin by the auth server's invite landing page.
+# fetched cross-origin by the auth server's invite landing page. `!` drops the
+# immutable rule inherited from /assets/* before setting the short cache.
 /assets/download-manifest.json
+  ! Cache-Control
   Cache-Control: public, max-age=300, must-revalidate
   Access-Control-Allow-Origin: *
