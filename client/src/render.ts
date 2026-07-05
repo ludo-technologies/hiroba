@@ -29,7 +29,7 @@
  * so we never double-apply devicePixelRatio.
  */
 
-import type { Peer, SpaceDescriptor } from "./protocol.js";
+import type { Peer, SpaceDescriptor, Status } from "./protocol.js";
 
 // ---------------------------------------------------------------------------
 // Per-frame voice levels handed in by main.ts (decoupled from the audio engine)
@@ -47,6 +47,8 @@ export interface FrameLevels {
 // ---------------------------------------------------------------------------
 
 interface RenderPeer extends Peer {
+  /** Org-wide effective status (away / dnd / in_call / active). */
+  status: Status;
   /** Last server-reported position (the interpolation target). */
   targetX: number;
   targetY: number;
@@ -116,6 +118,12 @@ const SELF_HALO = "rgba(255,255,255,0.55)";
 // Speaking ripples.
 const RIPPLE_COUNT = 3;
 const RIPPLE_PERIOD = 1.7; // seconds for one ring to travel its full reach
+
+// Status ring colours — matched to the sidebar chrome.
+const STATUS_AWAY_RING = "rgba(154, 138, 114, 0.9)";
+const STATUS_DND_RING = "rgba(212, 88, 60, 0.95)";
+const STATUS_CALL_RING = "#7fa863";
+const STATUS_CALL_PULSE_PERIOD = 1.7;
 
 // Easing time-constants (seconds). Smaller = snappier. Frame-rate independent
 // via 1 - exp(-dt/tau), so behaviour is identical at 30 or 144 Hz.
@@ -283,6 +291,17 @@ export class Renderer {
     if (p) p.muted = muted;
   }
 
+  /** Update org-wide status for self (away / dnd / in_call). */
+  setSelfStatus(status: Status): void {
+    if (this.self) this.self.status = status;
+  }
+
+  /** Update org-wide status for a remote peer in the current space. */
+  updatePeerStatus(id: string, status: Status): void {
+    const p = this.peers.get(id);
+    if (p) p.status = status;
+  }
+
   /** Begin the leave animation for a peer (from `peer_left`). */
   removePeer(id: string): void {
     const p = this.peers.get(id);
@@ -386,12 +405,14 @@ export class Renderer {
 
       const level = levels.levelOf(p.id);
       if (level > 0) animating = true;
+      if (p.status === "in_call") animating = true;
       this._drawPeer(now, ox, oy, scale, p, false, level);
     }
     for (const id of reap) this.peers.delete(id);
 
     // Self on top so it's never occluded.
     if (levels.selfLevel > 0) animating = true;
+    if (self.status === "in_call") animating = true;
     this._drawPeer(now, ox, oy, scale, self, true, levels.selfLevel);
 
     this._drawVignette(ox, oy, scale, space);
@@ -454,9 +475,10 @@ export class Renderer {
   // Floor & furniture
   // -------------------------------------------------------------------------
 
-  private _mkPeer(peer: Peer, spawned: boolean): RenderPeer {
+  private _mkPeer(peer: Peer, spawned: boolean, status: Status = "active"): RenderPeer {
     return {
       ...peer,
+      status,
       targetX: peer.x,
       targetY: peer.y,
       x: peer.x,
@@ -689,7 +711,8 @@ export class Renderer {
 
     // Spawn/leave drive a combined appearance factor (alpha + scale).
     const appear = isSelf ? 1 : peer.leaving ? peer.leave : easeOutBack(peer.spawn);
-    const alpha = isSelf ? 1 : clamp01(peer.leaving ? peer.leave : peer.spawn);
+    let alpha = isSelf ? 1 : clamp01(peer.leaving ? peer.leave : peer.spawn);
+    if (peer.status === "away") alpha *= 0.62;
     // World-unit radius projected through the room scale, so the token keeps
     // its proportion to the floor at any window size.
     const r = (isSelf ? SELF_RADIUS : PEER_RADIUS) * scale * (0.6 + 0.4 * appear);
@@ -711,8 +734,8 @@ export class Renderer {
     ctx.ellipse(sx, sy + r * 0.66, r * 1.35, r * 0.82, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // --- Self halo ring ---
-    if (isSelf) {
+    // --- Self halo ring (only while fully present) ---
+    if (isSelf && peer.status === "active") {
       ctx.beginPath();
       ctx.arc(sx, sy, r + Math.max(4, r * 0.2), 0, Math.PI * 2);
       ctx.fillStyle = SELF_HALO;
@@ -751,9 +774,19 @@ export class Renderer {
     ctx.strokeStyle = isSelf ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.7)";
     ctx.stroke();
 
+    // --- Status ring / pulse (away, dnd, in_call) ---
+    if (peer.status !== "active") {
+      this._drawStatusRing(now, sx, sy, r, peer.status, alpha);
+    }
+
     // --- Mute badge (muted peers only; self mute is shown in the HUD) ---
     if (peer.muted && !isSelf) {
       this._drawMuteBadge(sx + r * 0.72, sy - r * 0.72, Math.max(7, r * 0.32));
+    }
+
+    // --- DND badge (bottom-left so it doesn't collide with mute) ---
+    if (peer.status === "dnd") {
+      this._drawDndBadge(sx - r * 0.72, sy + r * 0.72, Math.max(7, r * 0.32));
     }
 
     // --- Name chip below the disc ---
@@ -806,6 +839,75 @@ export class Renderer {
       ctx.arc(sx, sy, rr, 0, Math.PI * 2);
       ctx.stroke();
     }
+    ctx.restore();
+  }
+
+  /** Outer ring (and pulse for in_call) that mirrors the sidebar status dots. */
+  private _drawStatusRing(
+    now: number,
+    sx: number,
+    sy: number,
+    r: number,
+    status: Status,
+    alpha: number,
+  ): void {
+    const ctx = this.ctx;
+    const ringR = r + Math.max(4, r * 0.18);
+    const lw = Math.max(2, r * 0.09);
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+
+    if (status === "in_call") {
+      // Solid ring + a radiating pulse so "on a call" reads at a glance.
+      ctx.lineWidth = lw;
+      ctx.strokeStyle = STATUS_CALL_RING;
+      ctx.beginPath();
+      ctx.arc(sx, sy, ringR, 0, Math.PI * 2);
+      ctx.stroke();
+
+      const t = (now / 1000) / STATUS_CALL_PULSE_PERIOD;
+      const phase = t % 1;
+      const pulseR = ringR + phase * Math.max(10, r * 0.42);
+      ctx.globalAlpha = alpha * (1 - phase) * 0.5;
+      ctx.beginPath();
+      ctx.arc(sx, sy, pulseR, 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (status === "dnd") {
+      ctx.lineWidth = lw + 0.5;
+      ctx.strokeStyle = STATUS_DND_RING;
+      ctx.beginPath();
+      ctx.arc(sx, sy, ringR, 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (status === "away") {
+      ctx.lineWidth = lw;
+      ctx.strokeStyle = STATUS_AWAY_RING;
+      ctx.setLineDash([Math.max(3, r * 0.14), Math.max(3, r * 0.14)]);
+      ctx.beginPath();
+      ctx.arc(sx, sy, ringR, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  /** Small badge with a horizontal bar — the "do not disturb" mark. */
+  private _drawDndBadge(cx: number, cy: number, r: number): void {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255,251,243,0.96)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(212, 88, 60, 0.55)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(212, 88, 60, 0.95)";
+    ctx.lineWidth = Math.max(1.8, r * 0.24);
+    ctx.beginPath();
+    ctx.moveTo(cx - r * 0.48, cy);
+    ctx.lineTo(cx + r * 0.48, cy);
+    ctx.stroke();
     ctx.restore();
   }
 

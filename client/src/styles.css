@@ -927,11 +927,13 @@ body {
 
 .roster-dot {
   flex: 0 0 auto;
+  position: relative;
   width: 11px;
   height: 11px;
   border-radius: 50%;
   border: 2px solid #fffaf2;
   box-shadow: 0 1px 3px rgba(60, 40, 20, 0.3);
+  transition: opacity 0.2s, box-shadow 0.2s, filter 0.2s;
 }
 
 /* Uploaded avatar: grow the identity dot into a small photo. */
@@ -944,6 +946,76 @@ body {
 
 .roster-row.is-offline .roster-dot {
   filter: grayscale(1);
+  opacity: 0.55;
+}
+
+/* --- Status rings on roster avatars (mirrors the marketing-site demo) --- */
+
+.roster-row[data-tone="away"] .roster-dot {
+  opacity: 0.72;
+  box-shadow:
+    0 1px 3px rgba(60, 40, 20, 0.2),
+    0 0 0 2px #fffaf2,
+    0 0 0 3.5px var(--ink-mute);
+}
+
+.roster-row[data-tone="away"] .roster-dot:not(.has-avatar) {
+  background: transparent !important;
+  border-style: dashed;
+  border-color: var(--ink-mute);
+}
+
+.roster-row[data-tone="dnd"] .roster-dot {
+  box-shadow:
+    0 1px 3px rgba(60, 40, 20, 0.2),
+    0 0 0 2px #fffaf2,
+    0 0 0 3.5px var(--danger);
+}
+
+.roster-row[data-tone="dnd"] .roster-dot:not(.has-avatar) {
+  background: var(--danger) !important;
+}
+
+.roster-row[data-tone="in_call"] .roster-dot {
+  box-shadow:
+    0 1px 3px rgba(60, 40, 20, 0.2),
+    0 0 0 2px #fffaf2,
+    0 0 0 3.5px var(--sage);
+  animation: roster-status-ping 1.7s ease-out infinite;
+}
+
+.roster-row[data-tone="in_call"] .roster-dot:not(.has-avatar) {
+  background: var(--sage) !important;
+}
+
+@keyframes roster-status-ping {
+  0% {
+    box-shadow:
+      0 1px 3px rgba(60, 40, 20, 0.2),
+      0 0 0 2px #fffaf2,
+      0 0 0 3.5px var(--sage),
+      0 0 0 3.5px rgba(127, 168, 99, 0.55);
+  }
+  70% {
+    box-shadow:
+      0 1px 3px rgba(60, 40, 20, 0.2),
+      0 0 0 2px #fffaf2,
+      0 0 0 3.5px var(--sage),
+      0 0 0 9px rgba(127, 168, 99, 0);
+  }
+  100% {
+    box-shadow:
+      0 1px 3px rgba(60, 40, 20, 0.2),
+      0 0 0 2px #fffaf2,
+      0 0 0 3.5px var(--sage),
+      0 0 0 3.5px rgba(127, 168, 99, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .roster-row[data-tone="in_call"] .roster-dot {
+    animation: none;
+  }
 }
 
 .roster-text {

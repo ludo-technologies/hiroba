@@ -737,6 +737,17 @@ function rebuildRoster(): void {
   }
 
   ui.renderRoster(entries);
+  syncAvatarStatuses();
+}
+
+/** Push org-wide status onto canvas avatars for self + peers in this space. */
+function syncAvatarStatuses(): void {
+  if (!session) return;
+  renderer.setSelfStatus(selfStatus());
+  for (const id of session.peerPositions.keys()) {
+    const member = session.roster.get(id);
+    renderer.updatePeerStatus(id, member?.status ?? "active");
+  }
 }
 
 /** "Just you" / "N here" for the current space. */
