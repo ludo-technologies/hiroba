@@ -360,6 +360,11 @@ export class UIManager {
     elJoinError.setAttribute("hidden", "");
     elJoinBtn.disabled = false;
     elJoinBtn.textContent = ENTER_LABEL;
+    // Join via Enter can leave focus stranded on a now-hidden input. Shortcuts
+    // already survive that (isTypingTarget ignores [hidden] subtrees); this
+    // clears the stale focus itself, as a guard against WebView focus quirks.
+    const ae = document.activeElement;
+    if (ae instanceof HTMLElement && ae.closest("[hidden]")) ae.blur();
   }
 
   /** Show the reconnecting overlay during auto-reconnect backoff. */

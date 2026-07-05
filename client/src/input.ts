@@ -233,14 +233,8 @@ export class InputHandler {
   // -------------------------------------------------------------------------
 
   private _onKeyDown(e: KeyboardEvent): void {
-    // Ignore if the focus is inside an input element (e.g. the join form is
-    // somehow still visible, or future chat input).
-    if (
-      e.target instanceof HTMLInputElement ||
-      e.target instanceof HTMLTextAreaElement
-    ) {
-      return;
-    }
+    // Ignore typing contexts (visible inputs, chat, etc.).
+    if (isTypingTarget(e.target)) return;
     if (isMovementKey(e.code)) {
       e.preventDefault(); // prevent page scrolling with arrow keys
       const wasIdle = this.keys.size === 0;
@@ -278,4 +272,39 @@ function isMovementKey(code: string): boolean {
     code === "KeyS" ||
     code === "KeyD"
   );
+}
+
+/** Input types where the keyboard belongs to the field (free text, or values
+ *  stepped with arrow keys). A whitelist so an unlisted or future type fails
+ *  safe: shortcuts keep working. */
+const TYPING_INPUT_TYPES = new Set([
+  "text",
+  "search",
+  "email",
+  "url",
+  "tel",
+  "password",
+  "number",
+  "date",
+  "datetime-local",
+  "month",
+  "week",
+  "time",
+  "range",
+]);
+
+/** True when the event target is a visible, editable field — shortcuts should
+ *  yield so typing isn't hijacked. Inputs inside a `[hidden]` subtree (e.g. the
+ *  join form after `showSpace`) are ignored so M / WASD still work. */
+export function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.closest("[hidden]")) return false;
+  if (target instanceof HTMLInputElement) {
+    return TYPING_INPUT_TYPES.has(target.type) && !target.readOnly && !target.disabled;
+  }
+  if (target instanceof HTMLTextAreaElement) {
+    return !target.readOnly && !target.disabled;
+  }
+  if (target instanceof HTMLSelectElement) return !target.disabled;
+  return target.isContentEditable;
 }

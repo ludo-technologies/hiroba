@@ -19,7 +19,7 @@
 
 import { HirobaNet } from "./net.js";
 import { Renderer, type FrameLevels } from "./render.js";
-import { InputHandler } from "./input.js";
+import { InputHandler, isTypingTarget } from "./input.js";
 import { AudioEngine } from "./audio.js";
 import {
   UIManager,
@@ -167,8 +167,7 @@ startDeepLinkListener((code) => ui.applyInvite(code));
 window.addEventListener("keydown", (e) => {
   if (!session) return;
   if (e.code !== "KeyM" || e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
-  const tgt = e.target;
-  if (tgt instanceof HTMLInputElement || tgt instanceof HTMLTextAreaElement) return;
+  if (isTypingTarget(e.target)) return;
   void handleMicToggle();
 });
 
