@@ -322,8 +322,9 @@ These are the NFR-01/02/06 targets.
 
 ## 8. Scaling limits
 
-Hiroba is **presence-first, not a meeting tool** — it deliberately omits video,
-screen share, recording, and an SFU. The intended ceiling is
+Hiroba is **presence-first, not a meeting tool** — it deliberately omits
+always-on video, recording, and an SFU. Optional screen share is limited to
+active 1:1 page calls (not proximity / group voice). The intended ceiling is
 **≤5 per space** (lobby and team rooms), with a few dozen people per org. A
 WebRTC mesh is comfortable in that range; each client holds at most a handful of
 P2P links.

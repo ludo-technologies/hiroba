@@ -80,6 +80,12 @@ interface Session {
 
   /** Active page links: peer id → display name (for the call banner). */
   pages: Map<string, string>;
+  /** Remote screen-share streams keyed by peer id. */
+  remoteScreens: Map<string, MediaStream>;
+  /** Which screen stream is currently shown in the viewer. */
+  visibleScreen: { kind: "local" } | { kind: "remote"; peerId: string } | null;
+  /** True when the user dismissed the remote screen panel (minimize). */
+  screenDismissed: boolean;
 
   /** User-controllable status flags (effective status is server-computed). */
   away: boolean;
@@ -142,6 +148,9 @@ const ui = new UIManager(
     onCreateSpace: handleCreateSpace,
     onPage: handlePage,
     onHangUp: handleHangUp,
+    onScreenShareToggle: handleScreenShareToggle,
+    onCloseScreenShare: handleCloseScreenShare,
+    onReopenScreenShare: handleReopenScreenShare,
     onSetStatus: handleSetStatus,
   },
   { tauri: isTauri() },
@@ -197,14 +206,29 @@ canvas.addEventListener("pointerdown", (e) => {
   const peerId = renderer.peerAtScreen(e.clientX, e.clientY);
   if (peerId && canPagePeer(peerId)) {
     handlePage(peerId);
+    renderer.setPageHover(null);
+    canvas.classList.remove("can-page");
     return;
   }
 
   pointToWalk(e);
 });
+
 canvas.addEventListener("pointermove", (e) => {
-  if (e.buttons !== 1) return;
-  pointToWalk(e);
+  if (e.buttons === 1) {
+    pointToWalk(e);
+    return;
+  }
+  if (!session) return;
+  const peerId = renderer.peerAtScreen(e.clientX, e.clientY);
+  const pageable = !!(peerId && canPagePeer(peerId));
+  renderer.setPageHover(pageable ? peerId : null);
+  canvas.classList.toggle("can-page", pageable);
+});
+
+canvas.addEventListener("pointerleave", () => {
+  renderer.setPageHover(null);
+  canvas.classList.remove("can-page");
 });
 
 // Closing the window is an intentional leave: tell the server so peers see us
@@ -642,6 +666,8 @@ function initSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[]
     (to, data) => net.send({ t: "signal", to, data }),
     wake,
     iceServers, // STUN / TURN resolved from override → server /ice → STUN (NFR-07)
+    handleRemoteScreen,
+    handleLocalScreen,
   );
 
   input.init(
@@ -665,6 +691,9 @@ function initSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[]
     offline: new Set(),
     peerPositions,
     pages: new Map(),
+    remoteScreens: new Map(),
+    visibleScreen: null,
+    screenDismissed: false,
     away: false,
     dnd: false,
     pageAutoUnmuted: false,
@@ -673,6 +702,8 @@ function initSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[]
   ui.setOrgName(msg.org.name);
   document.title = `Hiroba — ${msg.org.name}`;
   ui.setMuted(audio.isMuted);
+  ui.setScreenSharing(false);
+  ui.setScreenShareView(null, "");
   ui.setSelfStatus(false, false);
   ui.setCall(null);
   ui.renderTabs(msg.spaces, msg.spaceId);
@@ -1021,6 +1052,11 @@ function bindServerMessages(net: HirobaNet): void {
     const { from } = e.detail;
     session.audio.endPage(from); // keeps proximity audio if still near
     session.pages.delete(from);
+    session.remoteScreens.delete(from);
+    if (session.visibleScreen?.kind === "remote" && session.visibleScreen.peerId === from) {
+      showNextScreenShare();
+    }
+    if (session.pages.size === 0) stopScreenShare();
     updateCallBanner();
     void restoreMuteAfterPage();
     rebuildRoster();
@@ -1038,9 +1074,117 @@ function bindServerMessages(net: HirobaNet): void {
 function updateCallBanner(): void {
   if (!session) return;
   const n = session.pages.size;
-  if (n === 0) ui.setCall(null);
-  else if (n === 1) ui.setCall(t.inCallWith([...session.pages.values()][0]));
-  else ui.setCall(t.inCallN(n));
+  if (n === 0) {
+    ui.setCall(null);
+    ui.setScreenSharing(false);
+    ui.setScreenShareView(null, "");
+    ui.setScreenReopenVisible(false);
+    session.visibleScreen = null;
+    session.screenDismissed = false;
+  } else if (n === 1) {
+    ui.setCall(t.inCallWith([...session.pages.values()][0]));
+  } else {
+    ui.setCall(t.inCallN(n));
+  }
+  syncScreenReopenButton();
+}
+
+/** Pick the best remote screen to show (page peers only; single-call prefers that peer). */
+function preferredRemoteScreen(): { peerId: string; stream: MediaStream } | null {
+  if (!session) return null;
+  if (session.pages.size === 1) {
+    const peerId = [...session.pages.keys()][0];
+    const stream = session.remoteScreens.get(peerId);
+    if (stream) return { peerId, stream };
+  }
+  for (const [peerId, stream] of session.remoteScreens) {
+    if (session.pages.has(peerId)) return { peerId, stream };
+  }
+  return null;
+}
+
+function syncScreenReopenButton(): void {
+  if (!session) return;
+  const hasHidden =
+    session.screenDismissed && preferredRemoteScreen() !== null && !session.visibleScreen;
+  ui.setScreenReopenVisible(hasHidden);
+}
+
+function handleRemoteScreen(peerId: string, stream: MediaStream | null): void {
+  if (!session) return;
+  if (!session.pages.has(peerId)) return;
+
+  if (stream) {
+    session.remoteScreens.set(peerId, stream);
+    if (session.screenDismissed) {
+      syncScreenReopenButton();
+      return;
+    }
+    if (!session.visibleScreen || session.visibleScreen.kind !== "local") {
+      session.visibleScreen = { kind: "remote", peerId };
+      ui.setScreenShareView(
+        stream,
+        t.sharedScreen(session.pages.get(peerId) ?? peerId),
+        false,
+      );
+    }
+    return;
+  }
+
+  session.remoteScreens.delete(peerId);
+  if (session.visibleScreen?.kind === "remote" && session.visibleScreen.peerId === peerId) {
+    showNextScreenShare();
+  } else {
+    syncScreenReopenButton();
+  }
+}
+
+function handleLocalScreen(stream: MediaStream | null): void {
+  if (!session) return;
+  ui.setScreenSharing(!!stream);
+  if (stream) {
+    session.screenDismissed = false;
+    session.visibleScreen = { kind: "local" };
+    ui.setScreenShareView(stream, t.yourScreen, true);
+  } else if (session.visibleScreen?.kind === "local") {
+    showNextScreenShare();
+  }
+}
+
+function showNextScreenShare(): void {
+  if (!session) return;
+  if (session.screenDismissed) {
+    session.visibleScreen = null;
+    ui.setScreenShareView(null, "");
+    syncScreenReopenButton();
+    return;
+  }
+  if (session.audio.isScreenSharing && session.audio.screenShareStream) {
+    session.visibleScreen = { kind: "local" };
+    ui.setScreenShareView(session.audio.screenShareStream, t.yourScreen, true);
+    return;
+  }
+
+  const next = preferredRemoteScreen();
+  if (next) {
+    session.visibleScreen = { kind: "remote", peerId: next.peerId };
+    ui.setScreenShareView(
+      next.stream,
+      t.sharedScreen(session.pages.get(next.peerId) ?? next.peerId),
+      false,
+    );
+  } else {
+    session.visibleScreen = null;
+    ui.setScreenShareView(null, "");
+    syncScreenReopenButton();
+  }
+}
+
+function stopScreenShare(): void {
+  if (!session || !session.audio.isScreenSharing) return;
+  session.audio.stopScreenShare();
+  ui.setScreenSharing(false);
+  if (session.visibleScreen?.kind === "local") showNextScreenShare();
 }
 
 /**
@@ -1120,7 +1264,10 @@ function handleCreateSpace(name: string): void {
 function handlePage(memberId: string): void {
   if (!session) return;
   markActive();
+  const name = session.roster.get(memberId)?.name ?? memberId;
+  ui.showToast(t.pageCalling(name));
   session.net.send({ t: "page", to: memberId });
+  wake();
 }
 
 function handleHangUp(): void {
@@ -1130,10 +1277,49 @@ function handleHangUp(): void {
     session.audio.endPage(id); // keeps proximity audio if still near
   }
   session.pages.clear();
+  session.remoteScreens.clear();
+  session.screenDismissed = false;
+  stopScreenShare();
   updateCallBanner();
   void restoreMuteAfterPage();
   rebuildRoster();
   wake();
+}
+
+async function handleScreenShareToggle(): Promise<void> {
+  if (!session) return;
+  markActive();
+  if (session.pages.size === 0) return;
+
+  if (session.audio.isScreenSharing) {
+    stopScreenShare();
+    return;
+  }
+
+  try {
+    await session.audio.startScreenShare();
+  } catch {
+    ui.setScreenSharing(false);
+    ui.showToast(t.errScreenShare, "error");
+  }
+}
+
+function handleCloseScreenShare(): void {
+  if (!session) return;
+  if (session.visibleScreen?.kind === "local") {
+    stopScreenShare();
+    return;
+  }
+  session.screenDismissed = true;
+  session.visibleScreen = null;
+  ui.setScreenShareView(null, "");
+  syncScreenReopenButton();
+}
+
+function handleReopenScreenShare(): void {
+  if (!session) return;
+  session.screenDismissed = false;
+  showNextScreenShare();
 }
 
 function handleSetStatus(away: boolean, dnd: boolean): void {
@@ -1174,7 +1360,8 @@ function teardownSession(): void {
   s.audio.destroy();
   s.net.close();
 
-  canvas.classList.remove("walkable");
+  canvas.classList.remove("walkable", "can-page");
+  renderer.setPageHover(null);
   renderer.reset();
   document.title = "Hiroba";
 }

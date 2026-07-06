@@ -81,6 +81,12 @@ interface PeerConn {
   sink: HTMLAudioElement | null;
   /** Smoothed 0..1 speech level, updated by pollLevels(). */
   level: number;
+  /** Sender carrying our local screen-share video to this peer, if any. */
+  screenSender: RTCRtpSender | null;
+  /** Remote screen-share stream from this peer, if currently present. */
+  remoteScreenStream: MediaStream | null;
+  /** The attached remote screen video track (for dedup on renegotiation). */
+  remoteScreenTrack: MediaStreamTrack | null;
 }
 
 /**
@@ -132,6 +138,18 @@ export class AudioEngine {
   /** Wakes the render loop when remote audio becomes available to poll. */
   private onWake: (() => void) | null = null;
 
+  /** Notifies main/UI when a remote peer starts or stops screen sharing. */
+  private onRemoteScreen:
+    | ((peerId: string, stream: MediaStream | null) => void)
+    | null = null;
+
+  /** Notifies main/UI when local screen sharing starts or stops. */
+  private onLocalScreen: ((stream: MediaStream | null) => void) | null = null;
+
+  /** Local display stream + video track while screen sharing is active. */
+  private screenStream: MediaStream | null = null;
+  private screenTrack: MediaStreamTrack | null = null;
+
   /**
    * ICE servers used for every RTCPeerConnection. Resolved from config.ts by
    * main.ts (STUN for self-host, STUN+TURN for hosted, NFR-07). Defaults to
@@ -153,10 +171,14 @@ export class AudioEngine {
     sendSignal: (to: string, data: SignalData) => void,
     onWake: () => void,
     iceServers?: RTCIceServer[],
+    onRemoteScreen?: (peerId: string, stream: MediaStream | null) => void,
+    onLocalScreen?: (stream: MediaStream | null) => void,
   ): void {
     this.space = space;
     this.sendSignal = sendSignal;
     this.onWake = onWake;
+    this.onRemoteScreen = onRemoteScreen ?? null;
+    this.onLocalScreen = onLocalScreen ?? null;
     if (iceServers && iceServers.length > 0) this.iceServers = iceServers;
   }
 
@@ -187,6 +209,9 @@ export class AudioEngine {
     if (existing) {
       if (kind === "page") existing.page = true;
       else existing.proximity = true;
+      // A page link may open on an existing proximity PC; attach screen share
+      // now if we are already sharing (page-only — see _addScreenTrack).
+      if (kind === "page") this._addScreenTrack(existing);
       return;
     }
     // initiator == impolite, so polite = !initiator
@@ -442,6 +467,63 @@ export class AudioEngine {
     return this.muted;
   }
 
+  /** Whether our local screen-share track is currently being sent. */
+  get isScreenSharing(): boolean {
+    return !!this.screenTrack;
+  }
+
+  /** Local display stream for self-preview while sharing. */
+  get screenShareStream(): MediaStream | null {
+    return this.screenStream;
+  }
+
+  /**
+   * Start sharing the user's screen/window to **page** (1:1 call) peers only.
+   * The browser picker must be launched from a user gesture, so UI calls this
+   * directly from the share button. Adding/removing the video track relies on
+   * the same perfect-negotiation path as mic changes.
+   */
+  async startScreenShare(): Promise<void> {
+    if (this.screenTrack) return;
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      video: true,
+      audio: false,
+    });
+    const [track] = stream.getVideoTracks();
+    if (!track) {
+      stream.getTracks().forEach((t) => t.stop());
+      throw new Error("no video track from getDisplayMedia");
+    }
+
+    this.screenStream = stream;
+    this.screenTrack = track;
+    track.addEventListener("ended", () => this.stopScreenShare(), { once: true });
+
+    for (const entry of this.peers.values()) {
+      if (entry.page) this._addScreenTrack(entry);
+    }
+    this.onLocalScreen?.(stream);
+  }
+
+  /** Stop local screen sharing and renegotiate every live peer connection. */
+  stopScreenShare(): void {
+    const track = this.screenTrack;
+    this.screenTrack = null;
+
+    for (const entry of this.peers.values()) {
+      this._removeScreenTrack(entry);
+    }
+
+    if (track && track.readyState !== "ended") track.stop();
+    if (this.screenStream) {
+      this.screenStream.getTracks().forEach((t) => {
+        if (t !== track && t.readyState !== "ended") t.stop();
+      });
+    }
+    this.screenStream = null;
+    this.onLocalScreen?.(null);
+  }
+
   /**
    * Whether any P2P audio connection currently exists (i.e. someone is within
    * talking range). The loop uses this to keep a cheap voice poll alive while
@@ -475,6 +557,7 @@ export class AudioEngine {
       this.localStream = null;
     }
     this.localTrack = null;
+    this.stopScreenShare();
 
     if (this.audioCtx && this.audioCtx.state !== "closed") {
       void this.audioCtx.close();
@@ -486,6 +569,8 @@ export class AudioEngine {
     this.space = null;
     this.sendSignal = null;
     this.onWake = null;
+    this.onRemoteScreen = null;
+    this.onLocalScreen = null;
   }
 
   // -------------------------------------------------------------------------
@@ -512,6 +597,9 @@ export class AudioEngine {
       analyser: null,
       sink: null,
       level: 0,
+      screenSender: null,
+      remoteScreenStream: null,
+      remoteScreenTrack: null,
     };
     this.peers.set(peerId, entry);
 
@@ -543,11 +631,15 @@ export class AudioEngine {
       })();
     });
 
-    // Remote audio arrives here. We always addTrack WITH a stream, so
-    // ev.streams[0] is reliably populated.
+    // Remote audio/video arrives here. We always addTrack WITH a stream, so
+    // ev.streams[0] is reliably populated for both mic and screen share.
     pc.addEventListener("track", (ev) => {
       const stream = ev.streams[0] ?? new MediaStream([ev.track]);
-      this._attachRemoteStream(entry, stream);
+      if (ev.track.kind === "audio" || !ev.track.kind) {
+        this._attachRemoteAudioStream(entry, stream);
+      } else if (ev.track.kind === "video" && entry.page) {
+        this._attachRemoteScreenStream(entry, stream, ev.track);
+      }
     });
 
     // If we already have a mic track, add it now (kicks off negotiation).
@@ -558,8 +650,29 @@ export class AudioEngine {
         console.error("[audio] addTrack error:", err);
       }
     }
+    if (this.screenTrack && this.screenStream && entry.page) this._addScreenTrack(entry);
 
     return entry;
+  }
+
+  private _addScreenTrack(entry: PeerConn): void {
+    if (!entry.page) return;
+    if (!this.screenTrack || !this.screenStream || entry.screenSender) return;
+    try {
+      entry.screenSender = entry.pc.addTrack(this.screenTrack, this.screenStream);
+    } catch (err) {
+      console.error("[audio] add screen track error:", err);
+    }
+  }
+
+  private _removeScreenTrack(entry: PeerConn): void {
+    if (!entry.screenSender) return;
+    try {
+      entry.pc.removeTrack(entry.screenSender);
+    } catch {
+      /* PC may already be closed. */
+    }
+    entry.screenSender = null;
   }
 
   /** Add any buffered ICE candidates now that the remote description is set. */
@@ -576,8 +689,8 @@ export class AudioEngine {
     }
   }
 
-  /** Attach a remote MediaStream to a GainNode in the AudioContext. */
-  private _attachRemoteStream(entry: PeerConn, stream: MediaStream): void {
+  /** Attach a remote audio MediaStream to a GainNode in the AudioContext. */
+  private _attachRemoteAudioStream(entry: PeerConn, stream: MediaStream): void {
     // Renegotiation can fire `track` again for an existing connection; only
     // build the audio graph once per peer.
     if (entry.gainNode) return;
@@ -619,6 +732,28 @@ export class AudioEngine {
     // awake to meter it and animate the speaking ring, even if it had gone idle
     // while this peer was silently connecting.
     this.onWake?.();
+  }
+
+  /** Surface a remote screen-share video stream to the UI layer. */
+  private _attachRemoteScreenStream(
+    entry: PeerConn,
+    stream: MediaStream,
+    track: MediaStreamTrack,
+  ): void {
+    if (entry.remoteScreenTrack === track) return;
+    entry.remoteScreenTrack = track;
+    entry.remoteScreenStream = stream;
+    this.onRemoteScreen?.(entry.id, stream);
+    track.addEventListener(
+      "ended",
+      () => {
+        if (entry.remoteScreenTrack !== track) return;
+        entry.remoteScreenTrack = null;
+        entry.remoteScreenStream = null;
+        this.onRemoteScreen?.(entry.id, null);
+      },
+      { once: true },
+    );
   }
 
   /** Lazily create the AudioContext (browsers require a user gesture first). */
@@ -686,11 +821,17 @@ export class AudioEngine {
       try { entry.sink.pause(); } catch { /* ignore */ }
       entry.sink.srcObject = null;
     }
+    if (entry.remoteScreenStream) {
+      this.onRemoteScreen?.(entry.id, null);
+      entry.remoteScreenStream = null;
+      entry.remoteScreenTrack = null;
+    }
     entry.source = null;
     entry.gainNode = null;
     entry.analyser = null;
     entry.sink = null;
     entry.level = 0;
+    entry.screenSender = null;
     try {
       entry.pc.close();
     } catch { /* already closed */ }

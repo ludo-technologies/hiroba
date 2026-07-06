@@ -156,6 +156,9 @@ export class Renderer {
   /** Click-to-walk destination marker, in world units (null = none). */
   private walkTarget: { x: number; y: number } | null = null;
 
+  /** Peer id under the pointer when it can be paged (drives a hover ring). */
+  private pageHoverId: string | null = null;
+
   /**
    * Decoded avatar images, keyed by their data URL (identical avatars share
    * one entry). Data URLs decode async like any src — a fresh entry triggers
@@ -257,6 +260,13 @@ export class Renderer {
     }
 
     return best?.id ?? null;
+  }
+
+  /** Highlight a pageable peer under the pointer, or clear the hover ring. */
+  setPageHover(peerId: string | null): void {
+    if (this.pageHoverId === peerId) return;
+    this.pageHoverId = peerId;
+    this.onWake?.();
   }
 
   /** Show / move / clear (null) the click-to-walk destination marker. */
@@ -794,6 +804,18 @@ export class Renderer {
     ctx.lineWidth = Math.max(isSelf ? 2.5 : 1.5, r * (isSelf ? 0.1 : 0.07));
     ctx.strokeStyle = isSelf ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.7)";
     ctx.stroke();
+
+    // --- Page hover ring (click-to-call affordance) ---
+    if (!isSelf && peer.id === this.pageHoverId) {
+      ctx.save();
+      ctx.globalAlpha = alpha * 0.9;
+      ctx.beginPath();
+      ctx.arc(sx, sy, r + Math.max(5, r * 0.22), 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(224,122,82,0.85)";
+      ctx.lineWidth = Math.max(2.5, r * 0.1);
+      ctx.stroke();
+      ctx.restore();
+    }
 
     // --- Status ring / pulse (away, dnd, in_call) ---
     if (peer.status !== "active") {

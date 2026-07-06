@@ -25,8 +25,10 @@ other way. It keeps only the core of *being somewhere together*:
    cross-space 1:1 "barge-in" that goes live instantly, wherever they are.
 5. **It's light enough to forget** — idle CPU ≈ 0%, memory in the tens of MB.
 
-No video. No screen share. No recording. No SFU. Just an org floor of small
-spaces, points that move around, and voice that fades in as you get close.
+No always-on video, no recording, no SFU. Just an org floor of small spaces,
+points that move around, and voice that fades in as you get close. During a
+1:1 page call you can optionally share your screen to that peer only — not a
+meeting-room feature.
 
 ## Architecture
 

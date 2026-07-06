@@ -176,7 +176,13 @@ const elStatusDnd = $<HTMLButtonElement>("status-dnd");
 const elTabs = $<HTMLElement>("tabs");
 const elCallBanner = $<HTMLDivElement>("call-banner");
 const elCallText = $<HTMLSpanElement>("call-text");
+const elScreenShare = $<HTMLButtonElement>("screen-share");
+const elScreenReopen = $<HTMLButtonElement>("screen-reopen");
 const elHangup = $<HTMLButtonElement>("hangup");
+const elScreenPanel = $<HTMLDivElement>("screen-panel");
+const elScreenTitle = $<HTMLSpanElement>("screen-title");
+const elScreenClose = $<HTMLButtonElement>("screen-close");
+const elScreenVideo = $<HTMLVideoElement>("screen-video");
 const elToasts = $<HTMLDivElement>("toasts");
 const elUpdateBanner = $<HTMLDivElement>("update-banner");
 const elUpdateText = $<HTMLSpanElement>("update-text");
@@ -256,6 +262,12 @@ export interface UICallbacks {
   onPage(memberId: string): void;
   /** Hang up the current page link. */
   onHangUp(): void;
+  /** Start or stop screen sharing in the current page link. */
+  onScreenShareToggle(): void;
+  /** Hide/stop the currently visible screen-share panel. */
+  onCloseScreenShare(): void;
+  /** Re-show a remote screen share after the panel was dismissed. */
+  onReopenScreenShare(): void;
   /** Set the user-controllable status flags (away / dnd). */
   onSetStatus(away: boolean, dnd: boolean): void;
 }
@@ -916,6 +928,43 @@ export class UIManager {
     }
   }
 
+  /** Reflect whether the local user is currently sharing their screen. */
+  setScreenSharing(sharing: boolean): void {
+    elScreenShare.textContent = sharing ? t.stopSharing : t.shareScreen;
+    elScreenShare.title = sharing ? t.stopSharingTitle : t.shareScreenTitle;
+    elScreenShare.setAttribute("aria-pressed", sharing ? "true" : "false");
+  }
+
+  /** Show the given screen-share stream, or hide the panel when null. */
+  setScreenShareView(stream: MediaStream | null, title: string, local = false): void {
+    if (!stream) {
+      elScreenVideo.pause();
+      elScreenVideo.srcObject = null;
+      elScreenPanel.setAttribute("hidden", "");
+      return;
+    }
+    elScreenTitle.textContent = title;
+    elScreenVideo.srcObject = stream;
+    // Local preview stays muted to avoid feedback; remote streams may carry
+    // audio if tab capture is enabled later.
+    elScreenVideo.muted = local;
+    elScreenPanel.removeAttribute("hidden");
+    this.setScreenReopenVisible(false);
+    void elScreenVideo.play().catch(() => {
+      /* User gesture/autoplay policy can block; controls are intentionally not shown. */
+    });
+  }
+
+  /** Offer to reopen a dismissed remote screen-share panel. */
+  setScreenReopenVisible(visible: boolean): void {
+    if (visible) {
+      elScreenReopen.title = t.viewScreenTitle;
+      elScreenReopen.removeAttribute("hidden");
+    } else {
+      elScreenReopen.setAttribute("hidden", "");
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Transient toasts
   // -------------------------------------------------------------------------
@@ -982,6 +1031,9 @@ export class UIManager {
       this.setSelfStatus(this.away, this.dnd);
       this.callbacks.onSetStatus(this.away, this.dnd);
     });
+    elScreenShare.addEventListener("click", () => this.callbacks.onScreenShareToggle());
+    elScreenReopen.addEventListener("click", () => this.callbacks.onReopenScreenShare());
+    elScreenClose.addEventListener("click", () => this.callbacks.onCloseScreenShare());
     elHangup.addEventListener("click", () => this.callbacks.onHangUp());
   }
 

@@ -119,6 +119,11 @@ body {
   cursor: pointer;
 }
 
+/* Hovering a pageable peer: distinct cursor + ring drawn on the canvas. */
+#space.walkable.can-page {
+  cursor: alias;
+}
+
 /* ---------------------------------------------------------------------------
  * Overlays (join / reconnect) — centered warm card
  * --------------------------------------------------------------------------- */
@@ -1228,9 +1233,10 @@ body {
   animation: dot-pulse 1.6s ease-in-out infinite;
 }
 
+#screen-share,
+#screen-reopen,
 #hangup {
   border: none;
-  background: var(--danger);
   color: #fff;
   font: inherit;
   font-size: 12.5px;
@@ -1241,8 +1247,93 @@ body {
   transition: filter 0.15s;
 }
 
+#screen-share {
+  background: var(--sage);
+}
+
+#screen-reopen {
+  background: var(--accent-lo);
+}
+
+#screen-reopen[hidden] {
+  display: none;
+}
+
+#screen-share[aria-pressed="true"] {
+  background: var(--accent);
+}
+
+#hangup {
+  background: var(--danger);
+}
+
+#screen-share:hover,
+#screen-reopen:hover,
 #hangup:hover {
   filter: brightness(1.08);
+}
+
+.screen-panel {
+  position: fixed;
+  right: 22px;
+  top: 64px;
+  width: min(560px, calc(100vw - var(--rail) - 52px));
+  aspect-ratio: 16 / 10;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #18130f;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: var(--radius-btn);
+  box-shadow: var(--shadow-card);
+  z-index: 57;
+}
+
+.screen-panel[hidden] {
+  display: none;
+}
+
+.screen-head {
+  flex: 0 0 auto;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 8px 0 13px;
+  color: #fdf6ea;
+  background: rgba(24, 19, 15, 0.92);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+#screen-close {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fdf6ea;
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+#screen-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+#screen-video {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  background: #0f0c09;
 }
 
 /* Update banner — same pill as the call banner, accent-toned. Sits bottom

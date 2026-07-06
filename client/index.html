@@ -357,7 +357,19 @@
     <div id="call-banner" class="call-banner" hidden role="status" aria-live="polite">
       <span class="call-dot" aria-hidden="true"></span>
       <span id="call-text">In call</span>
+      <button id="screen-share" type="button" data-i18n="shareScreen">Share screen</button>
+      <button id="screen-reopen" type="button" hidden data-i18n="viewScreen">View screen</button>
       <button id="hangup" type="button" data-i18n="hangUp">Hang up</button>
+    </div>
+
+    <!-- Screen-share viewer: local preview while sharing, or remote video when
+         the paged peer shares. Hidden outside calls / when no screen is live. -->
+    <div id="screen-panel" class="screen-panel" hidden>
+      <header class="screen-head">
+        <span id="screen-title">Screen</span>
+        <button id="screen-close" type="button" data-i18n-title="closeScreen" data-i18n-arialabel="closeScreen">×</button>
+      </header>
+      <video id="screen-video" autoplay playsinline muted></video>
     </div>
 
     <!-- Update banner: a newer signed release exists; one click installs + relaunches -->
