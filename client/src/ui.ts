@@ -165,6 +165,13 @@ const elMicLabel = $<HTMLSpanElement>("mic-label");
 const elCount = $<HTMLSpanElement>("count");
 const elLeave = $<HTMLButtonElement>("leave");
 
+const elAudioSettingsBtn = $<HTMLButtonElement>("audio-settings-btn");
+const elAudioSettings = $<HTMLDivElement>("audio-settings");
+const elAudioSettingsClose = $<HTMLButtonElement>("audio-settings-close");
+const elMicSelect = $<HTMLSelectElement>("mic-device-select");
+const elSpeakerSelect = $<HTMLSelectElement>("speaker-device-select");
+const elMicLevelBar = $<HTMLDivElement>("mic-level-bar");
+
 const elOnboard = $<HTMLDivElement>("onboard");
 const elNudge = $<HTMLDivElement>("mute-nudge");
 
@@ -252,6 +259,14 @@ export interface UICallbacks {
   /** Admin opens the Stripe Customer Portal (add card / change plan / cancel). */
   onOpenBilling(): void;
   onMicToggle(): void;
+  /** Gear next to the mic button opened the audio-settings panel. */
+  onOpenAudioSettings(): void;
+  /** The audio-settings panel closed (stop any mic preview). */
+  onCloseAudioSettings(): void;
+  /** Chose a microphone from the audio-settings panel ("" = system default). */
+  onMicDeviceChange(deviceId: string): void;
+  /** Chose a speaker from the audio-settings panel ("" = system default). */
+  onSpeakerDeviceChange(deviceId: string): void;
   onLeave(): void;
   /** Cancel an in-progress auto-reconnect and return to the join screen. */
   onCancelReconnect(): void;
@@ -327,6 +342,7 @@ export class UIManager {
     this._bindInvitePanel();
     this._bindMembersPanel();
     this._bindHud();
+    this._bindAudioSettings();
     this._bindReconnect();
     this._bindSidebar();
     this._refreshAvatar();
@@ -343,6 +359,7 @@ export class UIManager {
     elJoin.removeAttribute("hidden");
     elReconnect.setAttribute("hidden", "");
     elHud.setAttribute("hidden", "");
+    elAudioSettings.setAttribute("hidden", "");
     elSidebar.setAttribute("hidden", "");
     elTabs.setAttribute("hidden", "");
     this.hideOrgSetup();
@@ -405,6 +422,47 @@ export class UIManager {
     elMicLabel.textContent = muted ? t.muted : t.live;
     elMic.title = muted ? t.micTitleMuted : t.micTitleLive;
     if (!muted) this.setMuteNudge(false);
+  }
+
+  /**
+   * Populate the mic/speaker selects and show the audio-settings panel. Called
+   * by main.ts once it has resolved the device lists from AudioEngine.
+   */
+  openAudioSettings(
+    inputs: { id: string; label: string }[],
+    outputs: { id: string; label: string }[],
+    selectedMic: string,
+    selectedSpeaker: string,
+  ): void {
+    this._fillDeviceSelect(elMicSelect, inputs, t.fieldMicrophone, selectedMic);
+    this._fillDeviceSelect(elSpeakerSelect, outputs, t.fieldSpeaker, selectedSpeaker);
+    elAudioSettings.removeAttribute("hidden");
+  }
+
+  /** Update the input-level meter (0..1) while the audio-settings panel is open. */
+  setMicLevel(level: number): void {
+    elMicLevelBar.style.width = `${Math.round(Math.max(0, Math.min(1, level)) * 100)}%`;
+  }
+
+  private _fillDeviceSelect(
+    select: HTMLSelectElement,
+    devices: { id: string; label: string }[],
+    kindLabel: string,
+    selected: string,
+  ): void {
+    select.innerHTML = "";
+    const def = document.createElement("option");
+    def.value = "";
+    def.textContent = t.defaultDevice;
+    select.appendChild(def);
+    devices.forEach((d, i) => {
+      const opt = document.createElement("option");
+      opt.value = d.id;
+      // Labels are blank until the browser has granted mic permission once.
+      opt.textContent = d.label || `${kindLabel} ${i + 1}`;
+      select.appendChild(opt);
+    });
+    select.value = selected;
   }
 
   /** Show a non-fatal error in the join error area. */
@@ -1300,6 +1358,20 @@ export class UIManager {
   private _bindHud(): void {
     elMic.addEventListener("click", () => this.callbacks.onMicToggle());
     elLeave.addEventListener("click", () => this.callbacks.onLeave());
+  }
+
+  private _bindAudioSettings(): void {
+    elAudioSettingsBtn.addEventListener("click", () => this.callbacks.onOpenAudioSettings());
+    const close = () => {
+      elAudioSettings.setAttribute("hidden", "");
+      this.callbacks.onCloseAudioSettings();
+    };
+    elAudioSettingsClose.addEventListener("click", close);
+    elAudioSettings.addEventListener("click", (e) => {
+      if (e.target === elAudioSettings) close();
+    });
+    elMicSelect.addEventListener("change", () => this.callbacks.onMicDeviceChange(elMicSelect.value));
+    elSpeakerSelect.addEventListener("change", () => this.callbacks.onSpeakerDeviceChange(elSpeakerSelect.value));
   }
 
   private _bindReconnect(): void {

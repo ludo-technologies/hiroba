@@ -401,9 +401,43 @@
           <span class="mic-glyph" aria-hidden="true"></span>
           <span id="mic-label" data-i18n="muted">Muted</span>
         </button>
+        <button
+          id="audio-settings-btn"
+          class="hud-icon-btn"
+          type="button"
+          data-i18n-title="audioSettingsTitle"
+          data-i18n-arialabel="audioSettingsTitle"
+        >
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+               stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3.2" />
+            <path d="M19.4 15a1.6 1.6 0 0 0 .32 1.76l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.76-.32 1.6 1.6 0 0 0-.97 1.46V21a2 2 0 1 1-4 0v-.09a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.76.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.6 1.6 0 0 0 .32-1.76 1.6 1.6 0 0 0-1.46-.97H3a2 2 0 1 1 0-4h.09a1.6 1.6 0 0 0 1.46-1.05 1.6 1.6 0 0 0-.32-1.76l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.6 1.6 0 0 0 1.76.32h.09a1.6 1.6 0 0 0 .97-1.46V3a2 2 0 1 1 4 0v.09a1.6 1.6 0 0 0 .97 1.46 1.6 1.6 0 0 0 1.76-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.76V9a1.6 1.6 0 0 0 1.46.97H21a2 2 0 1 1 0 4h-.09a1.6 1.6 0 0 0-1.46.97z" />
+          </svg>
+        </button>
         <span id="count" class="hud-pill" data-i18n="justYou">Just you</span>
       </div>
       <button id="leave" class="hud-btn" title="Leave the office" data-i18n="leave" data-i18n-title="leaveTitle">Leave</button>
+    </div>
+
+    <!-- Audio settings (mic/speaker device selection + input level meter) -->
+    <div id="audio-settings" class="overlay" hidden>
+      <div class="card invite-card" role="dialog" aria-modal="true" aria-labelledby="audio-settings-title">
+        <header class="invite-head">
+          <span id="audio-settings-title" class="invite-title" data-i18n="audioSettingsTitle">Audio settings</span>
+          <button id="audio-settings-close" type="button" class="ghost-btn" data-i18n="closePanel">Close</button>
+        </header>
+        <label class="field">
+          <span class="field-label" data-i18n="fieldMicrophone">Microphone</span>
+          <select id="mic-device-select"></select>
+        </label>
+        <div class="mic-level" role="meter" aria-label="Microphone input level" data-i18n-arialabel="micLevelAria">
+          <div id="mic-level-bar" class="mic-level-bar"></div>
+        </div>
+        <label class="field">
+          <span class="field-label" data-i18n="fieldSpeaker">Speaker</span>
+          <select id="speaker-device-select"></select>
+        </label>
+      </div>
     </div>
 
     <!-- Calm nudge: appears when someone is within talking range and you're muted -->

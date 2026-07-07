@@ -97,6 +97,11 @@ interface Session {
 
 let session: Session | null = null;
 
+// Audio device preference, persisted across sessions (mirrors ui.ts's LS_*
+// convention; this module owns AudioEngine, so it owns these two keys).
+const LS_MIC_DEVICE = "hiroba_mic_device";
+const LS_SPEAKER_DEVICE = "hiroba_speaker_device";
+
 // Reconnect bookkeeping.
 const MAX_RECONNECT = 6;
 let lastJoin: JoinFormValues | null = null;
@@ -109,6 +114,11 @@ let rafId = 0;
 let rafScheduled = false;
 let dirty = false;
 let wasAnimating = false;
+
+// Audio-settings panel: a small dedicated rAF loop drives the level meter
+// while it's open, independent of the main demand-driven loop above (which
+// may be asleep — e.g. testing the mic alone in an empty space).
+let audioSettingsRaf = 0;
 
 // Ambient-prompt state.
 let moveHintActive = false;
@@ -142,6 +152,10 @@ const ui = new UIManager(
     onRemoveMember: handleRemoveMember,
     onOpenBilling: handleOpenBilling,
     onMicToggle: handleMicToggle,
+    onOpenAudioSettings: handleOpenAudioSettings,
+    onCloseAudioSettings: handleCloseAudioSettings,
+    onMicDeviceChange: handleMicDeviceChange,
+    onSpeakerDeviceChange: handleSpeakerDeviceChange,
     onLeave: handleLeave,
     onCancelReconnect: handleCancelReconnect,
     onEnterSpace: handleEnterSpace,
@@ -640,6 +654,10 @@ function handleCancelReconnect(): void {
 function initSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[]): void {
   const input = new InputHandler();
   const audio = new AudioEngine();
+  // Restore the user's last-picked devices (no-op side effects: the mic isn't
+  // acquired yet, so this just seeds the preference for the first unmute).
+  void audio.setMicDevice(localStorage.getItem(LS_MIC_DEVICE));
+  void audio.setSpeakerDevice(localStorage.getItem(LS_SPEAKER_DEVICE));
 
   // The server echoes the *validated* avatar in `you`; trusting it (not the
   // form value) keeps what we render for ourselves consistent with what
@@ -1249,6 +1267,61 @@ async function handleMicToggle(): Promise<void> {
   }
 }
 
+function handleOpenAudioSettings(): void {
+  if (!session) return;
+  const audio = session.audio;
+  void (async () => {
+    // Device lists don't require mic permission (enumerateDevices always
+    // works; labels are just blank without it) — resolve and open the panel
+    // regardless of whether the preview below succeeds, so a denied/missing
+    // mic doesn't also lock the user out of picking a speaker.
+    const { inputs, outputs } = await audio.listDevices();
+    ui.openAudioSettings(
+      inputs.map((d) => ({ id: d.deviceId, label: d.label })),
+      outputs.map((d) => ({ id: d.deviceId, label: d.label })),
+      audio.micDevice ?? "",
+      audio.speakerDevice ?? "",
+    );
+    cancelAnimationFrame(audioSettingsRaf);
+    const meterLoop = () => {
+      ui.setMicLevel(audio.getMicLevel());
+      audioSettingsRaf = requestAnimationFrame(meterLoop);
+    };
+    meterLoop();
+    try {
+      await audio.startMicPreview(audio.micDevice);
+    } catch {
+      // Mic preview denied/unavailable: meter just stays at 0 — the panel
+      // (and speaker selection) is still fully usable.
+    }
+  })().catch(() => ui.showToast(t.errMicDenied, "error"));
+}
+
+function handleCloseAudioSettings(): void {
+  cancelAnimationFrame(audioSettingsRaf);
+  session?.audio.stopMicPreview();
+}
+
+async function handleMicDeviceChange(deviceId: string): Promise<void> {
+  if (!session) return;
+  const id = deviceId || null;
+  try {
+    await session.audio.setMicDevice(id);
+    if (id) localStorage.setItem(LS_MIC_DEVICE, id);
+    else localStorage.removeItem(LS_MIC_DEVICE);
+  } catch {
+    ui.showToast(t.errMicDenied, "error");
+  }
+}
+
+async function handleSpeakerDeviceChange(deviceId: string): Promise<void> {
+  if (!session) return;
+  const id = deviceId || null;
+  await session.audio.setSpeakerDevice(id);
+  if (id) localStorage.setItem(LS_SPEAKER_DEVICE, id);
+  else localStorage.removeItem(LS_SPEAKER_DEVICE);
+}
+
 function handleEnterSpace(spaceId: string): void {
   if (!session || spaceId === session.spaceId) return;
   markActive();
@@ -1355,6 +1428,7 @@ function teardownSession(): void {
   if (rafId) cancelAnimationFrame(rafId);
   rafId = 0;
   rafScheduled = false;
+  cancelAnimationFrame(audioSettingsRaf);
 
   s.input.destroy();
   s.audio.destroy();

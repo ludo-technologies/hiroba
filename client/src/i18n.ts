@@ -124,6 +124,13 @@ const EN = {
   leave: "Leave",
   leaveTitle: "Leave the office",
 
+  // Audio settings panel (gear next to the mic button)
+  audioSettingsTitle: "Audio settings",
+  fieldMicrophone: "Microphone",
+  fieldSpeaker: "Speaker",
+  micLevelAria: "Microphone input level",
+  defaultDevice: "System default",
+
   // Sidebar / roster
   away: "Away",
   dnd: "Do not disturb",
@@ -277,6 +284,13 @@ const JA: typeof EN = {
   nHere: (n: number) => `${n}人がここに`,
   leave: "退室",
   leaveTitle: "オフィスから退室",
+
+  // Audio settings panel (gear next to the mic button)
+  audioSettingsTitle: "オーディオ設定",
+  fieldMicrophone: "マイク",
+  fieldSpeaker: "スピーカー",
+  micLevelAria: "マイクの入力レベル",
+  defaultDevice: "システムのデフォルト",
 
   // Sidebar / roster
   away: "離席",

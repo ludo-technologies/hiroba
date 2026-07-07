@@ -718,6 +718,29 @@ body {
   border-color: rgba(212, 88, 60, 0.5);
 }
 
+/* Gear next to the mic button — opens the audio-settings panel */
+.hud-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--edge);
+  background: var(--paper);
+  color: var(--ink-mute);
+  cursor: pointer;
+  box-shadow: var(--shadow-hud);
+  pointer-events: auto;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.hud-icon-btn:hover {
+  background: #fff;
+  border-color: var(--edge-2);
+  color: var(--ink-soft);
+}
+
 .hud-pill {
   padding: 9px 16px;
   border-radius: var(--radius-pill);
@@ -1711,6 +1734,22 @@ body {
 .invite-card select:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.mic-level {
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--edge);
+  overflow: hidden;
+  margin-top: -6px; /* sit close under the mic <select> instead of its own field gap */
+}
+
+.mic-level-bar {
+  height: 100%;
+  width: 0%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 90ms linear;
 }
 
 #invite-issue-btn {

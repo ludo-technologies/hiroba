@@ -117,6 +117,25 @@ export class AudioEngine {
   /** Current mute state. Starts true per FR-08. */
   private muted = true;
 
+  /** Preferred input/output device (null = system default). Persisted by ui.ts. */
+  private micDeviceId: string | null = null;
+  private speakerDeviceId: string | null = null;
+
+  /**
+   * Mic-preview stream for the audio-settings panel: lets the user watch the
+   * input level meter and try a different device *before* ever unmuting (the
+   * real call track is only acquired on first unmute, per FR-08). Unused
+   * whenever a live call track already exists — the meter reads that instead.
+   */
+  private previewStream: MediaStream | null = null;
+  private previewSource: MediaStreamAudioSourceNode | null = null;
+  private previewAnalyser: AnalyserNode | null = null;
+
+  /** Bumped on every mic-device operation; a stale in-flight getUserMedia call
+   *  checks this after awaiting and discards its result if it's out of date
+   *  (rapid device switching must not let an earlier call clobber a later one). */
+  private micEpoch = 0;
+
   /** AudioContext, created lazily when the first remote stream arrives. */
   private audioCtx: AudioContext | null = null;
 
@@ -467,6 +486,132 @@ export class AudioEngine {
     return this.muted;
   }
 
+  /** Currently selected input/output device (null = system default). */
+  get micDevice(): string | null {
+    return this.micDeviceId;
+  }
+  get speakerDevice(): string | null {
+    return this.speakerDeviceId;
+  }
+
+  // -------------------------------------------------------------------------
+  // Device selection (audio-settings panel)
+  // -------------------------------------------------------------------------
+
+  /** List available input/output devices. Labels are blank until the browser
+   *  has granted mic permission at least once (FR-08: we don't request it
+   *  just to populate this list — a preview or a real unmute grants it). */
+  async listDevices(): Promise<{ inputs: MediaDeviceInfo[]; outputs: MediaDeviceInfo[] }> {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return {
+      inputs: devices.filter((d) => d.kind === "audioinput"),
+      outputs: devices.filter((d) => d.kind === "audiooutput"),
+    };
+  }
+
+  /**
+   * Select an input device. If a call track already exists, swaps it live via
+   * `replaceTrack` on every peer (no renegotiation needed). Otherwise, if a
+   * mic preview is running, restarts it on the new device so the settings
+   * panel's level meter reflects the choice immediately.
+   */
+  async setMicDevice(deviceId: string | null): Promise<void> {
+    const previous = this.micDeviceId;
+    this.micDeviceId = deviceId;
+    try {
+      if (this.micAcquired) await this._reacquireMic();
+      // Independent of the call track: if the settings panel has a preview
+      // running (i.e. we're muted or never unmuted), restart it on the new
+      // device too, so the meter reflects the choice immediately.
+      if (this.previewStream) await this.startMicPreview(deviceId);
+    } catch (err) {
+      this.micDeviceId = previous; // swap failed — don't strand the preference
+      throw err;
+    }
+  }
+
+  /**
+   * Select an output device for all remote audio. Every peer's spatial gain
+   * feeds the same AudioContext destination (see `_attachRemoteAudioStream`),
+   * so retargeting the whole context covers every peer at once. Requires
+   * `AudioContext.setSinkId` (Chromium; not yet in WebKit) — a no-op silently
+   * falls back to the system default elsewhere.
+   */
+  async setSpeakerDevice(deviceId: string | null): Promise<void> {
+    this.speakerDeviceId = deviceId;
+    await this._applySpeakerDevice();
+  }
+
+  private async _applySpeakerDevice(): Promise<void> {
+    if (!this.audioCtx) return;
+    const ctx = this.audioCtx as AudioContext & { setSinkId?: (id: string) => Promise<void> };
+    if (typeof ctx.setSinkId !== "function") return;
+    try {
+      await ctx.setSinkId(this.speakerDeviceId ?? "");
+    } catch (err) {
+      console.error("[audio] setSinkId failed:", err);
+    }
+  }
+
+  /**
+   * Start (or restart) a standalone mic-preview stream for the settings
+   * panel's level meter. No-op while *live and unmuted* (`getMicLevel` reads
+   * the real call level instead) — but while muted, even with a call track
+   * already acquired, the call track is disabled and silent, so a separate
+   * preview stream is how the user tests a device without unmuting.
+   */
+  async startMicPreview(deviceId?: string | null): Promise<void> {
+    if (this.micAcquired && !this.muted) return;
+    this.stopMicPreview();
+    const epoch = ++this.micEpoch;
+    const id = deviceId !== undefined ? deviceId : this.micDeviceId;
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: id ? { deviceId: { exact: id } } : true,
+      video: false,
+    });
+    if (epoch !== this.micEpoch) {
+      // Superseded by a newer device switch (or stopMicPreview/destroy) while
+      // this getUserMedia call was in flight — discard, don't clobber.
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    const ctx = this._getAudioContext();
+    if (ctx.state === "suspended") void ctx.resume(); // opening the panel is a gesture
+    const source = ctx.createMediaStreamSource(stream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+    analyser.smoothingTimeConstant = 0.3;
+    source.connect(analyser);
+    this.previewStream = stream;
+    this.previewSource = source;
+    this.previewAnalyser = analyser;
+  }
+
+  /** Stop the mic-preview stream, if any (call when the settings panel closes). */
+  stopMicPreview(): void {
+    this.micEpoch++; // invalidate any in-flight startMicPreview/_reacquireMic call
+    try {
+      this.previewSource?.disconnect();
+    } catch { /* already disconnected */ }
+    try {
+      this.previewAnalyser?.disconnect();
+    } catch { /* already disconnected */ }
+    this.previewSource = null;
+    this.previewAnalyser = null;
+    if (this.previewStream) {
+      this.previewStream.getTracks().forEach((t) => t.stop());
+      this.previewStream = null;
+    }
+  }
+
+  /** Instantaneous 0..1 input level, for the settings panel's meter — live
+   *  call level while unmuted, preview level otherwise, 0 if neither is active. */
+  getMicLevel(): number {
+    if (this.micAcquired && !this.muted) return this.selfLevelValue;
+    if (this.previewAnalyser) return this._rms(this.previewAnalyser);
+    return 0;
+  }
+
   /** Whether our local screen-share track is currently being sent. */
   get isScreenSharing(): boolean {
     return !!this.screenTrack;
@@ -541,6 +686,7 @@ export class AudioEngine {
   destroy(): void {
     for (const entry of this.peers.values()) this._closePeer(entry);
     this.peers.clear();
+    this.stopMicPreview();
 
     try {
       this.localLevelSource?.disconnect();
@@ -760,15 +906,44 @@ export class AudioEngine {
   private _getAudioContext(): AudioContext {
     if (!this.audioCtx || this.audioCtx.state === "closed") {
       this.audioCtx = new AudioContext();
+      if (this.speakerDeviceId) void this._applySpeakerDevice();
     }
     return this.audioCtx;
+  }
+
+  /** getUserMedia constraints for the currently-selected input device. */
+  private _micConstraints(): MediaStreamConstraints {
+    return {
+      audio: this.micDeviceId ? { deviceId: { exact: this.micDeviceId } } : true,
+      video: false,
+    };
+  }
+
+  /** Wire an analyser onto the local mic stream, for the self speaking ring
+   *  and the settings-panel level meter. When muted the track is disabled and
+   *  produces silence, so the analyser reads ~0 — exactly what we want. */
+  private _tapLocalStream(stream: MediaStream): void {
+    try {
+      this.localLevelSource?.disconnect();
+    } catch { /* already disconnected */ }
+    try {
+      this.localAnalyser?.disconnect();
+    } catch { /* already disconnected */ }
+    const ctx = this._getAudioContext();
+    const localSource = ctx.createMediaStreamSource(stream);
+    const localAnalyser = ctx.createAnalyser();
+    localAnalyser.fftSize = 512;
+    localAnalyser.smoothingTimeConstant = 0.3;
+    localSource.connect(localAnalyser); // analysis only; never to destination
+    this.localLevelSource = localSource;
+    this.localAnalyser = localAnalyser;
   }
 
   /** Acquire the local microphone track. Called once on first unmute. */
   private async _acquireMic(): Promise<void> {
     this.micAcquired = true; // set before await to prevent duplicate calls
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      const stream = await navigator.mediaDevices.getUserMedia(this._micConstraints());
       const [track] = stream.getAudioTracks();
       if (!track) {
         this.micAcquired = false;
@@ -777,18 +952,7 @@ export class AudioEngine {
       this.localStream = stream;
       this.localTrack = track;
       track.enabled = !this.muted; // still muted until the toggle completes
-
-      // Tap our own mic for the self speaking ring. When muted the track is
-      // disabled and produces silence, so the analyser reads ~0 — exactly what
-      // we want (no self ring while muted).
-      const ctx = this._getAudioContext();
-      const localSource = ctx.createMediaStreamSource(stream);
-      const localAnalyser = ctx.createAnalyser();
-      localAnalyser.fftSize = 512;
-      localAnalyser.smoothingTimeConstant = 0.3;
-      localSource.connect(localAnalyser); // analysis only; never to destination
-      this.localLevelSource = localSource;
-      this.localAnalyser = localAnalyser;
+      this._tapLocalStream(stream);
 
       // Add the track (with its stream) to every existing peer. Each addTrack
       // fires onnegotiationneeded, renegotiating to send our audio.
@@ -804,6 +968,46 @@ export class AudioEngine {
       console.error("[audio] getUserMedia failed:", err);
       throw err;
     }
+  }
+
+  /**
+   * Swap the live call track for one from a newly-selected input device.
+   * Uses `replaceTrack` on each peer's existing sender — no renegotiation, no
+   * audible drop. Called from `setMicDevice` while a call track is live.
+   */
+  private async _reacquireMic(): Promise<void> {
+    const oldTrack = this.localTrack;
+    const oldStream = this.localStream;
+    const epoch = ++this.micEpoch;
+    const stream = await navigator.mediaDevices.getUserMedia(this._micConstraints());
+    const [track] = stream.getAudioTracks();
+    if (!track) {
+      stream.getTracks().forEach((t) => t.stop());
+      throw new Error("no audio track from getUserMedia");
+    }
+    if (epoch !== this.micEpoch) {
+      // A newer setMicDevice call (or a preview) superseded this one while
+      // getUserMedia was in flight — drop it instead of clobbering the winner.
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    track.enabled = !this.muted;
+
+    for (const entry of this.peers.values()) {
+      const sender = entry.pc.getSenders().find((s) => s.track === oldTrack);
+      try {
+        if (sender) await sender.replaceTrack(track);
+        else entry.pc.addTrack(track, stream);
+      } catch (err) {
+        console.error("[audio] replaceTrack error:", err);
+      }
+    }
+
+    this._tapLocalStream(stream);
+    this.localStream = stream;
+    this.localTrack = track;
+    if (oldTrack) oldTrack.stop();
+    if (oldStream) oldStream.getTracks().forEach((t) => { if (t !== oldTrack) t.stop(); });
   }
 
   /** Close and clean up a single peer entry, including its Web Audio nodes. */
