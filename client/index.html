@@ -367,7 +367,10 @@
     <div id="screen-panel" class="screen-panel" hidden>
       <header class="screen-head">
         <span id="screen-title">Screen</span>
-        <button id="screen-close" type="button" data-i18n-title="closeScreen" data-i18n-arialabel="closeScreen">×</button>
+        <div class="screen-head-actions">
+          <button id="screen-fullscreen" type="button" data-i18n-title="enterFullscreen" data-i18n-arialabel="enterFullscreen">⤢</button>
+          <button id="screen-close" type="button" data-i18n-title="closeScreen" data-i18n-arialabel="closeScreen">×</button>
+        </div>
       </header>
       <video id="screen-video" autoplay playsinline muted></video>
     </div>

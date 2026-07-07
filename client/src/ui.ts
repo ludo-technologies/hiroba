@@ -182,6 +182,7 @@ const elHangup = $<HTMLButtonElement>("hangup");
 const elScreenPanel = $<HTMLDivElement>("screen-panel");
 const elScreenTitle = $<HTMLSpanElement>("screen-title");
 const elScreenClose = $<HTMLButtonElement>("screen-close");
+const elScreenFullscreen = $<HTMLButtonElement>("screen-fullscreen");
 const elScreenVideo = $<HTMLVideoElement>("screen-video");
 const elToasts = $<HTMLDivElement>("toasts");
 const elUpdateBanner = $<HTMLDivElement>("update-banner");
@@ -941,6 +942,7 @@ export class UIManager {
       elScreenVideo.pause();
       elScreenVideo.srcObject = null;
       elScreenPanel.setAttribute("hidden", "");
+      this.setScreenFullscreen(false);
       return;
     }
     elScreenTitle.textContent = title;
@@ -953,6 +955,14 @@ export class UIManager {
     void elScreenVideo.play().catch(() => {
       /* User gesture/autoplay policy can block; controls are intentionally not shown. */
     });
+  }
+
+  /** Expand or restore the screen-share panel to fill the window. */
+  setScreenFullscreen(fullscreen: boolean): void {
+    elScreenPanel.classList.toggle("fullscreen", fullscreen);
+    elScreenFullscreen.textContent = fullscreen ? "⤡" : "⤢";
+    elScreenFullscreen.title = fullscreen ? t.exitFullscreen : t.enterFullscreen;
+    elScreenFullscreen.setAttribute("aria-label", fullscreen ? t.exitFullscreen : t.enterFullscreen);
   }
 
   /** Offer to reopen a dismissed remote screen-share panel. */
@@ -1034,6 +1044,17 @@ export class UIManager {
     elScreenShare.addEventListener("click", () => this.callbacks.onScreenShareToggle());
     elScreenReopen.addEventListener("click", () => this.callbacks.onReopenScreenShare());
     elScreenClose.addEventListener("click", () => this.callbacks.onCloseScreenShare());
+    elScreenFullscreen.addEventListener("click", () => {
+      this.setScreenFullscreen(!elScreenPanel.classList.contains("fullscreen"));
+    });
+    elScreenVideo.addEventListener("dblclick", () => {
+      this.setScreenFullscreen(!elScreenPanel.classList.contains("fullscreen"));
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && elScreenPanel.classList.contains("fullscreen")) {
+        this.setScreenFullscreen(false);
+      }
+    });
     elHangup.addEventListener("click", () => this.callbacks.onHangUp());
   }
 

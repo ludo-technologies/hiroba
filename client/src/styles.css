@@ -1293,6 +1293,17 @@ body {
   display: none;
 }
 
+.screen-panel.fullscreen {
+  right: 0;
+  top: 0;
+  width: 100vw;
+  height: 100vh;
+  aspect-ratio: auto;
+  border-radius: 0;
+  border: none;
+  z-index: 120;
+}
+
 .screen-head {
   flex: 0 0 auto;
   height: 36px;
@@ -1307,6 +1318,13 @@ body {
   font-weight: 700;
 }
 
+.screen-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#screen-fullscreen,
 #screen-close {
   width: 26px;
   height: 26px;
@@ -1322,6 +1340,7 @@ body {
   cursor: pointer;
 }
 
+#screen-fullscreen:hover,
 #screen-close:hover {
   background: rgba(255, 255, 255, 0.2);
 }
