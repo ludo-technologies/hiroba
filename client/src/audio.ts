@@ -81,12 +81,14 @@ interface PeerConn {
   sink: HTMLAudioElement | null;
   /** Smoothed 0..1 speech level, updated by pollLevels(). */
   level: number;
-  /** Sender carrying our local screen-share video to this peer, if any. */
-  screenSender: RTCRtpSender | null;
-  /** Remote screen-share stream from this peer, if currently present. */
-  remoteScreenStream: MediaStream | null;
-  /** The attached remote screen video track (for dedup on renegotiation). */
-  remoteScreenTrack: MediaStreamTrack | null;
+  /** Sender carrying our local video (screen or camera) to this peer, if any. */
+  videoSender: RTCRtpSender | null;
+  /** Remote video stream from this peer, if currently present. */
+  remoteVideoStream: MediaStream | null;
+  /** The attached remote video track (for dedup on renegotiation). */
+  remoteVideoTrack: MediaStreamTrack | null;
+  /** Purpose of the remote video track, from the last "video-mode" signal. */
+  remoteVideoMode: "screen" | "camera" | null;
 }
 
 /**
@@ -157,17 +159,22 @@ export class AudioEngine {
   /** Wakes the render loop when remote audio becomes available to poll. */
   private onWake: (() => void) | null = null;
 
-  /** Notifies main/UI when a remote peer starts or stops screen sharing. */
-  private onRemoteScreen:
-    | ((peerId: string, stream: MediaStream | null) => void)
+  /** Notifies main/UI when a remote peer starts, stops, or relabels their video. */
+  private onRemoteVideo:
+    | ((peerId: string, stream: MediaStream | null, mode: "screen" | "camera" | null) => void)
     | null = null;
 
-  /** Notifies main/UI when local screen sharing starts or stops. */
-  private onLocalScreen: ((stream: MediaStream | null) => void) | null = null;
+  /** Notifies main/UI when local video (screen or camera) starts or stops. */
+  private onLocalVideo:
+    | ((stream: MediaStream | null, mode: "screen" | "camera" | null) => void)
+    | null = null;
 
-  /** Local display stream + video track while screen sharing is active. */
-  private screenStream: MediaStream | null = null;
-  private screenTrack: MediaStreamTrack | null = null;
+  /** Local video stream + track while screen share or camera is active.
+   *  Screen share and camera are mutually exclusive — starting one stops
+   *  the other — so a single slot suffices. */
+  private videoStream: MediaStream | null = null;
+  private videoTrack: MediaStreamTrack | null = null;
+  private videoMode: "screen" | "camera" | null = null;
 
   /**
    * ICE servers used for every RTCPeerConnection. Resolved from config.ts by
@@ -190,14 +197,14 @@ export class AudioEngine {
     sendSignal: (to: string, data: SignalData) => void,
     onWake: () => void,
     iceServers?: RTCIceServer[],
-    onRemoteScreen?: (peerId: string, stream: MediaStream | null) => void,
-    onLocalScreen?: (stream: MediaStream | null) => void,
+    onRemoteVideo?: (peerId: string, stream: MediaStream | null, mode: "screen" | "camera" | null) => void,
+    onLocalVideo?: (stream: MediaStream | null, mode: "screen" | "camera" | null) => void,
   ): void {
     this.space = space;
     this.sendSignal = sendSignal;
     this.onWake = onWake;
-    this.onRemoteScreen = onRemoteScreen ?? null;
-    this.onLocalScreen = onLocalScreen ?? null;
+    this.onRemoteVideo = onRemoteVideo ?? null;
+    this.onLocalVideo = onLocalVideo ?? null;
     if (iceServers && iceServers.length > 0) this.iceServers = iceServers;
   }
 
@@ -228,9 +235,9 @@ export class AudioEngine {
     if (existing) {
       if (kind === "page") existing.page = true;
       else existing.proximity = true;
-      // A page link may open on an existing proximity PC; attach screen share
-      // now if we are already sharing (page-only — see _addScreenTrack).
-      if (kind === "page") this._addScreenTrack(existing);
+      // A page link may open on an existing proximity PC; attach our video
+      // now if we already have one active (page-only — see _addVideoTrack).
+      if (kind === "page") this._addVideoTrack(existing);
       return;
     }
     // initiator == impolite, so polite = !initiator
@@ -339,6 +346,14 @@ export class AudioEngine {
         } else {
           // Remote description not set yet — buffer and flush later.
           entry.pendingCandidates.push(data.candidate);
+        }
+      } else if (data.kind === "video-mode") {
+        // Labels the peer's outgoing video track (screen vs camera); track
+        // events alone can't tell them apart. May arrive before or after the
+        // track itself — re-notify if the stream is already attached.
+        entry.remoteVideoMode = data.mode;
+        if (entry.remoteVideoStream) {
+          this.onRemoteVideo?.(fromId, entry.remoteVideoStream, data.mode);
         }
       }
     } catch (err) {
@@ -614,22 +629,33 @@ export class AudioEngine {
 
   /** Whether our local screen-share track is currently being sent. */
   get isScreenSharing(): boolean {
-    return !!this.screenTrack;
+    return this.videoMode === "screen";
+  }
+
+  /** Whether our local camera track is currently being sent. */
+  get isCameraOn(): boolean {
+    return this.videoMode === "camera";
   }
 
   /** Local display stream for self-preview while sharing. */
   get screenShareStream(): MediaStream | null {
-    return this.screenStream;
+    return this.videoMode === "screen" ? this.videoStream : null;
+  }
+
+  /** Local camera stream for self-preview while the camera is on. */
+  get cameraStream(): MediaStream | null {
+    return this.videoMode === "camera" ? this.videoStream : null;
   }
 
   /**
    * Start sharing the user's screen/window to **page** (1:1 call) peers only.
    * The browser picker must be launched from a user gesture, so UI calls this
    * directly from the share button. Adding/removing the video track relies on
-   * the same perfect-negotiation path as mic changes.
+   * the same perfect-negotiation path as mic changes. Mutually exclusive with
+   * the camera — starting this stops any active camera first.
    */
   async startScreenShare(): Promise<void> {
-    if (this.screenTrack) return;
+    if (this.videoMode === "screen") return;
     const stream = await navigator.mediaDevices.getDisplayMedia({
       video: true,
       audio: false,
@@ -639,34 +665,93 @@ export class AudioEngine {
       stream.getTracks().forEach((t) => t.stop());
       throw new Error("no video track from getDisplayMedia");
     }
-
-    this.screenStream = stream;
-    this.screenTrack = track;
+    this._startVideo("screen", stream, track);
     track.addEventListener("ended", () => this.stopScreenShare(), { once: true });
-
-    for (const entry of this.peers.values()) {
-      if (entry.page) this._addScreenTrack(entry);
-    }
-    this.onLocalScreen?.(stream);
   }
 
   /** Stop local screen sharing and renegotiate every live peer connection. */
   stopScreenShare(): void {
-    const track = this.screenTrack;
-    this.screenTrack = null;
+    if (this.videoMode !== "screen") return;
+    this._stopVideo();
+  }
+
+  /**
+   * Start sending the user's camera to **page** (1:1 call) peers only.
+   * Mutually exclusive with screen share — starting this stops any active
+   * screen share first. Same perfect-negotiation renegotiation path as mic
+   * and screen-share changes.
+   */
+  async startCamera(): Promise<void> {
+    if (this.videoMode === "camera") return;
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+      audio: false,
+    });
+    const [track] = stream.getVideoTracks();
+    if (!track) {
+      stream.getTracks().forEach((t) => t.stop());
+      throw new Error("no video track from getUserMedia");
+    }
+    this._startVideo("camera", stream, track);
+    track.addEventListener("ended", () => this.stopCamera(), { once: true });
+  }
+
+  /** Stop the local camera and renegotiate every live peer connection. */
+  stopCamera(): void {
+    if (this.videoMode !== "camera") return;
+    this._stopVideo();
+  }
+
+  /**
+   * Assign a newly-acquired video track/stream as the active local video and
+   * push it to every page peer. If switching modes (e.g. screen → camera)
+   * while a peer already holds a sender from the previous track, swap it in
+   * place via `replaceTrack` — no renegotiation, no gap in the local preview,
+   * and a single "video-mode" signal per peer instead of a remove-then-add
+   * pair that would briefly tell the peer "video stopped" mid-switch.
+   */
+  private _startVideo(mode: "screen" | "camera", stream: MediaStream, track: MediaStreamTrack): void {
+    const previousTrack = this.videoTrack;
+    this.videoStream = stream;
+    this.videoTrack = track;
+    this.videoMode = mode;
 
     for (const entry of this.peers.values()) {
-      this._removeScreenTrack(entry);
+      if (!entry.page) continue;
+      if (entry.videoSender) {
+        void entry.videoSender.replaceTrack(track).catch((err) => {
+          console.error("[audio] replaceTrack (video) error:", err);
+        });
+        this.sendSignal?.(entry.id, { kind: "video-mode", mode });
+      } else {
+        this._addVideoTrack(entry);
+      }
+    }
+
+    if (previousTrack && previousTrack !== track && previousTrack.readyState !== "ended") {
+      previousTrack.stop();
+    }
+    this.onLocalVideo?.(stream, mode);
+  }
+
+  /** Tear down whatever local video (screen or camera) is currently active. */
+  private _stopVideo(): void {
+    const track = this.videoTrack;
+    this.videoTrack = null;
+    this.videoMode = null;
+
+    for (const entry of this.peers.values()) {
+      this._removeVideoTrack(entry);
     }
 
     if (track && track.readyState !== "ended") track.stop();
-    if (this.screenStream) {
-      this.screenStream.getTracks().forEach((t) => {
+    if (this.videoStream) {
+      this.videoStream.getTracks().forEach((t) => {
         if (t !== track && t.readyState !== "ended") t.stop();
       });
     }
-    this.screenStream = null;
-    this.onLocalScreen?.(null);
+    this.videoStream = null;
+    this.onLocalVideo?.(null, null);
   }
 
   /**
@@ -703,7 +788,7 @@ export class AudioEngine {
       this.localStream = null;
     }
     this.localTrack = null;
-    this.stopScreenShare();
+    this._stopVideo();
 
     if (this.audioCtx && this.audioCtx.state !== "closed") {
       void this.audioCtx.close();
@@ -715,8 +800,8 @@ export class AudioEngine {
     this.space = null;
     this.sendSignal = null;
     this.onWake = null;
-    this.onRemoteScreen = null;
-    this.onLocalScreen = null;
+    this.onRemoteVideo = null;
+    this.onLocalVideo = null;
   }
 
   // -------------------------------------------------------------------------
@@ -743,9 +828,10 @@ export class AudioEngine {
       analyser: null,
       sink: null,
       level: 0,
-      screenSender: null,
-      remoteScreenStream: null,
-      remoteScreenTrack: null,
+      videoSender: null,
+      remoteVideoStream: null,
+      remoteVideoTrack: null,
+      remoteVideoMode: null,
     };
     this.peers.set(peerId, entry);
 
@@ -784,7 +870,7 @@ export class AudioEngine {
       if (ev.track.kind === "audio" || !ev.track.kind) {
         this._attachRemoteAudioStream(entry, stream);
       } else if (ev.track.kind === "video" && entry.page) {
-        this._attachRemoteScreenStream(entry, stream, ev.track);
+        this._attachRemoteVideoStream(entry, stream, ev.track);
       }
     });
 
@@ -796,29 +882,31 @@ export class AudioEngine {
         console.error("[audio] addTrack error:", err);
       }
     }
-    if (this.screenTrack && this.screenStream && entry.page) this._addScreenTrack(entry);
+    if (this.videoTrack && this.videoStream && entry.page) this._addVideoTrack(entry);
 
     return entry;
   }
 
-  private _addScreenTrack(entry: PeerConn): void {
+  private _addVideoTrack(entry: PeerConn): void {
     if (!entry.page) return;
-    if (!this.screenTrack || !this.screenStream || entry.screenSender) return;
+    if (!this.videoTrack || !this.videoStream || entry.videoSender) return;
     try {
-      entry.screenSender = entry.pc.addTrack(this.screenTrack, this.screenStream);
+      entry.videoSender = entry.pc.addTrack(this.videoTrack, this.videoStream);
+      this.sendSignal?.(entry.id, { kind: "video-mode", mode: this.videoMode });
     } catch (err) {
-      console.error("[audio] add screen track error:", err);
+      console.error("[audio] add video track error:", err);
     }
   }
 
-  private _removeScreenTrack(entry: PeerConn): void {
-    if (!entry.screenSender) return;
+  private _removeVideoTrack(entry: PeerConn): void {
+    if (!entry.videoSender) return;
     try {
-      entry.pc.removeTrack(entry.screenSender);
+      entry.pc.removeTrack(entry.videoSender);
     } catch {
       /* PC may already be closed. */
     }
-    entry.screenSender = null;
+    entry.videoSender = null;
+    this.sendSignal?.(entry.id, { kind: "video-mode", mode: null });
   }
 
   /** Add any buffered ICE candidates now that the remote description is set. */
@@ -880,23 +968,27 @@ export class AudioEngine {
     this.onWake?.();
   }
 
-  /** Surface a remote screen-share video stream to the UI layer. */
-  private _attachRemoteScreenStream(
+  /** Surface a remote video stream (screen share or camera) to the UI layer. */
+  private _attachRemoteVideoStream(
     entry: PeerConn,
     stream: MediaStream,
     track: MediaStreamTrack,
   ): void {
-    if (entry.remoteScreenTrack === track) return;
-    entry.remoteScreenTrack = track;
-    entry.remoteScreenStream = stream;
-    this.onRemoteScreen?.(entry.id, stream);
+    if (entry.remoteVideoTrack === track) return;
+    entry.remoteVideoTrack = track;
+    entry.remoteVideoStream = stream;
+    // The "video-mode" signal usually arrives alongside the offer, before the
+    // track itself finishes negotiating — but it's a separate message, so
+    // pass along whatever we have now (possibly still null/unresolved); the
+    // handleSignal video-mode branch re-notifies once it lands.
+    this.onRemoteVideo?.(entry.id, stream, entry.remoteVideoMode);
     track.addEventListener(
       "ended",
       () => {
-        if (entry.remoteScreenTrack !== track) return;
-        entry.remoteScreenTrack = null;
-        entry.remoteScreenStream = null;
-        this.onRemoteScreen?.(entry.id, null);
+        if (entry.remoteVideoTrack !== track) return;
+        entry.remoteVideoTrack = null;
+        entry.remoteVideoStream = null;
+        this.onRemoteVideo?.(entry.id, null, null);
       },
       { once: true },
     );
@@ -1025,17 +1117,17 @@ export class AudioEngine {
       try { entry.sink.pause(); } catch { /* ignore */ }
       entry.sink.srcObject = null;
     }
-    if (entry.remoteScreenStream) {
-      this.onRemoteScreen?.(entry.id, null);
-      entry.remoteScreenStream = null;
-      entry.remoteScreenTrack = null;
+    if (entry.remoteVideoStream) {
+      this.onRemoteVideo?.(entry.id, null, null);
+      entry.remoteVideoStream = null;
+      entry.remoteVideoTrack = null;
     }
     entry.source = null;
     entry.gainNode = null;
     entry.analyser = null;
     entry.sink = null;
     entry.level = 0;
-    entry.screenSender = null;
+    entry.videoSender = null;
     try {
       entry.pc.close();
     } catch { /* already closed */ }

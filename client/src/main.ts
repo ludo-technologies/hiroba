@@ -80,11 +80,12 @@ interface Session {
 
   /** Active page links: peer id → display name (for the call banner). */
   pages: Map<string, string>;
-  /** Remote screen-share streams keyed by peer id. */
-  remoteScreens: Map<string, MediaStream>;
-  /** Which screen stream is currently shown in the viewer. */
+  /** Remote video (screen share or camera) streams keyed by peer id. Mode is
+   *  null for the brief window before the peer's "video-mode" label arrives. */
+  remoteVideos: Map<string, { stream: MediaStream; mode: "screen" | "camera" | null }>;
+  /** Which video stream is currently shown in the viewer. */
   visibleScreen: { kind: "local" } | { kind: "remote"; peerId: string } | null;
-  /** True when the user dismissed the remote screen panel (minimize). */
+  /** True when the user dismissed the remote video panel (minimize). */
   screenDismissed: boolean;
 
   /** User-controllable status flags (effective status is server-computed). */
@@ -163,6 +164,7 @@ const ui = new UIManager(
     onPage: handlePage,
     onHangUp: handleHangUp,
     onScreenShareToggle: handleScreenShareToggle,
+    onCameraToggle: handleCameraToggle,
     onCloseScreenShare: handleCloseScreenShare,
     onReopenScreenShare: handleReopenScreenShare,
     onSetStatus: handleSetStatus,
@@ -684,8 +686,8 @@ function initSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[]
     (to, data) => net.send({ t: "signal", to, data }),
     wake,
     iceServers, // STUN / TURN resolved from override → server /ice → STUN (NFR-07)
-    handleRemoteScreen,
-    handleLocalScreen,
+    handleRemoteVideo,
+    handleLocalVideo,
   );
 
   input.init(
@@ -709,7 +711,7 @@ function initSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[]
     offline: new Set(),
     peerPositions,
     pages: new Map(),
-    remoteScreens: new Map(),
+    remoteVideos: new Map(),
     visibleScreen: null,
     screenDismissed: false,
     away: false,
@@ -721,6 +723,7 @@ function initSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[]
   document.title = `Hiroba — ${msg.org.name}`;
   ui.setMuted(audio.isMuted);
   ui.setScreenSharing(false);
+  ui.setCameraOn(false);
   ui.setScreenShareView(null, "");
   ui.setSelfStatus(false, false);
   ui.setCall(null);
@@ -1070,11 +1073,14 @@ function bindServerMessages(net: HirobaNet): void {
     const { from } = e.detail;
     session.audio.endPage(from); // keeps proximity audio if still near
     session.pages.delete(from);
-    session.remoteScreens.delete(from);
+    session.remoteVideos.delete(from);
     if (session.visibleScreen?.kind === "remote" && session.visibleScreen.peerId === from) {
       showNextScreenShare();
     }
-    if (session.pages.size === 0) stopScreenShare();
+    if (session.pages.size === 0) {
+      stopScreenShare();
+      stopCamera();
+    }
     updateCallBanner();
     void restoreMuteAfterPage();
     rebuildRoster();
@@ -1095,6 +1101,7 @@ function updateCallBanner(): void {
   if (n === 0) {
     ui.setCall(null);
     ui.setScreenSharing(false);
+    ui.setCameraOn(false);
     ui.setScreenShareView(null, "");
     ui.setScreenReopenVisible(false);
     session.visibleScreen = null;
@@ -1107,16 +1114,16 @@ function updateCallBanner(): void {
   syncScreenReopenButton();
 }
 
-/** Pick the best remote screen to show (page peers only; single-call prefers that peer). */
-function preferredRemoteScreen(): { peerId: string; stream: MediaStream } | null {
+/** Pick the best remote video to show (page peers only; single-call prefers that peer). */
+function preferredRemoteVideo(): { peerId: string; stream: MediaStream; mode: "screen" | "camera" | null } | null {
   if (!session) return null;
   if (session.pages.size === 1) {
     const peerId = [...session.pages.keys()][0];
-    const stream = session.remoteScreens.get(peerId);
-    if (stream) return { peerId, stream };
+    const entry = session.remoteVideos.get(peerId);
+    if (entry) return { peerId, ...entry };
   }
-  for (const [peerId, stream] of session.remoteScreens) {
-    if (session.pages.has(peerId)) return { peerId, stream };
+  for (const [peerId, entry] of session.remoteVideos) {
+    if (session.pages.has(peerId)) return { peerId, ...entry };
   }
   return null;
 }
@@ -1124,32 +1131,38 @@ function preferredRemoteScreen(): { peerId: string; stream: MediaStream } | null
 function syncScreenReopenButton(): void {
   if (!session) return;
   const hasHidden =
-    session.screenDismissed && preferredRemoteScreen() !== null && !session.visibleScreen;
+    session.screenDismissed && preferredRemoteVideo() !== null && !session.visibleScreen;
   ui.setScreenReopenVisible(hasHidden);
 }
 
-function handleRemoteScreen(peerId: string, stream: MediaStream | null): void {
+/** Title for a remote peer's video panel. `mode` is briefly null right after
+ *  the track attaches, before the peer's "video-mode" label arrives. */
+function videoTitle(mode: "screen" | "camera" | null, peerName: string): string {
+  if (mode === "camera") return t.peerCamera(peerName);
+  if (mode === "screen") return t.sharedScreen(peerName);
+  return t.peerVideo(peerName);
+}
+
+function handleRemoteVideo(peerId: string, stream: MediaStream | null, mode: "screen" | "camera" | null): void {
   if (!session) return;
   if (!session.pages.has(peerId)) return;
 
   if (stream) {
-    session.remoteScreens.set(peerId, stream);
+    session.remoteVideos.set(peerId, { stream, mode });
     if (session.screenDismissed) {
       syncScreenReopenButton();
       return;
     }
+    // Also re-runs (harmlessly) when this peer's video is already showing and
+    // only the mode label changed — refreshes the panel title in place.
     if (!session.visibleScreen || session.visibleScreen.kind !== "local") {
       session.visibleScreen = { kind: "remote", peerId };
-      ui.setScreenShareView(
-        stream,
-        t.sharedScreen(session.pages.get(peerId) ?? peerId),
-        false,
-      );
+      ui.setScreenShareView(stream, videoTitle(mode, session.pages.get(peerId) ?? peerId), false);
     }
     return;
   }
 
-  session.remoteScreens.delete(peerId);
+  session.remoteVideos.delete(peerId);
   if (session.visibleScreen?.kind === "remote" && session.visibleScreen.peerId === peerId) {
     showNextScreenShare();
   } else {
@@ -1157,13 +1170,14 @@ function handleRemoteScreen(peerId: string, stream: MediaStream | null): void {
   }
 }
 
-function handleLocalScreen(stream: MediaStream | null): void {
+function handleLocalVideo(stream: MediaStream | null, mode: "screen" | "camera" | null): void {
   if (!session) return;
-  ui.setScreenSharing(!!stream);
-  if (stream) {
+  ui.setScreenSharing(mode === "screen");
+  ui.setCameraOn(mode === "camera");
+  if (stream && mode) {
     session.screenDismissed = false;
     session.visibleScreen = { kind: "local" };
-    ui.setScreenShareView(stream, t.yourScreen, true);
+    ui.setScreenShareView(stream, mode === "camera" ? t.yourCamera : t.yourScreen, true);
   } else if (session.visibleScreen?.kind === "local") {
     showNextScreenShare();
   }
@@ -1177,18 +1191,19 @@ function showNextScreenShare(): void {
     syncScreenReopenButton();
     return;
   }
-  if (session.audio.isScreenSharing && session.audio.screenShareStream) {
+  const localStream = session.audio.screenShareStream ?? session.audio.cameraStream;
+  if (localStream) {
     session.visibleScreen = { kind: "local" };
-    ui.setScreenShareView(session.audio.screenShareStream, t.yourScreen, true);
+    ui.setScreenShareView(localStream, session.audio.isCameraOn ? t.yourCamera : t.yourScreen, true);
     return;
   }
 
-  const next = preferredRemoteScreen();
+  const next = preferredRemoteVideo();
   if (next) {
     session.visibleScreen = { kind: "remote", peerId: next.peerId };
     ui.setScreenShareView(
       next.stream,
-      t.sharedScreen(session.pages.get(next.peerId) ?? next.peerId),
+      videoTitle(next.mode, session.pages.get(next.peerId) ?? next.peerId),
       false,
     );
   } else {
@@ -1202,6 +1217,13 @@ function stopScreenShare(): void {
   if (!session || !session.audio.isScreenSharing) return;
   session.audio.stopScreenShare();
   ui.setScreenSharing(false);
+  if (session.visibleScreen?.kind === "local") showNextScreenShare();
+}
+
+function stopCamera(): void {
+  if (!session || !session.audio.isCameraOn) return;
+  session.audio.stopCamera();
+  ui.setCameraOn(false);
   if (session.visibleScreen?.kind === "local") showNextScreenShare();
 }
 
@@ -1350,9 +1372,10 @@ function handleHangUp(): void {
     session.audio.endPage(id); // keeps proximity audio if still near
   }
   session.pages.clear();
-  session.remoteScreens.clear();
+  session.remoteVideos.clear();
   session.screenDismissed = false;
   stopScreenShare();
+  stopCamera();
   updateCallBanner();
   void restoreMuteAfterPage();
   rebuildRoster();
@@ -1374,6 +1397,24 @@ async function handleScreenShareToggle(): Promise<void> {
   } catch {
     ui.setScreenSharing(false);
     ui.showToast(t.errScreenShare, "error");
+  }
+}
+
+async function handleCameraToggle(): Promise<void> {
+  if (!session) return;
+  markActive();
+  if (session.pages.size === 0) return;
+
+  if (session.audio.isCameraOn) {
+    stopCamera();
+    return;
+  }
+
+  try {
+    await session.audio.startCamera();
+  } catch {
+    ui.setCameraOn(false);
+    ui.showToast(t.errCameraDenied, "error");
   }
 }
 

@@ -338,5 +338,13 @@ export interface CandidateData {
   };
 }
 
+/** Which purpose (if any) the sender's outgoing video track currently serves.
+ *  Sent alongside track add/remove so the receiver can label the panel —
+ *  WebRTC track events alone can't distinguish screen-share from camera. */
+export interface VideoModeData {
+  kind: "video-mode";
+  mode: "screen" | "camera" | null;
+}
+
 /** Discriminated union for all WebRTC signal payloads. */
-export type SignalData = OfferData | AnswerData | CandidateData;
+export type SignalData = OfferData | AnswerData | CandidateData | VideoModeData;

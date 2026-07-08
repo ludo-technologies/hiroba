@@ -184,6 +184,7 @@ const elTabs = $<HTMLElement>("tabs");
 const elCallBanner = $<HTMLDivElement>("call-banner");
 const elCallText = $<HTMLSpanElement>("call-text");
 const elScreenShare = $<HTMLButtonElement>("screen-share");
+const elCameraToggle = $<HTMLButtonElement>("camera-toggle");
 const elScreenReopen = $<HTMLButtonElement>("screen-reopen");
 const elHangup = $<HTMLButtonElement>("hangup");
 const elScreenPanel = $<HTMLDivElement>("screen-panel");
@@ -280,6 +281,8 @@ export interface UICallbacks {
   onHangUp(): void;
   /** Start or stop screen sharing in the current page link. */
   onScreenShareToggle(): void;
+  /** Start or stop sending the camera in the current page link. */
+  onCameraToggle(): void;
   /** Hide/stop the currently visible screen-share panel. */
   onCloseScreenShare(): void;
   /** Re-show a remote screen share after the panel was dismissed. */
@@ -994,6 +997,13 @@ export class UIManager {
     elScreenShare.setAttribute("aria-pressed", sharing ? "true" : "false");
   }
 
+  /** Reflect whether the local user is currently sending their camera. */
+  setCameraOn(on: boolean): void {
+    elCameraToggle.textContent = on ? t.cameraOff : t.cameraOn;
+    elCameraToggle.title = on ? t.cameraOffTitle : t.cameraOnTitle;
+    elCameraToggle.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+
   /** Show the given screen-share stream, or hide the panel when null. */
   setScreenShareView(stream: MediaStream | null, title: string, local = false): void {
     if (!stream) {
@@ -1100,6 +1110,7 @@ export class UIManager {
       this.callbacks.onSetStatus(this.away, this.dnd);
     });
     elScreenShare.addEventListener("click", () => this.callbacks.onScreenShareToggle());
+    elCameraToggle.addEventListener("click", () => this.callbacks.onCameraToggle());
     elScreenReopen.addEventListener("click", () => this.callbacks.onReopenScreenShare());
     elScreenClose.addEventListener("click", () => this.callbacks.onCloseScreenShare());
     elScreenFullscreen.addEventListener("click", () => {

@@ -1257,6 +1257,7 @@ body {
 }
 
 #screen-share,
+#camera-toggle,
 #screen-reopen,
 #hangup {
   border: none;
@@ -1270,7 +1271,8 @@ body {
   transition: filter 0.15s;
 }
 
-#screen-share {
+#screen-share,
+#camera-toggle {
   background: var(--sage);
 }
 
@@ -1282,7 +1284,8 @@ body {
   display: none;
 }
 
-#screen-share[aria-pressed="true"] {
+#screen-share[aria-pressed="true"],
+#camera-toggle[aria-pressed="true"] {
   background: var(--accent);
 }
 
@@ -1291,6 +1294,7 @@ body {
 }
 
 #screen-share:hover,
+#camera-toggle:hover,
 #screen-reopen:hover,
 #hangup:hover {
   filter: brightness(1.08);

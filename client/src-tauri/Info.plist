@@ -4,5 +4,7 @@
 <dict>
   <key>NSMicrophoneUsageDescription</key>
   <string>Hiroba uses your microphone for proximity-based spatial voice chat.</string>
+  <key>NSCameraUsageDescription</key>
+  <string>Hiroba uses your camera to show video during a page call.</string>
 </dict>
 </plist>
