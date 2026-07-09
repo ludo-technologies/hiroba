@@ -130,7 +130,9 @@ let moveHintActive = false;
 let nudgeShown = false;
 
 // Idle → away (NFR-01: dim + go quiet after inactivity).
-const IDLE_MS = 5 * 60 * 1000; // provisional 5 minutes
+// Keep IDLE_MINUTES in sync with the "5 minutes" copy in i18n activeTitle/awayTitle.
+const IDLE_MINUTES = 5;
+const IDLE_MS = IDLE_MINUTES * 60 * 1000;
 let idleTimer = 0;
 
 // ---------------------------------------------------------------------------
@@ -928,10 +930,16 @@ function markActive(): void {
 
 function goAway(): void {
   if (!session || session.away) return;
+  // Remember whether this idle flip will change the *effective* status the user
+  // sees (DND / in-call already outrank Away, so no toast in those cases).
+  const effectiveWasActive = !session.dnd && session.pages.size === 0;
   session.away = true;
   ui.setSelfStatus(true, session.dnd);
   session.net.send({ t: "set_status", away: true });
   rebuildRoster();
+  if (effectiveWasActive) {
+    ui.showToast(t.idleAwayToast(IDLE_MINUTES));
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -179,6 +179,7 @@ const elNudge = $<HTMLDivElement>("mute-nudge");
 const elSidebar = $<HTMLElement>("sidebar");
 const elOrgName = $<HTMLSpanElement>("org-name");
 const elRoster = $<HTMLUListElement>("roster");
+const elStatusActive = $<HTMLButtonElement>("status-active");
 const elStatusAway = $<HTMLButtonElement>("status-away");
 const elStatusDnd = $<HTMLButtonElement>("status-dnd");
 const elTabs = $<HTMLElement>("tabs");
@@ -291,7 +292,10 @@ export interface UICallbacks {
   onCloseScreenShare(): void;
   /** Re-show a remote screen share after the panel was dismissed. */
   onReopenScreenShare(): void;
-  /** Set the user-controllable status flags (away / dnd). */
+  /**
+   * Set the user-controllable status flags. UI sends exclusive combinations:
+   * Active → (false, false), Away → (true, false), DND → (false, true).
+   */
   onSetStatus(away: boolean, dnd: boolean): void;
 }
 
@@ -330,8 +334,9 @@ export class UIManager {
    *  lives in the OS keychain, so localStorage must NOT hold tokens. */
   private tauri: boolean;
 
-  // Self status flags, mirrored on the sidebar toggles (the server computes the
-  // *effective* status; these are just the two user-controllable inputs).
+  // Self status flags, mirrored on the exclusive Active / Away / DND control.
+  // Server effective priority is in_call > dnd > away; the UI shows one choice
+  // (dnd wins over away when both flags are set, e.g. idle while on DND).
   private away = false;
   private dnd = false;
 
@@ -932,12 +937,30 @@ export class UIManager {
     }
   }
 
-  /** Reflect the self away/dnd toggle states (and remember them locally). */
+  /**
+   * Reflect the self away/dnd flags on the exclusive status control.
+   * Exactly one of Active / Away / DND is checked (DND wins if both flags are set).
+   */
   setSelfStatus(away: boolean, dnd: boolean): void {
     this.away = away;
     this.dnd = dnd;
-    elStatusAway.setAttribute("aria-pressed", away ? "true" : "false");
-    elStatusDnd.setAttribute("aria-pressed", dnd ? "true" : "false");
+    const mode: "active" | "away" | "dnd" = dnd ? "dnd" : away ? "away" : "active";
+    elStatusActive.setAttribute("aria-checked", mode === "active" ? "true" : "false");
+    elStatusAway.setAttribute("aria-checked", mode === "away" ? "true" : "false");
+    elStatusDnd.setAttribute("aria-checked", mode === "dnd" ? "true" : "false");
+  }
+
+  /**
+   * User picked one of the exclusive status choices. Maps to wire flags and
+   * toasts when DND is entered or left (easy to miss on an always-on tool).
+   */
+  private _selectStatus(away: boolean, dnd: boolean): void {
+    if (this.away === away && this.dnd === dnd) return;
+    const wasDnd = this.dnd;
+    this.setSelfStatus(away, dnd);
+    this.callbacks.onSetStatus(away, dnd);
+    if (dnd && !wasDnd) this.showToast(t.dndEnabled);
+    else if (!dnd && wasDnd) this.showToast(t.dndDisabled);
   }
 
   // -------------------------------------------------------------------------
@@ -1143,17 +1166,15 @@ export class UIManager {
   }
 
   private _bindSidebar(): void {
+    // Exclusive 3-way: Active / Away / DND (maps to away+dnd flags on the wire).
+    elStatusActive.addEventListener("click", () => {
+      this._selectStatus(false, false);
+    });
     elStatusAway.addEventListener("click", () => {
-      this.away = !this.away;
-      this.setSelfStatus(this.away, this.dnd);
-      this.callbacks.onSetStatus(this.away, this.dnd);
+      this._selectStatus(true, false);
     });
     elStatusDnd.addEventListener("click", () => {
-      this.dnd = !this.dnd;
-      this.setSelfStatus(this.away, this.dnd);
-      this.callbacks.onSetStatus(this.away, this.dnd);
-      // Surface what DND actually does — easy to miss on an always-on tool.
-      this.showToast(this.dnd ? t.dndEnabled : t.dndDisabled);
+      this._selectStatus(false, true);
     });
     elScreenShare.addEventListener("click", () => this.callbacks.onScreenShareToggle());
     elCameraToggle.addEventListener("click", () => this.callbacks.onCameraToggle());

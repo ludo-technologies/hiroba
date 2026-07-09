@@ -290,12 +290,29 @@
         </div>
       </header>
       <ul id="roster" class="roster" aria-label="Members" data-i18n-arialabel="ariaMembers"></ul>
-      <footer class="side-foot">
+      <footer
+        class="side-foot"
+        role="radiogroup"
+        data-i18n-arialabel="ariaStatus"
+        aria-label="Status"
+      >
+        <button
+          id="status-active"
+          class="status-toggle"
+          type="button"
+          role="radio"
+          aria-checked="true"
+          data-i18n="active"
+          data-i18n-title="activeTitle"
+        >
+          Active
+        </button>
         <button
           id="status-away"
           class="status-toggle"
           type="button"
-          aria-pressed="false"
+          role="radio"
+          aria-checked="false"
           data-i18n="away"
           data-i18n-title="awayTitle"
         >
@@ -305,11 +322,12 @@
           id="status-dnd"
           class="status-toggle"
           type="button"
-          aria-pressed="false"
+          role="radio"
+          aria-checked="false"
           data-i18n="dnd"
           data-i18n-title="dndTitle"
         >
-          Do not disturb
+          DND
         </button>
       </footer>
     </aside>
