@@ -284,6 +284,7 @@ body {
   transform: scale(1.12);
 }
 
+/* Always visible when an avatar is set (not hover-gated — touch / keyboard). */
 .avatar-remove {
   position: absolute;
   top: -5px;
@@ -299,13 +300,15 @@ body {
   line-height: 1;
   cursor: pointer;
   box-shadow: 0 1px 4px rgba(60, 40, 20, 0.25);
-  opacity: 0;
-  transition: opacity 0.15s var(--ease);
+  transition: color 0.15s var(--ease), background 0.15s var(--ease),
+    border-color 0.15s var(--ease);
 }
 
-.avatar-wrap:hover .avatar-remove,
+.avatar-remove:hover,
 .avatar-remove:focus-visible {
-  opacity: 1;
+  color: var(--danger);
+  border-color: rgba(212, 88, 60, 0.35);
+  background: #fff5f0;
 }
 
 .name-field {
@@ -941,7 +944,8 @@ body {
   transition: background 0.15s;
 }
 
-.roster-row:hover {
+.roster-row:hover,
+.roster-row:focus-within {
   background: var(--accent-soft);
 }
 
@@ -1084,6 +1088,7 @@ body {
 .roster-row[data-tone="dnd"]     .roster-status { color: var(--danger); font-weight: 600; }
 .roster-row[data-tone="away"]    .roster-status { color: var(--ink-mute); }
 
+/* Always visible — Call is a core action (one-click page), not a hover secret. */
 .page-btn {
   flex: 0 0 auto;
   border: 1px solid var(--edge);
@@ -1095,16 +1100,11 @@ body {
   padding: 4px 10px;
   border-radius: var(--radius-pill);
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s, background 0.15s, border-color 0.15s;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 
-.roster-row:hover .page-btn,
+.page-btn:hover,
 .page-btn:focus-visible {
-  opacity: 1;
-}
-
-.page-btn:hover {
   background: var(--accent);
   color: #fff;
   border-color: var(--accent);
@@ -1964,6 +1964,7 @@ body {
   color: var(--ink-soft);
 }
 
+/* Always visible — destructive, but must be discoverable on touch / keyboard. */
 .invite-revoke-btn {
   flex: 0 0 auto;
   border: 1px solid var(--edge);
@@ -1975,17 +1976,13 @@ body {
   padding: 3px 10px;
   border-radius: var(--radius-pill);
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s, background 0.15s;
+  transition: background 0.15s, border-color 0.15s;
 }
 
-.invite-row:hover .invite-revoke-btn,
+.invite-revoke-btn:hover,
 .invite-revoke-btn:focus-visible {
-  opacity: 1;
-}
-
-.invite-revoke-btn:hover {
   background: rgba(212, 88, 60, 0.1);
+  border-color: rgba(212, 88, 60, 0.35);
 }
 
 .invite-empty {

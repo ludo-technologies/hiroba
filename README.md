@@ -83,7 +83,7 @@ spatial voice fade in, or switch both to the same team tab for a group call.
 **You start muted** — click the mic button to go live.
 
 Controls: **WASD / arrow keys** to move; the **tabs** (top) switch spaces; the
-**sidebar** lists the org — hover a member and hit **Call** to page them.
+**sidebar** lists the org — hit **Call** next to a member to page them.
 
 ## Building release artifacts
 

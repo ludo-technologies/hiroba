@@ -495,30 +495,36 @@ p { margin: 0; }
 }
 .mock-roster .dot.away { background: transparent; border: 1.5px solid var(--ink-faint); }
 .mock-roster .dot.dnd { background: var(--p-plum); }
-.mock-roster .who { font-weight: 600; }
+.mock-roster .who {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .mock-roster .where {
-  margin-left: auto;
+  flex: 0 1 auto;
+  min-width: 0;
   font-family: var(--mono);
   color: var(--ink-faint);
   font-size: 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+/* Always visible — matches the real client (Call is a core action). */
 .mock-roster li .page-chip {
-  position: absolute;
-  right: 10px;
-  opacity: 0;
+  flex: 0 0 auto;
   background: var(--accent);
   color: #fff;
   font-size: 9px;
   font-weight: 700;
   padding: 2px 9px;
   border-radius: 999px;
-  transition: opacity 0.15s ease;
   pointer-events: none;
 }
-.mock-roster li:hover .page-chip { opacity: 1; }
-.mock-roster li:hover .where { opacity: 0; }
 .mock-roster li.self .page-chip { display: none; }
-.mock-roster li.self:hover .where { opacity: 1; }
 
 /* the proximity ring, as a pulse — reused for live status everywhere */
 @keyframes ping {
