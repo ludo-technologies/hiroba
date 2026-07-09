@@ -17,6 +17,7 @@
 import type { SpaceDescriptor } from "./protocol.js";
 import { applyStaticI18n, locale, spaceLabel, t } from "./i18n.js";
 import { extractInviteCode } from "./auth.js";
+import { CustomSelect, type SelectOption } from "./select.js";
 
 // ---------------------------------------------------------------------------
 // LocalStorage keys
@@ -140,7 +141,7 @@ const elBillingBtn = $<HTMLButtonElement>("billing-panel-btn");
 const elInvitePanel = $<HTMLDivElement>("invite-panel");
 const elInvitePanelBtn = $<HTMLButtonElement>("invite-panel-btn");
 const elInvitePanelClose = $<HTMLButtonElement>("invite-panel-close");
-const elInviteRole = $<HTMLSelectElement>("invite-role");
+const elInviteRoleHost = $<HTMLElement>("invite-role");
 const elInviteIssueBtn = $<HTMLButtonElement>("invite-issue-btn");
 const elInviteResult = $<HTMLDivElement>("invite-result");
 const elInviteResultCode = $<HTMLDivElement>("invite-result-code");
@@ -168,8 +169,8 @@ const elLeave = $<HTMLButtonElement>("leave");
 const elAudioSettingsBtn = $<HTMLButtonElement>("audio-settings-btn");
 const elAudioSettings = $<HTMLDivElement>("audio-settings");
 const elAudioSettingsClose = $<HTMLButtonElement>("audio-settings-close");
-const elMicSelect = $<HTMLSelectElement>("mic-device-select");
-const elSpeakerSelect = $<HTMLSelectElement>("speaker-device-select");
+const elMicSelectHost = $<HTMLElement>("mic-device-select");
+const elSpeakerSelectHost = $<HTMLElement>("speaker-device-select");
 const elMicLevelBar = $<HTMLDivElement>("mic-level-bar");
 
 const elOnboard = $<HTMLDivElement>("onboard");
@@ -332,10 +333,29 @@ export class UIManager {
   private inviteToken = "";
   private inviteAuthBase = "";
 
+  private readonly inviteRoleSelect: CustomSelect;
+  private readonly micSelect: CustomSelect;
+  private readonly speakerSelect: CustomSelect;
+
   constructor(callbacks: UICallbacks, opts: { tauri: boolean }) {
     this.callbacks = callbacks;
     this.tauri = opts.tauri;
     applyStaticI18n(); // resolve data-i18n* before the user can read the DOM
+
+    this.inviteRoleSelect = new CustomSelect(elInviteRoleHost, {
+      options: [
+        { value: "member", label: t.roleMember },
+        { value: "admin", label: t.roleAdmin },
+      ],
+      value: "member",
+    });
+    this.micSelect = new CustomSelect(elMicSelectHost, {
+      onChange: (deviceId) => this.callbacks.onMicDeviceChange(deviceId),
+    });
+    this.speakerSelect = new CustomSelect(elSpeakerSelectHost, {
+      onChange: (deviceId) => this.callbacks.onSpeakerDeviceChange(deviceId),
+    });
+
     this._buildSwatches();
     this._restoreFromStorage();
     this._bindForm();
@@ -362,6 +382,8 @@ export class UIManager {
     elJoin.removeAttribute("hidden");
     elReconnect.setAttribute("hidden", "");
     elHud.setAttribute("hidden", "");
+    this.micSelect.close();
+    this.speakerSelect.close();
     elAudioSettings.setAttribute("hidden", "");
     elSidebar.setAttribute("hidden", "");
     elTabs.setAttribute("hidden", "");
@@ -437,8 +459,8 @@ export class UIManager {
     selectedMic: string,
     selectedSpeaker: string,
   ): void {
-    this._fillDeviceSelect(elMicSelect, inputs, t.fieldMicrophone, selectedMic);
-    this._fillDeviceSelect(elSpeakerSelect, outputs, t.fieldSpeaker, selectedSpeaker);
+    this._fillDeviceSelect(this.micSelect, inputs, t.fieldMicrophone, selectedMic);
+    this._fillDeviceSelect(this.speakerSelect, outputs, t.fieldSpeaker, selectedSpeaker);
     elAudioSettings.removeAttribute("hidden");
   }
 
@@ -448,24 +470,20 @@ export class UIManager {
   }
 
   private _fillDeviceSelect(
-    select: HTMLSelectElement,
+    select: CustomSelect,
     devices: { id: string; label: string }[],
     kindLabel: string,
     selected: string,
   ): void {
-    select.innerHTML = "";
-    const def = document.createElement("option");
-    def.value = "";
-    def.textContent = t.defaultDevice;
-    select.appendChild(def);
-    devices.forEach((d, i) => {
-      const opt = document.createElement("option");
-      opt.value = d.id;
-      // Labels are blank until the browser has granted mic permission once.
-      opt.textContent = d.label || `${kindLabel} ${i + 1}`;
-      select.appendChild(opt);
-    });
-    select.value = selected;
+    const options: SelectOption[] = [
+      { value: "", label: t.defaultDevice },
+      ...devices.map((d, i) => ({
+        value: d.id,
+        // Labels are blank until the browser has granted mic permission once.
+        label: d.label || `${kindLabel} ${i + 1}`,
+      })),
+    ];
+    select.setOptions(options, selected);
   }
 
   /** Show a non-fatal error in the join error area. */
@@ -630,6 +648,7 @@ export class UIManager {
   }
 
   hideInvitePanel(): void {
+    this.inviteRoleSelect.close();
     elInvitePanel.setAttribute("hidden", "");
   }
 
@@ -790,7 +809,7 @@ export class UIManager {
       if (e.target === elInvitePanel) this.hideInvitePanel(); // click outside the card
     });
     elInviteIssueBtn.addEventListener("click", () => {
-      const role = elInviteRole.value === "admin" ? "admin" : "member";
+      const role = this.inviteRoleSelect.value === "admin" ? "admin" : "member";
       this.callbacks.onIssueInvite(role);
     });
     const copy = (btn: HTMLButtonElement, text: string, idleLabel: string) => {
@@ -1374,6 +1393,8 @@ export class UIManager {
   private _bindAudioSettings(): void {
     elAudioSettingsBtn.addEventListener("click", () => this.callbacks.onOpenAudioSettings());
     const close = () => {
+      this.micSelect.close();
+      this.speakerSelect.close();
       elAudioSettings.setAttribute("hidden", "");
       this.callbacks.onCloseAudioSettings();
     };
@@ -1381,8 +1402,6 @@ export class UIManager {
     elAudioSettings.addEventListener("click", (e) => {
       if (e.target === elAudioSettings) close();
     });
-    elMicSelect.addEventListener("change", () => this.callbacks.onMicDeviceChange(elMicSelect.value));
-    elSpeakerSelect.addEventListener("change", () => this.callbacks.onSpeakerDeviceChange(elSpeakerSelect.value));
   }
 
   private _bindReconnect(): void {

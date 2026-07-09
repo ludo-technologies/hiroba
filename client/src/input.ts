@@ -306,5 +306,7 @@ export function isTypingTarget(target: EventTarget | null): boolean {
     return !target.readOnly && !target.disabled;
   }
   if (target instanceof HTMLSelectElement) return !target.disabled;
+  // Custom listbox select: keep WASD / mic shortcuts from stealing keystrokes.
+  if (target.closest(".cselect")) return true;
   return target.isContentEditable;
 }

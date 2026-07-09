@@ -1722,9 +1722,21 @@ body {
 
 .invite-role-field {
   flex: 0 0 auto;
+  width: 148px;
 }
 
-.invite-card select {
+/* --- Custom select (listbox) — shared chrome for role / device pickers --- */
+
+.cselect {
+  position: relative;
+  width: 100%;
+}
+
+.cselect-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
   background: #fffdf8;
   border: 1px solid var(--edge);
   border-radius: var(--radius-btn);
@@ -1732,12 +1744,118 @@ body {
   color: var(--ink);
   font: inherit;
   font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.cselect-trigger:hover:not(:disabled) {
+  border-color: var(--edge-2);
+}
+
+.cselect-trigger:focus-visible,
+.cselect.is-open .cselect-trigger {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.cselect-trigger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.cselect-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cselect-chevron {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  color: var(--ink-mute);
+  transition: transform 0.18s var(--ease), color 0.15s;
+}
+
+.cselect.is-open .cselect-chevron {
+  transform: rotate(180deg);
+  color: var(--accent);
+}
+
+.cselect-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 80;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--paper);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-btn);
+  box-shadow: 0 8px 24px -12px rgba(60, 40, 20, 0.45);
   outline: none;
 }
 
-.invite-card select:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+.cselect-list[hidden] {
+  display: none;
+}
+
+.cselect-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: calc(var(--radius-btn) - 2px);
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.cselect-option-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cselect-check {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  opacity: 0;
+}
+
+.cselect-option[aria-selected="true"] .cselect-check {
+  opacity: 1;
+}
+
+.cselect-option:hover,
+.cselect-option.is-active {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.cselect-option[aria-selected="true"] {
+  color: var(--ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cselect-chevron,
+  .cselect-option {
+    transition: none;
+  }
 }
 
 .mic-level {
@@ -1745,7 +1863,7 @@ body {
   border-radius: var(--radius-pill);
   background: var(--edge);
   overflow: hidden;
-  margin-top: -6px; /* sit close under the mic <select> instead of its own field gap */
+  margin-top: -6px; /* sit close under the mic select instead of its own field gap */
 }
 
 .mic-level-bar {
