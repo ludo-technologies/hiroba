@@ -102,32 +102,13 @@ npm run tauri build
 
 ## Self-hosting
 
-The server is a single binary with no external dependencies (no database, no media
-server). See **[docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)** for deployment,
-configuration, firewall/NAT notes, and when you might need a TURN server.
+The server is a single binary with no required external services (no media
+server; optional SQLite via `HIROBA_DB`). See
+**[docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)** for deployment, configuration,
+firewall/NAT notes, and when you might need a TURN server.
 
-## Status & roadmap
-
-**Phases 0–2 are implemented** (self-host / guest profile): an org floor of
-multiple spaces, a roster sidebar with live status, tab-switched spaces,
-proximity & group voice, cross-space paging (barge-in), DND / away, and mic
-control. Verified by `server/tests/smoke.mjs` and `client/tests/*.test.mjs`.
-
-| Phase | Focus | Status |
-|-------|-------|--------|
-| 0 | Skeleton: server + client + P2P voice, proximity round-trip | ✅ |
-| 1 | Org floor: multiple spaces, tabs, roster sidebar, space voice (self-host / DB-less) | ✅ |
-| 2 | Paging (1:1 barge-in), DND, away, in-call status; lightness targets | ✅ |
-| 3 | Hosted: OAuth/OIDC, multi-tenant, TURN credentials · invites, DB, billing / admin roles | 🟡 partial |
-| 4 | Experience: text chat (FR-18), reactions (FR-19), richer profile, ambiance | ⛔ future |
-
-Phase 3's core seams are now **implemented**: OAuth/OIDC token verification
-(`server/src/auth.rs` — guest / HS256 JWT / OIDC JWKS), strict multi-tenant
-isolation (`server/src/registry.rs`), and short-lived TURN credential issuance
-(`server/src/ice.rs` + `GET /ice`, consumed by `client/src/config.ts`). All are
-off by default, so the self-host / guest profile is unchanged. What remains for
-Phase 3 is the commercial layer — invites, durable persistence (tenants are
-still in-memory), billing, and admin roles.
+A managed hosted edition (OAuth sign-in, invites, billing) is offered separately
+and is not part of this repository.
 
 ## Landing page
 

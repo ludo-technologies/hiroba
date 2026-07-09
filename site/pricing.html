@@ -4,9 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Pricing — Hiroba</title>
-  <meta name="description" content="Hiroba pricing. OSS self-host is free and unlimited. Hosted is simple per-seat billing (launch pricing)." />
+  <meta name="description" content="Hiroba Hosted: ¥300/seat/month with a 30-day free trial that starts automatically. Enterprise available on request." />
   <meta property="og:title" content="Pricing — Hiroba" />
-  <meta property="og:description" content="Self-host is free. Hosted is simple per-seat billing." />
+  <meta property="og:description" content="Hosted from ¥300/seat/month. 30-day free trial — no card. Enterprise on request." />
   <meta property="og:type" content="website" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='none' stroke='%233f6fb0' stroke-opacity='0.32' stroke-width='3'/%3E%3Ccircle cx='32' cy='32' r='21' fill='%233f6fb0'/%3E%3Ctext x='32' y='40' font-size='24' font-family='sans-serif' font-weight='700' text-anchor='middle' fill='%23fff'%3E広%3C/text%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -33,7 +33,7 @@
         <a href="?lang=en" data-lang="en" lang="en">EN</a>
         <a href="?lang=ja" data-lang="ja" lang="ja">JA</a>
       </div>
-      <a class="nav-cta" href="./#start" data-i18n="navStart">Get started</a>
+      <a class="nav-cta" href="index.html#download" data-i18n="navStart">Get started</a>
     </nav>
   </div>
 </header>
@@ -43,10 +43,9 @@
   <section class="page-hero">
     <div class="wrap">
       <p class="eyebrow" style="justify-content:center; display:flex;" data-i18n="pricingEyebrow">Pricing</p>
-      <h1 data-i18n="pricingHeroTitle">Pricing stays light too.</h1>
-      <p data-i18n="pricingHeroLede">Self-host is free forever. Hosted is simple per-seat billing.</p>
-      <p class="notice" data-i18n-html="pricingNotice">
-        Hosted Standard is billed per seat via Stripe at <strong>¥300/seat/month</strong> (excl. tax).
+      <h1 data-i18n="pricingHeroTitle">Easy to get started.</h1>
+      <p class="notice" data-i18n="pricingHeroLede">
+        Sign in, create an org — a 30-day free trial starts automatically. No card required.
       </p>
     </div>
   </section>
@@ -55,38 +54,50 @@
     <div class="wrap">
       <div class="plans">
 
-        <div class="plan" data-reveal>
-          <h3 data-i18n="planSelfTitle">Self-host</h3>
-          <p class="plan-for" data-i18n="planSelfFor">For technical teams who want to run it themselves</p>
-          <p class="price">¥0<small data-i18n="planSelfPriceSmall"> free forever</small></p>
-          <p class="price-note" data-i18n="planSelfNote">Apache-2.0 open source. No seat or org limits.</p>
-          <ul>
-            <li data-i18n="planSelfLi1">Full feature set</li>
-            <li data-i18n="planSelfLi2">Single binary, DB-less startup</li>
-            <li data-i18n="planSelfLi3">Guest / simple join (OAuth optional)</li>
-            <li class="minus" data-i18n="planSelfLi4">You operate server &amp; TURN</li>
-            <li class="minus" data-i18n="planSelfLi5">Community-based support</li>
-          </ul>
-          <a class="btn btn-ghost" href="https://github.com/ludo-technologies/hiroba" target="_blank" rel="noopener" data-i18n="planSelfCta">Start on GitHub</a>
-        </div>
-
         <div class="plan featured" data-reveal>
           <span class="plan-badge" data-i18n="planHostedBadge">Recommended</span>
           <h3 data-i18n="planHostedTitle">Hosted Standard</h3>
-          <p class="plan-for" data-i18n="planHostedFor">For teams who want to start without ops</p>
-          <p class="price">¥300<small data-i18n="planHostedPriceSmall">/seat/month (launch price, excl. tax)</small></p>
-          <p class="price-note" data-i18n="planHostedNote">Stripe billing. 30-day free trial (no card). Change seats monthly.</p>
+          <p class="plan-for" data-i18n="planHostedFor">For teams that want a floor without running servers</p>
+          <p class="price">¥300<small data-i18n="planHostedPriceSmall">/seat/month (excl. tax)</small></p>
+          <p class="price-note" data-i18n="planHostedNote">
+            30-day free trial starts automatically when you create an org. No card. Change seats monthly via Stripe.
+          </p>
           <ul>
-            <li data-i18n="planHostedLi1">OAuth sign-in (Google / GitHub, etc.)</li>
+            <li data-i18n="planHostedLi1">Google &amp; GitHub sign-in (SSO)</li>
             <li data-i18n="planHostedLi2">Org creation, invite links, member management</li>
-            <li data-i18n="planHostedLi3">Stays connected on corporate networks</li>
+            <li data-i18n="planHostedLi3">TURN included — stable on corporate networks</li>
             <li data-i18n="planHostedLi4">We handle infra and updates</li>
             <li data-i18n="planHostedLi5">Email support</li>
           </ul>
-          <a class="btn btn-primary" href="index.html#download"><span data-i18n="planHostedCta">Download the app</span><span class="arrow">→</span></a>
+          <a class="btn btn-primary" href="index.html#download"><span data-i18n="planHostedCta">Start 30-day free trial</span><span class="arrow">→</span></a>
+        </div>
+
+        <div class="plan" data-reveal>
+          <h3 data-i18n="planEntTitle">Enterprise</h3>
+          <p class="plan-for" data-i18n="planEntFor">For larger teams that need quotes, invoices, or a rollout plan</p>
+          <p class="price"><span data-i18n="planEntPrice">Custom</span></p>
+          <p class="price-note" data-i18n="planEntNote">
+            Everything in Standard, plus commercial terms that fit procurement.
+          </p>
+          <ul>
+            <li data-i18n="planEntLi1">Everything in Hosted Standard</li>
+            <li data-i18n="planEntLi2">Deployment support for your corporate network (by consultation)</li>
+            <li data-i18n="planEntLi3">Invoice / custom billing on request</li>
+            <li data-i18n="planEntLi4">Onboarding &amp; rollout consultation</li>
+            <li data-i18n="planEntLi5">Direct contact with the team</li>
+          </ul>
+          <a class="btn btn-ghost" href="mailto:contact@ludo-tech.org?subject=Hiroba%20Enterprise" data-i18n="planEntCta">Contact us</a>
         </div>
 
       </div>
+
+      <aside class="selfhost-strip" data-reveal>
+        <p data-i18n-html="selfHostStrip">
+          <strong>Prefer to run it yourself?</strong>
+          The core is open source (Apache-2.0). You operate the server, TURN, and updates.
+        </p>
+        <a class="btn btn-ghost btn-sm" href="https://github.com/ludo-technologies/hiroba/blob/master/docs/SELF_HOSTING.md" target="_blank" rel="noopener" data-i18n="selfHostCta">Self-host guide</a>
+      </aside>
     </div>
   </section>
 
@@ -94,53 +105,58 @@
     <div class="wrap">
       <div class="sec-head" data-reveal>
         <p class="sec-no"><b>比</b><span data-i18n="compareSecNo">Compare</span></p>
-        <h2 data-i18n="compareTitle">Hosted vs self-host</h2>
-        <p class="sec-lede" data-i18n="compareLede">Same codebase. The difference is who runs it.</p>
+        <h2 data-i18n="compareTitle">Standard vs Enterprise</h2>
+        <p class="sec-lede" data-i18n="compareLede">Same product floor. The difference is how you buy and roll out.</p>
       </div>
       <div class="table-scroll" data-reveal>
         <table class="cmp-table">
           <thead>
             <tr>
               <th></th>
-              <th data-i18n="cmpHosted">Hosted</th>
-              <th data-i18n="cmpSelfHost">OSS self-host</th>
+              <th data-i18n="cmpHosted">Hosted Standard</th>
+              <th data-i18n="cmpEnt">Enterprise</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <th data-i18n="cmpRowPresence">Presence, spaces, voice circles, paging</th>
-              <td class="yes" data-i18n="cmpAllIncluded">✓ All included</td>
-              <td class="yes" data-i18n="cmpAllIncluded">✓ All included</td>
+              <th data-i18n="cmpRowPresence">Presence, spaces, voice, paging</th>
+              <td class="yes" data-i18n="cmpAllIncluded">✓ Included</td>
+              <td class="yes" data-i18n="cmpAllIncluded">✓ Included</td>
             </tr>
             <tr>
               <th data-i18n="cmpRowLogin">Sign-in</th>
-              <td data-i18n="cmpLoginHosted">OAuth (Google / GitHub, etc.)</td>
-              <td data-i18n="cmpLoginSelf">Guest / simple join (OAuth optional)</td>
+              <td data-i18n="cmpLoginHosted">Google &amp; GitHub SSO</td>
+              <td data-i18n="cmpLoginEnt">Google &amp; GitHub SSO</td>
             </tr>
             <tr>
-              <th data-i18n="cmpRowOrg">Joining an org</th>
-              <td data-i18n="cmpOrgHosted">Invite links (issued by admins)</td>
-              <td data-i18n="cmpOrgSelf">Share server URL, etc. — flexible</td>
+              <th data-i18n="cmpRowOrg">Org &amp; invites</th>
+              <td data-i18n="cmpOrgHosted">Self-serve invite links</td>
+              <td data-i18n="cmpOrgEnt">Self-serve + rollout help</td>
             </tr>
             <tr>
-              <th data-i18n="cmpRowTurn">Connectivity on strict networks</th>
-              <td class="yes" data-i18n="cmpTurnHosted">✓ Included. Stable on corporate networks</td>
-              <td class="opt" data-i18n="cmpTurnSelf">△ Public STUN by default; run coturn if needed</td>
+              <th data-i18n="cmpRowTurn">Corporate networks</th>
+              <td class="yes" data-i18n="cmpTurnHosted">✓ TURN included</td>
+              <td class="yes" data-i18n="cmpTurnHosted">✓ TURN included</td>
             </tr>
             <tr>
-              <th data-i18n="cmpRowPersist">Data persistence</th>
-              <td class="yes" data-i18n="cmpPersistHosted">✓ Orgs, members, invites stored</td>
-              <td class="opt" data-i18n="cmpPersistSelf">△ DB-less OK (config / env vars)</td>
+              <th data-i18n="cmpRowTrial">Trial</th>
+              <td class="yes" data-i18n="cmpTrialHosted">✓ 30 days, starts automatically</td>
+              <td data-i18n="cmpTrialEnt">Discussed per engagement</td>
             </tr>
             <tr>
-              <th data-i18n="cmpRowOps">Server ops &amp; updates</th>
-              <td class="yes" data-i18n="cmpOpsHosted">✓ Handled for you</td>
-              <td data-i18n="cmpOpsSelf">You (single binary makes it simple)</td>
+              <th data-i18n="cmpRowBilling">Billing</th>
+              <td data-i18n="cmpBillingHosted">Stripe · per seat · monthly</td>
+              <td data-i18n="cmpBillingEnt">Invoice / custom terms</td>
             </tr>
             <tr>
-              <th data-i18n="cmpRowCost">Cost</th>
+              <th data-i18n="cmpRowSupport">Support</th>
+              <td data-i18n="cmpSupportHosted">Email</td>
+              <td data-i18n="cmpSupportEnt">Direct contact + onboarding</td>
+            </tr>
+            <tr>
+              <th data-i18n="cmpRowCost">Price</th>
               <td data-i18n="cmpCostHosted">¥300/seat/month (excl. tax)</td>
-              <td class="yes" data-i18n="cmpCostSelf">Free (infra cost only)</td>
+              <td data-i18n="cmpCostEnt">Custom</td>
             </tr>
           </tbody>
         </table>
@@ -156,24 +172,24 @@
       </div>
       <div class="faq" data-reveal>
         <details>
-          <summary data-i18n="faq1Q">Is it really that light?</summary>
-          <p class="a" data-i18n="faq1A">Lightness is a core product value. Design targets (NFR) call for near-0% idle CPU, a small resident footprint, and voice-only low bandwidth. The client is Tauri + Canvas 2D (not Electron); the server never relays audio (P2P). Numbers are targets — we'll publish measurements as we verify.</p>
+          <summary data-i18n="faq1Q">How does the free trial work?</summary>
+          <p class="a" data-i18n="faq1A">Download the app, sign in with Google or GitHub, and create an org. The 30-day trial starts automatically — no credit card. After the trial, Hosted Standard is ¥300/seat/month (excl. tax) via Stripe.</p>
         </details>
         <details>
-          <summary data-i18n="faq2Q">When will you add video or screen share?</summary>
-          <p class="a" data-i18n="faq2A">We won't. That's a design choice, not a backlog item. Meeting features trade off against always-on lightness, so Hiroba focuses on presence and voice — "before the meeting." When it's meeting time, use your usual tool.</p>
+          <summary data-i18n="faq2Q">Is it really that light?</summary>
+          <p class="a" data-i18n="faq2A">Lightness is a core product value. Design targets call for near-0% idle CPU, a small resident footprint, and voice-only low bandwidth. The client is Tauri + Canvas 2D (not Electron); the server never relays audio (P2P).</p>
         </details>
         <details>
-          <summary data-i18n="faq3Q">Where does audio go?</summary>
-          <p class="a" data-i18n="faq3A">Usually direct P2P between participants — not through the server. The server only handles position, presence, and signaling. If P2P can't establish (NAT), hosted uses encrypted TURN relay.</p>
+          <summary data-i18n="faq3Q">When will you add video or screen share?</summary>
+          <p class="a" data-i18n="faq3A">We won't. That's a design choice, not a backlog item. Meeting features trade off against always-on lightness, so Hiroba focuses on presence and voice. Use your usual meeting tool when it's meeting time.</p>
         </details>
         <details>
-          <summary data-i18n="faq4Q">Feature gap between self-host and hosted?</summary>
-          <p class="a" data-i18n="faq4A">Core experience (presence, spaces, voice circles, paging) is identical. Hosted bundles OAuth, org management, invites, TURN, and persistence with zero config. Self-host enables and operates those yourself. Both build from the same codebase via profile flags.</p>
+          <summary data-i18n="faq4Q">Can I self-host instead?</summary>
+          <p class="a" data-i18n="faq4A">Yes. The core is Apache-2.0 open source. You run the server (and TURN if needed) yourself — no seat fee. Hosted adds Google/GitHub sign-in, invites, managed infra, and the automatic trial. See the self-host guide on GitHub.</p>
         </details>
         <details>
-          <summary data-i18n="faq5Q">How does billing work?</summary>
-          <p class="a" data-i18n="faq5A">Payments and invoices run through Stripe at ¥300/seat/month (excl. tax), based on registered org members.</p>
+          <summary data-i18n="faq5Q">How does billing work on Standard?</summary>
+          <p class="a" data-i18n="faq5A">Payments and invoices run through Stripe at ¥300/seat/month (excl. tax), based on registered org members. Seats can change monthly. Enterprise can arrange invoice or custom terms.</p>
         </details>
       </div>
     </div>
@@ -182,10 +198,10 @@
   <section class="cta-band">
     <div class="wrap">
       <h2 data-reveal data-i18n="pricingCtaTitle">Start with one floor.</h2>
-      <p data-reveal data-i18n="pricingCtaDesc">Hosted: create an org. Self-host: run it today.</p>
+      <p data-reveal data-i18n="pricingCtaDesc">Sign in, create an org — your trial starts on its own.</p>
       <div class="hero-ctas" data-reveal>
-        <a class="btn btn-primary" href="index.html#download"><span data-i18n="planHostedCta">Download the app</span><span class="arrow">→</span></a>
-        <a class="btn btn-ghost" href="https://github.com/ludo-technologies/hiroba" target="_blank" rel="noopener" data-i18n="planSelfCta">Start on GitHub</a>
+        <a class="btn btn-primary" href="index.html#download"><span data-i18n="planHostedCta">Start 30-day free trial</span><span class="arrow">→</span></a>
+        <a class="btn btn-ghost" href="mailto:contact@ludo-tech.org?subject=Hiroba%20Enterprise" data-i18n="planEntCta">Contact us</a>
       </div>
     </div>
   </section>

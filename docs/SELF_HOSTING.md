@@ -19,8 +19,8 @@ It runs as a **single configured org in guest mode** by default: anyone who
 connects joins that org with the name/color they pick (no accounts, no database).
 That is the recommended self-host setup and the rest of this guide assumes it.
 
-The same binary also supports the hosted-profile pieces when you want them, all
-off by default and all DB-less:
+The same binary also supports optional pieces when you want them (all off by
+default):
 
 - **OAuth/OIDC auth** — set `HIROBA_AUTH=jwt` (shared-secret) or `oidc` (verify
   tokens against a provider's JWKS). See [§6](#6-authentication-optional).
@@ -28,8 +28,12 @@ off by default and all DB-less:
   creates) its tenant; tenants are fully isolated. Guest mode is single-org.
 - **TURN credential issuance** — `GET /ice` mints short-lived coturn credentials.
   See [§5](#configuring-ice--turn-servers-on-the-client).
+- **Org / space catalog persistence** — set `HIROBA_DB` to a SQLite path so orgs
+  and space catalogs survive restarts (see [§4](#4-configuration)). Live
+  presence (online status, positions) is always ephemeral.
 
-Invites, persistence, billing, and admin roles remain future.
+Org invites, billing, and admin roles are part of the managed hosted edition and
+are not included in this repository.
 
 **Audio never reaches your server** — clients connect peer-to-peer (WebRTC mesh).
 Your server's job is light-weight control traffic only, so resource use stays tiny
@@ -290,9 +294,10 @@ optional `iss`/`aud`. A token's `org` claim selects (or lazily creates) its
 tenant, and tenants are **fully isolated** — one org never sees another's roster,
 positions, or signaling (NFR-12). A `hello` may still override `name`/`color`.
 
-Tenants are held **in memory** and persist for the server's lifetime; the
-signaling server itself has no database, so they reset on restart. Persistence
-of presence state is future.
+Without `HIROBA_DB`, tenants live **in memory** for the server process lifetime
+and reset on restart. With `HIROBA_DB`, org ids and space catalogs are stored in
+SQLite; live presence (who is online, positions, status) is still ephemeral and
+clears on restart.
 
 ### Bringing a login edge
 

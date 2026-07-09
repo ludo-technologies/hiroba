@@ -1189,6 +1189,37 @@ body[data-page="pricing"] .section:nth-of-type(even) { --dot: var(--p-gold); }
   .plans { grid-template-columns: 1fr; max-width: 460px; }
 }
 
+/* Self-host demoted to a footnote under paid plans */
+.selfhost-strip {
+  max-width: 760px;
+  margin: 28px auto 0;
+  padding: 18px 22px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px 20px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+}
+.selfhost-strip p {
+  margin: 0;
+  flex: 1 1 280px;
+  font-size: 0.86rem;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+.selfhost-strip p strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+.selfhost-strip .btn-sm {
+  flex: none;
+  padding: 8px 14px;
+  font-size: 0.8rem;
+}
+
 /* comparison table */
 .cmp-table {
   width: 100%;
