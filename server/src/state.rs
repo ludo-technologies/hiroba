@@ -14,6 +14,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::sync::{mpsc, Mutex};
 
@@ -44,6 +45,10 @@ fn is_hex_color(s: &str) -> bool {
 /// downscales to a 128×128 WebP/JPEG (a few KB); this cap bounds broadcast
 /// amplification from a hostile client, not legitimate use.
 const MAX_AVATAR_LEN: usize = 64 * 1024;
+
+/// How long an unanswered page rings before auto-declining (callee silence =
+/// decline). Short enough to avoid long surprise rings on an always-on tool.
+const PAGE_RING_TIMEOUT: Duration = Duration::from_secs(25);
 
 /// True iff `s` is a well-formed `data:image/(png|jpeg|webp);base64,<base64>`
 /// URL within [`MAX_AVATAR_LEN`]. Like the colour, the avatar is relayed
@@ -98,9 +103,13 @@ pub struct Member {
     pub away: bool,
     /// User-controllable do-not-disturb flag (blocks incoming pages, FR-11).
     pub dnd: bool,
-    /// Peers this member currently has a page (1:1 barge-in) link with.
+    /// Peers this member currently has an established page (1:1) link with.
     /// Non-empty ⇒ effective status is `in_call`.
     pub paging: HashSet<String>,
+    /// Peers we are ringing (outgoing page offers, not yet accepted).
+    pub ringing_out: HashSet<String>,
+    /// Peers ringing us (incoming page offers awaiting accept/decline).
+    pub ringing_in: HashSet<String>,
     /// Channel to the per-connection writer task.
     pub tx: mpsc::Sender<ServerMsg>,
 }
@@ -357,8 +366,8 @@ pub enum CreateSpaceOutcome {
 
 /// Outcome of a `page` request.
 pub enum PageOutcome {
-    /// Both peers were instructed to connect (messages already sent).
-    Connected,
+    /// Offer delivered; callee is ringing (messages already sent).
+    Ringing,
     /// Could not place the page; `reason` is "dnd" or "offline".
     Rejected(String),
 }
@@ -532,6 +541,8 @@ impl Org {
             away: false,
             dnd: false,
             paging: HashSet::new(),
+            ringing_out: HashSet::new(),
+            ringing_in: HashSet::new(),
             tx,
         };
 
@@ -593,7 +604,7 @@ impl Org {
             ServerMsg::SpaceLeft { id: id.to_string() },
         );
 
-        // End any page links: tell the partner, clear their in_call, presence.
+        // End any established page links: tell the partner, clear in_call.
         for partner_id in &member.paging {
             if let Some(partner) = guard.members.get_mut(partner_id) {
                 partner.paging.remove(id);
@@ -605,6 +616,25 @@ impl Org {
         let partners: Vec<String> = member.paging.iter().cloned().collect();
         for partner_id in partners {
             guard.broadcast_presence(&partner_id);
+        }
+
+        // Cancel outgoing rings (caller left) and drop incoming offers.
+        for callee_id in &member.ringing_out {
+            if let Some(callee) = guard.members.get_mut(callee_id) {
+                callee.ringing_in.remove(id);
+                let _ = callee.tx.try_send(ServerMsg::PageEnd {
+                    from: id.to_string(),
+                });
+            }
+        }
+        for caller_id in &member.ringing_in {
+            if let Some(caller) = guard.members.get_mut(caller_id) {
+                caller.ringing_out.remove(id);
+                let _ = caller.tx.try_send(ServerMsg::PageRejected {
+                    to: id.to_string(),
+                    reason: "offline".to_string(),
+                });
+            }
         }
 
         // Org-wide: this member left the roster.
@@ -825,81 +855,220 @@ impl Org {
     }
 
     // -----------------------------------------------------------------------
-    // Paging (cross-space 1:1)
+    // Paging (cross-space 1:1) — ring → accept/decline → connect
     // -----------------------------------------------------------------------
 
-    /// Place a page link from `from` to `to` (FR-10). On success both peers are
-    /// told to connect (initiator = smaller numeric id) and set to `in_call`.
+    /// Start a page from `from` to `to` (FR-10). Target must be online and not
+    /// DND. On success the callee gets `page_offer` and the caller gets
+    /// `page_ringing`; media/`in_call` only start after `page_accept`.
     pub async fn page(&self, from: &str, to: &str) -> PageOutcome {
         let mut guard = self.inner.lock().await;
 
         if from == to {
             return PageOutcome::Rejected("offline".to_string());
         }
-        // Target must be online and not DND.
-        let target = match guard.members.get(to) {
-            None => return PageOutcome::Rejected("offline".to_string()),
-            Some(m) => m,
+        let Some(target) = guard.members.get(to) else {
+            return PageOutcome::Rejected("offline".to_string());
         };
         if target.dnd {
             return PageOutcome::Rejected("dnd".to_string());
         }
-        let (from_num, to_num) = match (guard.members.get(from), guard.members.get(to)) {
-            (Some(a), Some(b)) => (a.num_id, b.num_id),
-            _ => return PageOutcome::Rejected("offline".to_string()),
+        let Some(caller) = guard.members.get(from) else {
+            return PageOutcome::Rejected("offline".to_string());
         };
 
-        // Register the link on both sides.
-        if let Some(a) = guard.members.get_mut(from) {
-            a.paging.insert(to.to_string());
-        }
-        if let Some(b) = guard.members.get_mut(to) {
-            b.paging.insert(from.to_string());
+        // Already live or already ringing this peer → treat as success (idempotent).
+        if caller.paging.contains(to)
+            || caller.ringing_out.contains(to)
+            || caller.ringing_in.contains(to)
+        {
+            return PageOutcome::Ringing;
         }
 
-        // Initiator tie-break: smaller numeric id offers (avoids glare).
-        let from_initiates = from_num < to_num;
+        if let Some(a) = guard.members.get_mut(from) {
+            a.ringing_out.insert(to.to_string());
+        }
+        if let Some(b) = guard.members.get_mut(to) {
+            b.ringing_in.insert(from.to_string());
+        }
+
         if let Some(a) = guard.members.get(from) {
-            let _ = a.tx.try_send(ServerMsg::PageConnect {
-                peer: to.to_string(),
-                initiator: from_initiates,
+            let _ = a.tx.try_send(ServerMsg::PageRinging {
+                to: to.to_string(),
             });
         }
         if let Some(b) = guard.members.get(to) {
-            let _ = b.tx.try_send(ServerMsg::PageConnect {
-                peer: from.to_string(),
-                initiator: !from_initiates,
+            let _ = b.tx.try_send(ServerMsg::PageOffer {
+                from: from.to_string(),
             });
         }
 
-        // Both flipped to in_call → presence to the org.
-        guard.broadcast_presence(from);
-        guard.broadcast_presence(to);
+        // Auto-decline if the callee never answers.
+        let org = self.clone();
+        let from_id = from.to_string();
+        let to_id = to.to_string();
+        tokio::spawn(async move {
+            tokio::time::sleep(PAGE_RING_TIMEOUT).await;
+            org.page_timeout(&from_id, &to_id).await;
+        });
 
-        PageOutcome::Connected
+        PageOutcome::Ringing
     }
 
-    /// End a page link between `from` and `to`. Notifies the partner and clears
-    /// both peers' `in_call`, broadcasting `presence`.
+    /// Accept an incoming page offer: `accepter` answers a ring from `caller`.
+    /// Establishes the page link and instructs both peers to open WebRTC.
+    pub async fn page_accept(&self, accepter: &str, caller: &str) {
+        let mut guard = self.inner.lock().await;
+
+        let pending = guard
+            .members
+            .get(accepter)
+            .is_some_and(|m| m.ringing_in.contains(caller))
+            && guard
+                .members
+                .get(caller)
+                .is_some_and(|m| m.ringing_out.contains(accepter));
+        if !pending {
+            return;
+        }
+
+        // Clear ring state in both directions (handles simultaneous cross-pages).
+        if let Some(a) = guard.members.get_mut(accepter) {
+            a.ringing_in.remove(caller);
+            a.ringing_out.remove(caller);
+        }
+        if let Some(c) = guard.members.get_mut(caller) {
+            c.ringing_out.remove(accepter);
+            c.ringing_in.remove(accepter);
+        }
+
+        let (caller_num, accepter_num) = match (guard.members.get(caller), guard.members.get(accepter))
+        {
+            (Some(c), Some(a)) => (c.num_id, a.num_id),
+            _ => return,
+        };
+
+        if let Some(c) = guard.members.get_mut(caller) {
+            c.paging.insert(accepter.to_string());
+        }
+        if let Some(a) = guard.members.get_mut(accepter) {
+            a.paging.insert(caller.to_string());
+        }
+
+        // Initiator tie-break: smaller numeric id offers (avoids glare).
+        let caller_initiates = caller_num < accepter_num;
+        if let Some(c) = guard.members.get(caller) {
+            let _ = c.tx.try_send(ServerMsg::PageConnect {
+                peer: accepter.to_string(),
+                initiator: caller_initiates,
+            });
+        }
+        if let Some(a) = guard.members.get(accepter) {
+            let _ = a.tx.try_send(ServerMsg::PageConnect {
+                peer: caller.to_string(),
+                initiator: !caller_initiates,
+            });
+        }
+
+        guard.broadcast_presence(caller);
+        guard.broadcast_presence(accepter);
+    }
+
+    /// End a live page, cancel an outgoing ring, or decline an incoming offer.
     pub async fn page_end(&self, from: &str, to: &str) {
         let mut guard = self.inner.lock().await;
 
+        // Live link hang-up.
         let mut changed = Vec::new();
-        if let Some(a) = guard.members.get_mut(from) {
-            if a.paging.remove(to) {
-                changed.push(from.to_string());
+        let was_live = guard
+            .members
+            .get(from)
+            .is_some_and(|m| m.paging.contains(to));
+        if was_live {
+            if let Some(a) = guard.members.get_mut(from) {
+                if a.paging.remove(to) {
+                    changed.push(from.to_string());
+                }
             }
+            if let Some(b) = guard.members.get_mut(to) {
+                if b.paging.remove(from) {
+                    let _ = b.tx.try_send(ServerMsg::PageEnd {
+                        from: from.to_string(),
+                    });
+                    changed.push(to.to_string());
+                }
+            }
+            for id in changed {
+                guard.broadcast_presence(&id);
+            }
+            return;
         }
-        if let Some(b) = guard.members.get_mut(to) {
-            if b.paging.remove(from) {
+
+        // Caller cancels while ringing.
+        let cancelled_out = guard
+            .members
+            .get(from)
+            .is_some_and(|m| m.ringing_out.contains(to));
+        if cancelled_out {
+            if let Some(a) = guard.members.get_mut(from) {
+                a.ringing_out.remove(to);
+            }
+            if let Some(b) = guard.members.get_mut(to) {
+                b.ringing_in.remove(from);
                 let _ = b.tx.try_send(ServerMsg::PageEnd {
                     from: from.to_string(),
                 });
-                changed.push(to.to_string());
+            }
+            return;
+        }
+
+        // Callee declines while ringing.
+        let declined = guard
+            .members
+            .get(from)
+            .is_some_and(|m| m.ringing_in.contains(to));
+        if declined {
+            if let Some(a) = guard.members.get_mut(from) {
+                a.ringing_in.remove(to);
+            }
+            if let Some(b) = guard.members.get_mut(to) {
+                b.ringing_out.remove(from);
+                let _ = b.tx.try_send(ServerMsg::PageRejected {
+                    to: from.to_string(),
+                    reason: "declined".to_string(),
+                });
             }
         }
-        for id in changed {
-            guard.broadcast_presence(&id);
+    }
+
+    /// Auto-decline a still-pending ring after [`PAGE_RING_TIMEOUT`].
+    async fn page_timeout(&self, caller: &str, callee: &str) {
+        let mut guard = self.inner.lock().await;
+
+        let still_pending = guard
+            .members
+            .get(caller)
+            .is_some_and(|m| m.ringing_out.contains(callee))
+            && guard
+                .members
+                .get(callee)
+                .is_some_and(|m| m.ringing_in.contains(caller));
+        if !still_pending {
+            return;
+        }
+
+        if let Some(c) = guard.members.get_mut(caller) {
+            c.ringing_out.remove(callee);
+            let _ = c.tx.try_send(ServerMsg::PageRejected {
+                to: callee.to_string(),
+                reason: "timeout".to_string(),
+            });
+        }
+        if let Some(a) = guard.members.get_mut(callee) {
+            a.ringing_in.remove(caller);
+            let _ = a.tx.try_send(ServerMsg::PageEnd {
+                from: caller.to_string(),
+            });
         }
     }
 
@@ -1054,6 +1223,8 @@ mod tests {
                     away: false,
                     dnd: false,
                     paging: HashSet::new(),
+                    ringing_out: HashSet::new(),
+                    ringing_in: HashSet::new(),
                     tx: tx.clone(),
                 },
             );

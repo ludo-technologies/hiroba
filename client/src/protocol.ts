@@ -145,13 +145,19 @@ export interface SignalMsg {
   data: SignalData;
 }
 
-/** Start a cross-space 1:1 "barge-in" voice link (FR-10). */
+/** Start a cross-space 1:1 page (rings the target; they accept or decline). */
 export interface PageMsg {
   t: "page";
   to: string;
 }
 
-/** End a page link. */
+/** Accept an incoming page offer from peer `to` (the caller). */
+export interface PageAcceptMsg {
+  t: "page_accept";
+  to: string;
+}
+
+/** End a live page, cancel an outgoing ring, or decline an incoming offer. */
 export interface PageEndMsg {
   t: "page_end";
   to: string;
@@ -172,6 +178,7 @@ export type ClientMsg =
   | SetStatusMsg
   | SignalMsg
   | PageMsg
+  | PageAcceptMsg
   | PageEndMsg
   | ByeMsg;
 
@@ -263,21 +270,33 @@ export interface ProximityMsg {
   disconnect: string[];
 }
 
-/** Open a 1:1 page link (sent to both peers). Same tie-break as proximity. */
+/** Incoming page offer (to the callee). No media until they accept. */
+export interface PageOfferMsg {
+  t: "page_offer";
+  from: string;
+}
+
+/** Outgoing page is ringing (to the caller). */
+export interface PageRingingMsg {
+  t: "page_ringing";
+  to: string;
+}
+
+/** Open a 1:1 page link (sent to both peers after accept). Same tie-break as proximity. */
 export interface PageConnectMsg {
   t: "page_connect";
   peer: string;
   initiator: boolean;
 }
 
-/** A page could not be placed. `reason` is "dnd" or "offline". */
+/** A page could not be placed / completed. */
 export interface PageRejectedMsg {
   t: "page_rejected";
   to: string;
-  reason: "dnd" | "offline";
+  reason: "dnd" | "offline" | "declined" | "timeout";
 }
 
-/** A page link ended (peer hung up or disconnected). */
+/** A page link ended, or a pending offer was cancelled / timed out. */
 export interface PageEndedMsg {
   t: "page_end";
   from: string;
@@ -309,6 +328,8 @@ export type ServerMsg =
   | StateMsg
   | PeerMuteMsg
   | ProximityMsg
+  | PageOfferMsg
+  | PageRingingMsg
   | PageConnectMsg
   | PageRejectedMsg
   | PageEndedMsg

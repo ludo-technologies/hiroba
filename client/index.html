@@ -291,10 +291,24 @@
       </header>
       <ul id="roster" class="roster" aria-label="Members" data-i18n-arialabel="ariaMembers"></ul>
       <footer class="side-foot">
-        <button id="status-away" class="status-toggle" type="button" aria-pressed="false" data-i18n="away">
+        <button
+          id="status-away"
+          class="status-toggle"
+          type="button"
+          aria-pressed="false"
+          data-i18n="away"
+          data-i18n-title="awayTitle"
+        >
           Away
         </button>
-        <button id="status-dnd" class="status-toggle" type="button" aria-pressed="false" data-i18n="dnd">
+        <button
+          id="status-dnd"
+          class="status-toggle"
+          type="button"
+          aria-pressed="false"
+          data-i18n="dnd"
+          data-i18n-title="dndTitle"
+        >
           Do not disturb
         </button>
       </footer>
@@ -350,13 +364,14 @@
     <!-- Space tabs: switch the active space (FR-05); rebuilt from the catalog -->
     <nav id="tabs" class="tabs" hidden aria-label="Spaces" data-i18n-arialabel="ariaSpaces"></nav>
 
-    <!-- In-call banner: shown during a page (barge-in) with one-click hang-up -->
+    <!-- Call banner: ringing (out/in) or live page; controls depend on mode -->
     <div id="call-banner" class="call-banner" hidden role="status" aria-live="polite">
       <span class="call-dot" aria-hidden="true"></span>
       <span id="call-text">In call</span>
       <button id="screen-share" type="button" data-i18n="shareScreen">Share screen</button>
       <button id="camera-toggle" type="button" aria-pressed="false" data-i18n="cameraOn" data-i18n-title="cameraOnTitle">Turn on camera</button>
       <button id="screen-reopen" type="button" hidden data-i18n="viewScreen">View screen</button>
+      <button id="call-accept" type="button" hidden data-i18n="pageAccept">Answer</button>
       <button id="hangup" type="button" data-i18n="hangUp">Hang up</button>
     </div>
 
@@ -383,13 +398,18 @@
     <!-- Transient toasts (page rejected, space full, …) -->
     <div id="toasts" class="toasts" aria-live="polite"></div>
 
-    <!-- First-run movement hint; fades out after the first move -->
+    <!-- First-run hint; fades out after the first move -->
     <div id="onboard" class="onboard" hidden>
-      <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>
-      <span class="onboard-sep" data-i18n="onboardOr">or</span>
-      <span class="onboard-arrows">↑ ← ↓ →</span>
-      <span data-i18n="onboardWalk">to walk around</span>
-      <span class="onboard-click" data-i18n="onboardClick">— or click the floor</span>
+      <div class="onboard-row">
+        <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>
+        <span class="onboard-sep" data-i18n="onboardOr">or</span>
+        <span class="onboard-arrows">↑ ← ↓ →</span>
+        <span data-i18n="onboardWalk">to walk around</span>
+        <span class="onboard-click" data-i18n="onboardClick">— or click the floor</span>
+      </div>
+      <div class="onboard-row onboard-tip" data-i18n="onboardCallTip">
+        Call from the sidebar · DND blocks unexpected calls
+      </div>
     </div>
 
     <!-- HUD -->

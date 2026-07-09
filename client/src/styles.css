@@ -544,12 +544,13 @@ body {
   bottom: 92px;
   transform: translateX(-50%);
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 9px;
-  padding: 11px 18px;
+  gap: 6px;
+  padding: 12px 18px;
   background: var(--paper);
   border: 1px solid var(--edge);
-  border-radius: var(--radius-pill);
+  border-radius: 18px;
   color: var(--ink-soft);
   font-size: 13px;
   box-shadow: var(--shadow-hud);
@@ -566,6 +567,17 @@ body {
 .onboard.fading {
   opacity: 0;
   transform: translateX(-50%) translateY(8px);
+}
+
+.onboard-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.onboard-tip {
+  font-size: 12px;
+  color: var(--ink-mute);
 }
 
 .onboard kbd {
@@ -1248,6 +1260,17 @@ body {
   display: none;
 }
 
+/* Incoming ring: warmer border so it reads as an interrupt, not "already live". */
+.call-banner[data-mode="incoming"] {
+  border-color: rgba(212, 88, 60, 0.55);
+  box-shadow: var(--shadow-hud), 0 0 18px -6px rgba(212, 88, 60, 0.45);
+}
+
+.call-banner[data-mode="outgoing"] {
+  border-color: rgba(224, 122, 82, 0.5);
+  box-shadow: var(--shadow-hud), 0 0 18px -6px rgba(224, 122, 82, 0.4);
+}
+
 .call-dot {
   width: 9px;
   height: 9px;
@@ -1256,9 +1279,15 @@ body {
   animation: dot-pulse 1.6s ease-in-out infinite;
 }
 
+.call-banner[data-mode="incoming"] .call-dot,
+.call-banner[data-mode="outgoing"] .call-dot {
+  background: var(--danger);
+}
+
 #screen-share,
 #camera-toggle,
 #screen-reopen,
+#call-accept,
 #hangup {
   border: none;
   color: #fff;
@@ -1280,13 +1309,18 @@ body {
   background: var(--accent-lo);
 }
 
-#screen-reopen[hidden] {
+#screen-reopen[hidden],
+#call-accept[hidden] {
   display: none;
 }
 
 #screen-share[aria-pressed="true"],
 #camera-toggle[aria-pressed="true"] {
   background: var(--accent);
+}
+
+#call-accept {
+  background: var(--sage);
 }
 
 #hangup {
@@ -1296,8 +1330,19 @@ body {
 #screen-share:hover,
 #camera-toggle:hover,
 #screen-reopen:hover,
+#call-accept:hover,
 #hangup:hover {
   filter: brightness(1.08);
+}
+
+/* Hide in-call-only controls while ringing. */
+.call-banner[data-mode="incoming"] #screen-share,
+.call-banner[data-mode="incoming"] #camera-toggle,
+.call-banner[data-mode="incoming"] #screen-reopen,
+.call-banner[data-mode="outgoing"] #screen-share,
+.call-banner[data-mode="outgoing"] #camera-toggle,
+.call-banner[data-mode="outgoing"] #screen-reopen {
+  display: none;
 }
 
 .screen-panel {

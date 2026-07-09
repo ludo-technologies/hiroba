@@ -6,7 +6,7 @@ in doubt, this file wins.
 
 v2 introduces **organizations (tenants)**, **multiple spaces** (a lobby + team
 spaces) switched at runtime, an always-visible **org-wide roster**, and
-**paging** (cross-space 1:1 "barge-in" voice). The proximity/WebRTC mechanics
+**paging** (cross-space 1:1 voice with ring → accept). The proximity/WebRTC mechanics
 from v1 are **reused**, now scoped to whichever space a client is currently in.
 
 ## Transport
@@ -179,22 +179,39 @@ Clients SHOULD set `away: true` when they dim themselves on idle (NFR-01).
 server→client `signal` to peer `to`. Used for **both** in-space proximity links
 and page links. If `to` is not connected, the message is dropped silently.
 
-### `page` — start a cross-space 1:1 "barge-in" voice link (FR-10)
+### `page` — start a cross-space 1:1 page (FR-10)
 ```json
 { "t": "page", "to": "9" }
 ```
-If `to` is offline or `dnd`, the server replies `page_rejected`. Otherwise the
-server instructs **both** peers to open a 1:1 WebRTC link (`page_connect`, with
-initiator tie-break) and sets both to `in_call`. The audio link is established
-with the same `signal` relay used by proximity. Both peers' voice goes **live
-immediately** (barge-in); the UI shows "in call" and offers a one-click hang-up.
+If `to` is offline or `dnd`, the server replies `page_rejected` (`reason`:
+`"offline"` | `"dnd"`). Otherwise the server places a **ring** (no media yet):
+- callee receives `page_offer{from}`
+- caller receives `page_ringing{to}`
 
-### `page_end` — end a page link
+The callee must **accept** (`page_accept`) or **decline** (`page_end`). If they
+do neither within ~25s the server auto-declines (`page_rejected` with
+`reason: "timeout"` to the caller; `page_end` to the callee).
+
+### `page_accept` — accept an incoming page offer
+```json
+{ "t": "page_accept", "to": "3" }
+```
+`to` is the caller. On success the server instructs **both** peers to open a
+1:1 WebRTC link (`page_connect`, with initiator tie-break) and sets both to
+`in_call`. The audio link uses the same `signal` relay as proximity. Both
+peers' clients SHOULD go voice-live after connect (auto-unmute is a client
+policy). The UI shows "in call" with one-click hang-up.
+
+### `page_end` — end a live page, cancel a ring, or decline an offer
 ```json
 { "t": "page_end", "to": "9" }
 ```
-Server relays `page_end` (with `from`) to the other peer and clears both peers'
-`in_call` status (back to their underlying status), broadcasting `presence`.
+- **Live link:** server relays `page_end{from}` to the other peer and clears
+  both peers' `in_call` (broadcasting `presence`).
+- **Outgoing ring (caller cancels):** clears the pending offer; callee gets
+  `page_end{from}`.
+- **Incoming offer (callee declines):** clears the pending offer; caller gets
+  `page_rejected{to, reason: "declined"}`.
 
 ### `bye` — leave the org (optional; closing the socket is equivalent)
 ```json
@@ -305,25 +322,40 @@ otherwise it waits for one. **Tie-break (server-enforced):** in any near pair th
 peer with the **numerically smaller id** is the initiator (avoids glare).
 `disconnect` lists peer ids whose link MUST be torn down. Computed per space.
 
-### `page_connect` — open a 1:1 page link (sent to both peers)
+### `page_offer` — incoming page (to the callee)
+```json
+{ "t": "page_offer", "from": "3" }
+```
+Someone is calling you. Show accept/decline UI; do **not** open WebRTC yet.
+Decline with `page_end{to: from}`; accept with `page_accept{to: from}`.
+
+### `page_ringing` — outgoing page is ringing (to the caller)
+```json
+{ "t": "page_ringing", "to": "9" }
+```
+Your page to `to` is waiting. Cancel with `page_end{to}`.
+
+### `page_connect` — open a 1:1 page link (sent to both peers after accept)
 ```json
 { "t": "page_connect", "peer": "3", "initiator": true }
 ```
 Establish a 1:1 WebRTC link to `peer` using the `signal` relay. Same initiator
 tie-break as proximity. Mark this as a **page** link (cross-space, shown as "in
-call"), distinct from proximity links. Voice goes live immediately.
+call"), distinct from proximity links. Clients SHOULD go voice-live after connect.
 
-### `page_rejected` — a page could not be placed
+### `page_rejected` — a page could not be placed or completed
 ```json
 { "t": "page_rejected", "to": "9", "reason": "dnd" }
 ```
-`reason` is `"dnd"` or `"offline"`. Sent to the caller only.
+`reason` is `"dnd"`, `"offline"`, `"declined"`, or `"timeout"`. Sent to the
+caller only.
 
-### `page_end` — a page link ended
+### `page_end` — a page link ended or a pending offer was cleared
 ```json
 { "t": "page_end", "from": "9" }
 ```
-Tear down the page link to `from`. Sent when the peer hangs up or disconnects.
+Tear down the page link to `from`, or dismiss a pending `page_offer` from
+`from`. Sent when the peer hangs up, cancels, disconnects, or the ring times out.
 
 ### `signal` — relayed WebRTC signaling from another peer
 ```json
@@ -348,9 +380,10 @@ The server computes each member's **effective** `status` with this priority:
 in_call  >  dnd  >  away  >  active
 ```
 
-- `in_call` — set while the member has an active page link (server-managed).
+- `in_call` — set while the member has an **accepted** page link (server-managed).
+  Pending rings do not set `in_call`.
 - `dnd` / `away` — user-controllable via `set_status`. `dnd` blocks incoming
-  pages; `away` is a soft idle indicator the client sets on inactivity.
+  pages at offer time; `away` is a soft idle indicator the client sets on inactivity.
 - `active` — present in a space, available.
 
 Any change to status, `spaceId`, or `muted` triggers a `presence` broadcast.
@@ -407,10 +440,13 @@ client                         server
   |  ◀── space_snapshot{...}       |  (+ presence broadcast: new spaceId)
   |                                |
   |  ── page{to} ────────────────▶ |  (DND/offline → page_rejected)
+  |  ◀── page_ringing{to}          |  (caller)
+  |  ◀── page_offer{from}          |  (callee; no media yet)
+  |  ── page_accept{to} ─────────▶ |  (callee answers)
   |  ◀── page_connect{peer,init}   |  (to both peers; in_call)
   |  ── signal ⇄ signal ─────────▶ |  (establish 1:1 link)
-  |  ── page_end{to} ────────────▶ |
-  |  ◀── page_end{from}            |  (+ presence: clear in_call)
+  |  ── page_end{to} ────────────▶ |  (hang up / cancel / decline)
+  |  ◀── page_end{from}            |  (+ presence: clear in_call if live)
   |                                |
   |  ── bye / close ─────────────▶ |  (broadcast presence_left to the org)
 ```

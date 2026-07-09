@@ -204,10 +204,13 @@ pub enum ClientMsg {
         data: Value,
     },
 
-    /// Start a cross-space 1:1 "barge-in" voice link (FR-10).
+    /// Start a cross-space 1:1 page (ring the target; they accept or decline).
     Page { to: String },
 
-    /// End a page link.
+    /// Accept an incoming page offer from `to` (the caller).
+    PageAccept { to: String },
+
+    /// End a page link, cancel an outgoing ring, or decline an incoming offer.
     PageEnd { to: String },
 
     /// Explicit leave (optional — closing the socket is equivalent).
@@ -280,13 +283,21 @@ pub enum ServerMsg {
         disconnect: Vec<String>,
     },
 
-    /// Open a 1:1 page link (sent to both peers). Same tie-break as proximity.
+    /// Incoming page offer (to the callee). No media until they accept.
+    PageOffer { from: String },
+
+    /// Outgoing page is ringing (to the caller). Awaits accept / decline / timeout.
+    PageRinging { to: String },
+
+    /// Open a 1:1 page link (sent to both peers after accept). Same tie-break
+    /// as proximity.
     PageConnect { peer: String, initiator: bool },
 
-    /// A page could not be placed. `reason` is "dnd" or "offline". To caller.
+    /// A page could not be placed / completed. `reason` is "dnd", "offline",
+    /// "declined", or "timeout". To the caller.
     PageRejected { to: String, reason: String },
 
-    /// A page link ended (peer hung up or disconnected).
+    /// A page link ended, or a pending offer was cancelled / timed out.
     PageEnd { from: String },
 
     /// Relayed WebRTC signaling from another peer.

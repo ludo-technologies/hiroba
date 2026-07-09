@@ -102,6 +102,7 @@ const EN = {
   onboardOr: "or",
   onboardWalk: "to walk around",
   onboardClick: "— or click the floor",
+  onboardCallTip: "Call from the sidebar · DND blocks unexpected calls",
   nudgeText: "Someone's nearby — press M to talk",
 
   // Auto-update banner
@@ -133,7 +134,11 @@ const EN = {
 
   // Sidebar / roster
   away: "Away",
+  awayTitle: "Mark yourself away (soft idle signal)",
   dnd: "Do not disturb",
+  dndTitle: "Do not disturb — blocks all incoming calls",
+  dndEnabled: "Do not disturb on — incoming calls are blocked",
+  dndDisabled: "Do not disturb off — you can receive calls again",
   youName: (name: string) => `${name} (you)`,
   callBtn: "Call",
   callTitle: (name: string) => `Call ${name}`,
@@ -181,10 +186,16 @@ const EN = {
   peerVideo: (name: string) => `${name}'s video`,
   errCameraDenied: "Camera access denied. Check browser/OS permissions.",
   hangUp: "Hang up",
+  pageCancel: "Cancel",
+  pageDecline: "Decline",
+  pageAccept: "Answer",
   someone: "They",
   pageCalling: (name: string) => `Calling ${name}…`,
+  pageIncoming: (name: string) => `Incoming call from ${name}`,
   pageDnd: (name: string) => `${name} is in do-not-disturb.`,
   pageOffline: (name: string) => `${name} is offline.`,
+  pageDeclined: (name: string) => `${name} declined the call.`,
+  pageTimeout: (name: string) => `${name} didn't answer.`,
 };
 
 const JA: typeof EN = {
@@ -271,6 +282,7 @@ const JA: typeof EN = {
   onboardOr: "または",
   onboardWalk: "で移動",
   onboardClick: "(クリックでも移動できます)",
+  onboardCallTip: "サイドバーの「呼ぶ」で通話 · 取り込み中は着信を遮断",
   nudgeText: "近くに誰かいます — M キーで話せます",
 
   // Auto-update banner
@@ -302,7 +314,11 @@ const JA: typeof EN = {
 
   // Sidebar / roster
   away: "離席",
+  awayTitle: "離席にする（ソフトな離席表示）",
   dnd: "取り込み中",
+  dndTitle: "取り込み中 — 着信通話をすべて遮断します",
+  dndEnabled: "取り込み中オン — 着信は届きません",
+  dndDisabled: "取り込み中オフ — 着信を受けられます",
   youName: (name: string) => `${name}(自分)`,
   callBtn: "呼ぶ",
   callTitle: (name: string) => `${name} に呼びかけ`,
@@ -350,10 +366,16 @@ const JA: typeof EN = {
   peerVideo: (name: string) => `${name} のビデオ`,
   errCameraDenied: "カメラを使用できません。ブラウザ/OSの権限設定を確認してください。",
   hangUp: "切断",
+  pageCancel: "キャンセル",
+  pageDecline: "拒否",
+  pageAccept: "応答",
   someone: "相手",
   pageCalling: (name: string) => `${name} に呼びかけ中…`,
+  pageIncoming: (name: string) => `${name} から着信`,
   pageDnd: (name: string) => `${name} は取り込み中です。`,
   pageOffline: (name: string) => `${name} はオフラインです。`,
+  pageDeclined: (name: string) => `${name} が通話を拒否しました。`,
+  pageTimeout: (name: string) => `${name} が応答しませんでした。`,
 };
 
 /** The active message catalog. */

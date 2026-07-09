@@ -22,7 +22,7 @@ other way. It keeps only the core of *being somewhere together*:
 3. **You can move**, and switch spaces with a tab.
 4. **Talk by being near** — proximity spatial voice in the lobby; a team room is
    effectively one small group call. **Or call anyone with one click** — a
-   cross-space 1:1 "barge-in" that goes live instantly, wherever they are.
+   cross-space 1:1 that rings first; the other side answers or declines.
 5. **It's light enough to forget** — idle CPU ≈ 0%, memory in the tens of MB.
 
 No always-on video, no recording, no SFU. Just an org floor of small spaces,

@@ -78,8 +78,12 @@ interface Session {
   /** Latest known positions for peers in the *current space*. */
   peerPositions: Map<string, { x: number; y: number }>;
 
-  /** Active page links: peer id → display name (for the call banner). */
+  /** Established page links: peer id → display name (for the call banner). */
   pages: Map<string, string>;
+  /** Outgoing rings awaiting accept: peer id → display name. */
+  ringingOut: Map<string, string>;
+  /** Incoming offers awaiting accept/decline: peer id → display name. */
+  ringingIn: Map<string, string>;
   /** Remote video (screen share or camera) streams keyed by peer id. Mode is
    *  null for the brief window before the peer's "video-mode" label arrives. */
   remoteVideos: Map<string, { stream: MediaStream; mode: "screen" | "camera" | null }>;
@@ -162,6 +166,7 @@ const ui = new UIManager(
     onEnterSpace: handleEnterSpace,
     onCreateSpace: handleCreateSpace,
     onPage: handlePage,
+    onPageAccept: handlePageAccept,
     onHangUp: handleHangUp,
     onScreenShareToggle: handleScreenShareToggle,
     onCameraToggle: handleCameraToggle,
@@ -212,6 +217,7 @@ function canPagePeer(id: string): boolean {
   if (id === session.self.id) return false;
   if (session.offline.has(id)) return false;
   if (session.pages.has(id)) return false;
+  if (session.ringingOut.has(id) || session.ringingIn.has(id)) return false;
   return session.roster.has(id);
 }
 
@@ -711,6 +717,8 @@ function initSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[]
     offline: new Set(),
     peerPositions,
     pages: new Map(),
+    ringingOut: new Map(),
+    ringingIn: new Map(),
     remoteVideos: new Map(),
     visibleScreen: null,
     screenDismissed: false,
@@ -1048,14 +1056,36 @@ function bindServerMessages(net: HirobaNet): void {
     rebuildRoster();
   });
 
-  // --- Paging (cross-space 1:1) ---
+  // --- Paging (cross-space 1:1): ring → accept → connect ---
+
+  net.on("page_ringing", (e) => {
+    if (!session) return;
+    const { to } = e.detail;
+    const name = session.roster.get(to)?.name ?? to;
+    session.ringingOut.set(to, name);
+    updateCallBanner();
+    rebuildRoster();
+    wake();
+  });
+
+  net.on("page_offer", (e) => {
+    if (!session) return;
+    const { from } = e.detail;
+    const name = session.roster.get(from)?.name ?? from;
+    session.ringingIn.set(from, name);
+    updateCallBanner();
+    rebuildRoster();
+    wake();
+  });
 
   net.on("page_connect", (e) => {
     if (!session) return;
     const { peer, initiator } = e.detail;
+    session.ringingOut.delete(peer);
+    session.ringingIn.delete(peer);
     void session.audio.connect(peer, initiator, "page");
     session.pages.set(peer, session.roster.get(peer)?.name ?? peer);
-    // Barge-in: voice goes live immediately for both peers (PROTOCOL.md §page).
+    // Voice goes live only after both sides have accepted (PROTOCOL.md §page).
     void goLiveForPage();
     updateCallBanner();
     rebuildRoster();
@@ -1065,12 +1095,28 @@ function bindServerMessages(net: HirobaNet): void {
   net.on("page_rejected", (e) => {
     if (!session) return;
     const name = session.roster.get(e.detail.to)?.name ?? t.someone;
-    ui.showToast(e.detail.reason === "dnd" ? t.pageDnd(name) : t.pageOffline(name));
+    session.ringingOut.delete(e.detail.to);
+    const reason = e.detail.reason;
+    const msg =
+      reason === "dnd"
+        ? t.pageDnd(name)
+        : reason === "declined"
+          ? t.pageDeclined(name)
+          : reason === "timeout"
+            ? t.pageTimeout(name)
+            : t.pageOffline(name);
+    ui.showToast(msg);
+    updateCallBanner();
+    rebuildRoster();
+    wake();
   });
 
   net.on("page_end", (e) => {
     if (!session) return;
     const { from } = e.detail;
+    // Pending offer cancelled / timed out, or live hang-up.
+    session.ringingIn.delete(from);
+    session.ringingOut.delete(from);
     session.audio.endPage(from); // keeps proximity audio if still near
     session.pages.delete(from);
     session.remoteVideos.delete(from);
@@ -1094,23 +1140,63 @@ function bindServerMessages(net: HirobaNet): void {
   });
 }
 
-/** Reflect the current page links on the call banner. */
+/**
+ * What the call banner is currently showing (and what Accept / Hang-up act on).
+ * Priority: live call > first incoming offer > first outgoing ring.
+ * Hang-up must only affect this focus — never tear down hidden concurrent rings.
+ */
+type CallFocus =
+  | { mode: "in_call" }
+  | { mode: "incoming"; peerId: string; name: string }
+  | { mode: "outgoing"; peerId: string; name: string };
+
+function callFocus(): CallFocus | null {
+  if (!session) return null;
+  if (session.pages.size > 0) return { mode: "in_call" };
+  if (session.ringingIn.size > 0) {
+    const [peerId, name] = [...session.ringingIn.entries()][0];
+    return { mode: "incoming", peerId, name };
+  }
+  if (session.ringingOut.size > 0) {
+    const [peerId, name] = [...session.ringingOut.entries()][0];
+    return { mode: "outgoing", peerId, name };
+  }
+  return null;
+}
+
+/** Reflect page ring / live state on the call banner (see {@link callFocus}). */
 function updateCallBanner(): void {
   if (!session) return;
-  const n = session.pages.size;
-  if (n === 0) {
-    ui.setCall(null);
-    ui.setScreenSharing(false);
-    ui.setCameraOn(false);
-    ui.setScreenShareView(null, "");
-    ui.setScreenReopenVisible(false);
-    session.visibleScreen = null;
-    session.screenDismissed = false;
-  } else if (n === 1) {
-    ui.setCall(t.inCallWith([...session.pages.values()][0]));
-  } else {
-    ui.setCall(t.inCallN(n));
+  const focus = callFocus();
+
+  if (focus?.mode === "in_call") {
+    const n = session.pages.size;
+    if (n === 1) {
+      ui.setCall({ mode: "in_call", text: t.inCallWith([...session.pages.values()][0]) });
+    } else {
+      ui.setCall({ mode: "in_call", text: t.inCallN(n) });
+    }
+    syncScreenReopenButton();
+    return;
   }
+
+  // Not in a live page: hide screen-share chrome.
+  ui.setScreenSharing(false);
+  ui.setCameraOn(false);
+  ui.setScreenShareView(null, "");
+  ui.setScreenReopenVisible(false);
+  session.visibleScreen = null;
+  session.screenDismissed = false;
+
+  if (focus?.mode === "incoming") {
+    ui.setCall({ mode: "incoming", text: t.pageIncoming(focus.name) });
+    return;
+  }
+  if (focus?.mode === "outgoing") {
+    ui.setCall({ mode: "outgoing", text: t.pageCalling(focus.name) });
+    return;
+  }
+  ui.setCall(null);
   syncScreenReopenButton();
 }
 
@@ -1228,11 +1314,10 @@ function stopCamera(): void {
 }
 
 /**
- * Barge-in: a page makes voice live immediately (PROTOCOL.md §page). If we're
- * muted, auto-unmute (acquiring the mic) and tell the org. We remember that we
- * did so, to restore mute when the call ends. Mic acquisition needs a gesture;
- * if it fails (e.g. the *receiver* with no gesture/permission) we fall back to
- * muted — the in-call banner still lets the user unmute with one click.
+ * After a page is accepted, voice goes live for both peers (PROTOCOL.md §page).
+ * If we're muted, auto-unmute (acquiring the mic) and tell the org. We remember
+ * that we did so, to restore mute when the call ends. Accept/Answer is a user
+ * gesture, so mic acquisition usually succeeds on the receiver path too.
  */
 async function goLiveForPage(): Promise<void> {
   if (!session || !session.audio.isMuted) return;
@@ -1359,25 +1444,57 @@ function handleCreateSpace(name: string): void {
 function handlePage(memberId: string): void {
   if (!session) return;
   markActive();
+  // Optimistic outgoing UI until page_ringing / page_rejected arrives.
   const name = session.roster.get(memberId)?.name ?? memberId;
-  ui.showToast(t.pageCalling(name));
+  session.ringingOut.set(memberId, name);
+  updateCallBanner();
   session.net.send({ t: "page", to: memberId });
   wake();
 }
 
+/** Accept the offer currently shown on the banner (incoming focus only). */
+function handlePageAccept(): void {
+  if (!session) return;
+  const focus = callFocus();
+  if (focus?.mode !== "incoming") return;
+  markActive();
+  session.net.send({ t: "page_accept", to: focus.peerId });
+  // Server will reply with page_connect; keep ringingIn until then so the
+  // banner stays visible if accept is slow.
+  wake();
+}
+
+/**
+ * Act on the banner's current focus only (same priority as {@link callFocus}):
+ * - in_call  → hang up every live page (banner aggregates them)
+ * - incoming → decline that one offer (not hidden outgoing rings)
+ * - outgoing → cancel that one ring (not hidden incoming offers)
+ */
 function handleHangUp(): void {
   if (!session) return;
-  for (const id of session.pages.keys()) {
-    session.net.send({ t: "page_end", to: id });
-    session.audio.endPage(id); // keeps proximity audio if still near
+  const focus = callFocus();
+  if (!focus) return;
+
+  if (focus.mode === "in_call") {
+    for (const id of session.pages.keys()) {
+      session.net.send({ t: "page_end", to: id });
+      session.audio.endPage(id); // keeps proximity audio if still near
+    }
+    session.pages.clear();
+    session.remoteVideos.clear();
+    session.screenDismissed = false;
+    stopScreenShare();
+    stopCamera();
+    void restoreMuteAfterPage();
+  } else if (focus.mode === "incoming") {
+    session.net.send({ t: "page_end", to: focus.peerId });
+    session.ringingIn.delete(focus.peerId);
+  } else {
+    session.net.send({ t: "page_end", to: focus.peerId });
+    session.ringingOut.delete(focus.peerId);
   }
-  session.pages.clear();
-  session.remoteVideos.clear();
-  session.screenDismissed = false;
-  stopScreenShare();
-  stopCamera();
+
   updateCallBanner();
-  void restoreMuteAfterPage();
   rebuildRoster();
   wake();
 }

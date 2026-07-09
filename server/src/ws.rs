@@ -208,6 +208,7 @@ pub async fn handle_ws(
                             .await;
                     }
                 }
+                Ok(ClientMsg::PageAccept { to }) => org.page_accept(&pid, &to).await,
                 Ok(ClientMsg::PageEnd { to }) => org.page_end(&pid, &to).await,
                 Ok(ClientMsg::Bye) => break 'read,
                 Ok(ClientMsg::Hello { .. }) => {

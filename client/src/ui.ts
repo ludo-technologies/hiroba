@@ -187,6 +187,7 @@ const elCallText = $<HTMLSpanElement>("call-text");
 const elScreenShare = $<HTMLButtonElement>("screen-share");
 const elCameraToggle = $<HTMLButtonElement>("camera-toggle");
 const elScreenReopen = $<HTMLButtonElement>("screen-reopen");
+const elCallAccept = $<HTMLButtonElement>("call-accept");
 const elHangup = $<HTMLButtonElement>("hangup");
 const elScreenPanel = $<HTMLDivElement>("screen-panel");
 const elScreenTitle = $<HTMLSpanElement>("screen-title");
@@ -276,9 +277,11 @@ export interface UICallbacks {
   onEnterSpace(spaceId: string): void;
   /** Create a new team space with the given name (FR-14). */
   onCreateSpace(name: string): void;
-  /** Start a page (cross-space 1:1 barge-in) with a roster member (FR-10). */
+  /** Start a page (cross-space 1:1) with a roster member (FR-10). */
   onPage(memberId: string): void;
-  /** Hang up the current page link. */
+  /** Accept an incoming page offer. */
+  onPageAccept(): void;
+  /** Hang up a live page, cancel an outgoing ring, or decline an incoming offer. */
   onHangUp(): void;
   /** Start or stop screen sharing in the current page link. */
   onScreenShareToggle(): void;
@@ -291,6 +294,9 @@ export interface UICallbacks {
   /** Set the user-controllable status flags (away / dnd). */
   onSetStatus(away: boolean, dnd: boolean): void;
 }
+
+/** Call banner mode: live conversation vs ring states. */
+export type CallBannerMode = "in_call" | "outgoing" | "incoming";
 
 /**
  * A roster row, fully prepared by main.ts (which knows the space catalog and
@@ -996,16 +1002,35 @@ export class UIManager {
   }
 
   // -------------------------------------------------------------------------
-  // In-call banner (page / barge-in)
+  // Call banner (ringing out/in, or live page)
   // -------------------------------------------------------------------------
 
-  /** Show the page banner with the given (pre-localized) text, or hide (null). */
-  setCall(text: string | null): void {
-    if (text) {
-      elCallText.textContent = text;
-      elCallBanner.removeAttribute("hidden");
-    } else {
+  /**
+   * Show the call banner, or hide it (`null`).
+   * - `in_call`: screen share / camera / hang up
+   * - `outgoing`: cancel only
+   * - `incoming`: answer + decline
+   */
+  setCall(state: { mode: CallBannerMode; text: string } | null): void {
+    if (!state) {
       elCallBanner.setAttribute("hidden", "");
+      elCallBanner.removeAttribute("data-mode");
+      elCallAccept.setAttribute("hidden", "");
+      return;
+    }
+    elCallText.textContent = state.text;
+    elCallBanner.dataset.mode = state.mode;
+    elCallBanner.removeAttribute("hidden");
+
+    if (state.mode === "incoming") {
+      elCallAccept.removeAttribute("hidden");
+      elHangup.textContent = t.pageDecline;
+    } else if (state.mode === "outgoing") {
+      elCallAccept.setAttribute("hidden", "");
+      elHangup.textContent = t.pageCancel;
+    } else {
+      elCallAccept.setAttribute("hidden", "");
+      elHangup.textContent = t.hangUp;
     }
   }
 
@@ -1127,6 +1152,8 @@ export class UIManager {
       this.dnd = !this.dnd;
       this.setSelfStatus(this.away, this.dnd);
       this.callbacks.onSetStatus(this.away, this.dnd);
+      // Surface what DND actually does — easy to miss on an always-on tool.
+      this.showToast(this.dnd ? t.dndEnabled : t.dndDisabled);
     });
     elScreenShare.addEventListener("click", () => this.callbacks.onScreenShareToggle());
     elCameraToggle.addEventListener("click", () => this.callbacks.onCameraToggle());
@@ -1143,6 +1170,7 @@ export class UIManager {
         this.setScreenFullscreen(false);
       }
     });
+    elCallAccept.addEventListener("click", () => this.callbacks.onPageAccept());
     elHangup.addEventListener("click", () => this.callbacks.onHangUp());
   }
 

@@ -165,27 +165,48 @@ class Client {
   const presDnd = await B.wait((m) => m.t === "presence" && m.member?.id === idA && m.member?.status === "dnd");
   ok(!!presDnd, "set_status dnd is reflected in A's roster status (seen by B)");
 
-  // ── 7) Paging (cross-space 1:1) ─────────────────────────────────────────
-  // A is DND → page is rejected.
+  // ── 7) Paging (cross-space 1:1): ring → accept ──────────────────────────
+  // A is DND → page is rejected before ring.
   B.clear();
   B.send({ t: "page", to: idA });
   const rej = await B.wait((m) => m.t === "page_rejected" && m.to === idA);
   ok(rej?.reason === "dnd", "paging a DND member is rejected with reason=dnd");
 
-  // A clears DND → page connects both peers (cross-space) + sets in_call.
+  // A clears DND → B pages A → ring (no media / no in_call yet).
   A.clear(); B.clear();
   A.send({ t: "set_status", dnd: false });
   await B.wait((m) => m.t === "presence" && m.member?.id === idA && m.member?.status === "active");
   B.clear(); A.clear();
   B.send({ t: "page", to: idA });
+  const ringB = await B.wait((m) => m.t === "page_ringing" && m.to === idA);
+  const offerA = await A.wait((m) => m.t === "page_offer" && m.from === idB);
+  ok(!!ringB && !!offerA, "page places a ring (ringing to caller, offer to callee)");
+  ok(
+    !B.drain("presence").some((m) => m.member?.id === idA && m.member?.status === "in_call"),
+    "in_call is not set while still ringing",
+  );
+
+  // Callee declines → caller gets page_rejected{declined}.
+  A.clear(); B.clear();
+  A.send({ t: "page_end", to: idB });
+  const declined = await B.wait((m) => m.t === "page_rejected" && m.to === idA);
+  ok(declined?.reason === "declined", "declining a ring rejects the caller with reason=declined");
+
+  // Ring again; callee accepts → page_connect + in_call.
+  B.clear(); A.clear();
+  B.send({ t: "page", to: idA });
+  await B.wait((m) => m.t === "page_ringing" && m.to === idA);
+  await A.wait((m) => m.t === "page_offer" && m.from === idB);
+  A.clear(); B.clear();
+  A.send({ t: "page_accept", to: idB });
   const pcB = await B.wait((m) => m.t === "page_connect" && m.peer === idA);
   const pcA = await A.wait((m) => m.t === "page_connect" && m.peer === idB);
-  ok(!!pcA && !!pcB, "both peers receive page_connect");
+  ok(!!pcA && !!pcB, "both peers receive page_connect after accept");
   ok(pcA.initiator !== pcB.initiator, "page has exactly one initiator (tie-break)");
   const callPres = await B.wait((m) => m.t === "presence" && m.member?.id === idA && m.member?.status === "in_call");
-  ok(!!callPres, "paged peer's status becomes in_call in the roster");
+  ok(!!callPres, "paged peer's status becomes in_call after accept");
 
-  // page_end → other side notified, in_call cleared.
+  // page_end on live link → other side notified, in_call cleared.
   A.clear(); B.clear();
   B.send({ t: "page_end", to: idA });
   const endA = await A.wait((m) => m.t === "page_end" && m.from === idB);
