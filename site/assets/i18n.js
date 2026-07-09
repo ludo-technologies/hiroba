@@ -32,10 +32,10 @@
 
     pricingDocTitle: 'Pricing — Hiroba',
     pricingMetaDescription:
-      'Hiroba Hosted: \u00a5300/seat/month with a 30-day free trial that starts automatically. Enterprise on request.',
+      'Hiroba Hosted: $2/seat/month with a 30-day free trial that starts automatically. Enterprise on request.',
     pricingOgTitle: 'Pricing — Hiroba',
     pricingOgDescription:
-      'Hosted from \u00a5300/seat/month. 30-day free trial \u2014 no card. Enterprise on request.',
+      'Hosted from $2/seat/month. 30-day free trial \u2014 no card. Enterprise on request.',
 
     // Shared chrome
     navAriaLabel: 'Main',
@@ -212,7 +212,8 @@
     planHostedBadge: 'Recommended',
     planHostedTitle: 'Hosted Standard',
     planHostedFor: 'For teams that want a floor without running servers',
-    planHostedPriceSmall: '/seat/month (excl. tax)',
+    planHostedPrice: '$2',
+    planHostedPriceSmall: '/seat/month',
     planHostedNote:
       '30-day free trial starts automatically when you create an org. No card. Change seats monthly via Stripe.',
     planHostedLi1: 'Google & GitHub sign-in (SSO)',
@@ -262,7 +263,7 @@
     cmpSupportHosted: 'Email',
     cmpSupportEnt: 'Direct contact + onboarding',
     cmpRowCost: 'Price',
-    cmpCostHosted: '\u00a5300/seat/month (excl. tax)',
+    cmpCostHosted: '$2/seat/month',
     cmpCostEnt: 'Custom',
 
     // Pricing — FAQ
@@ -270,7 +271,7 @@
     faqTitle: 'Common questions',
     faq1Q: 'How does the free trial work?',
     faq1A:
-      'Download the app, sign in with Google or GitHub, and create an org. The 30-day trial starts automatically \u2014 no credit card. After the trial, Hosted Standard is \u00a5300/seat/month (excl. tax) via Stripe.',
+      'Download the app, sign in with Google or GitHub, and create an org. The 30-day trial starts automatically \u2014 no credit card. After the trial, Hosted Standard is $2/seat/month via Stripe.',
     faq2Q: 'Is it really that light?',
     faq2A:
       'Lightness is a core product value. Design targets call for near-0% idle CPU, a small resident footprint, and voice-only low bandwidth. The client is Tauri + Canvas 2D (not Electron); the server never relays audio (P2P).',
@@ -282,7 +283,7 @@
       'Yes. The core is Apache-2.0 open source. You run the server (and TURN if needed) yourself \u2014 no seat fee. Hosted adds Google/GitHub sign-in, invites, managed infra, and the automatic trial. See the self-host guide on GitHub.',
     faq5Q: 'How does billing work on Standard?',
     faq5A:
-      'Payments and invoices run through Stripe at \u00a5300/seat/month (excl. tax), based on registered org members. Seats can change monthly. Enterprise can arrange invoice or custom terms.',
+      'Payments and invoices run through Stripe at $2/seat/month, based on registered org members. Seats can change monthly. Enterprise can arrange invoice or custom terms.',
 
     // Pricing — CTA band
     pricingCtaTitle: 'Start with one floor.',
@@ -490,6 +491,7 @@
     planHostedBadge: 'おすすめ',
     planHostedTitle: 'ホスト型 Standard',
     planHostedFor: 'サーバ運用なしでフロアを持ちたいチームに',
+    planHostedPrice: '¥300',
     planHostedPriceSmall: '／席／月（税別）',
     planHostedNote:
       '組織を作った瞬間から30日トライアルが自動開始。カード不要。席数は Stripe で月単位に変更可能。',
