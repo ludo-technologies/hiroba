@@ -5,8 +5,9 @@
 #   2. git tag v0.1.0 && git push origin v0.1.0
 #   3. Wait for all matrix jobs; assets appear on the Release page.
 #
-# macOS signing + notarization: set these repo secrets to enable
-# (build falls back to an unsigned/unnotarized dmg if any are missing):
+# macOS signing + notarization (REQUIRED for macOS releases):
+# Keeping every release under the same Team ID also preserves access to the
+# session token stored in Keychain across auto-updates.
 #   APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID
 #
 # Updater artifact signing (REQUIRED — bundle.createUpdaterArtifacts is on, so
@@ -93,6 +94,24 @@ jobs:
         working-directory: client
         run: npm ci
 
+      - name: Require stable macOS signing identity
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!name}" ]; then
+              echo "Missing required macOS release secret: $name" >&2
+              exit 1
+            fi
+          done
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -126,3 +145,21 @@ jobs:
           # via the updater endpoint (…/releases/latest/download/latest.json).
           includeUpdaterJson: true
           args: ${{ matrix.args }}
+
+      - name: Verify macOS app signature
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          EXPECTED_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          APP_PATH="$(find client/src-tauri/target -path '*/bundle/macos/Hiroba.app' -print -quit)"
+          if [ -z "$APP_PATH" ]; then
+            echo "Built Hiroba.app was not found" >&2
+            exit 1
+          fi
+          codesign --verify --deep --strict "$APP_PATH"
+          ACTUAL_TEAM_ID="$(codesign -dv --verbose=4 "$APP_PATH" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
+          if [ "$ACTUAL_TEAM_ID" != "$EXPECTED_TEAM_ID" ]; then
+            echo "Unexpected signing Team ID: $ACTUAL_TEAM_ID" >&2
+            exit 1
+          fi
