@@ -857,6 +857,10 @@ function frame(now: number): void {
   session.audio.updateGains(session.input.position, session.peerPositions);
   const audioActive = session.audio.pollLevels();
 
+  // Speaking counts as presence: without this, a long proximity chat with no
+  // keyboard/mouse activity flips the user to Away mid-conversation.
+  if (session.audio.selfLevel > 0) markActive();
+
   if (shouldDraw(moving, audioActive, wasAnimating, dirty)) {
     frameLevels.selfLevel = session.audio.selfLevel;
     wasAnimating = renderer.draw(now, frameLevels);
@@ -911,6 +915,8 @@ function someoneInRange(): boolean {
 // ---------------------------------------------------------------------------
 // Idle → away
 // ---------------------------------------------------------------------------
+// Activity = keys/clicks/UI actions (via markActive callers) and local voice
+// (selfLevel > 0 each frame). Peer audio alone does not count.
 
 /** Restart the idle countdown; called on any user activity. */
 function resetIdleTimer(): void {
