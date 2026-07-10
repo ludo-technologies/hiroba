@@ -79,11 +79,19 @@ type FloorItem =
 // Person tokens are sized in *world units* (not screen px) so they keep a
 // fixed proportion to the floor at any window size. Lobby and team spaces
 // share the same 800×600 footprint, so avatars render at the same scale.
+//
+// Text sizes below are *base* canvas px at scale=1 (1 world unit = 1 CSS px
+// on a 1× display). The canvas backing store is physical pixels
+// (clientSize × dpr) with no ctx.scale(), so every draw call must multiply
+// by the current room `scale` — otherwise Retina/HiDPI halves the text while
+// avatars (which already use PEER_RADIUS * scale) stay correct.
 const PEER_RADIUS = 40; // world units
 const SELF_RADIUS = 46; // world units
-const FONT_LABEL = '12.5px system-ui, -apple-system, "Segoe UI", sans-serif';
 const FONT_FAMILY = 'system-ui, -apple-system, "Segoe UI", sans-serif';
-const FONT_ZONE = '700 12px system-ui, -apple-system, "Segoe UI", sans-serif';
+/** Name-chip text size at scale=1; multiply by scale when setting ctx.font. */
+const FONT_LABEL_PX = 12.5;
+/** Zone signage text size at scale=1; multiply by scale when setting ctx.font. */
+const FONT_ZONE_PX = 12;
 
 // Warm daylight palette — a furnished room, not an empty cell.
 const FRAME_BG = "#241f1a"; // outside the room (letterbox) — a dark wooden frame
@@ -560,7 +568,7 @@ export class Renderer {
           ctx.lineWidth = 1;
           ctx.strokeStyle = "rgba(90,70,45,0.12)";
           ctx.stroke();
-          if (it.label) this._zoneLabel(it.label, x + w / 2, y + 9 * scale + 4);
+          if (it.label) this._zoneLabel(it.label, x + w / 2, y + 13 * scale, scale);
           break;
         }
         case "rugRound": {
@@ -572,7 +580,7 @@ export class Renderer {
           ctx.lineWidth = 1;
           ctx.strokeStyle = "rgba(90,70,45,0.12)";
           ctx.stroke();
-          if (it.label) this._zoneLabel(it.label, x, y - r + 9 * scale + 4);
+          if (it.label) this._zoneLabel(it.label, x, y - r + 13 * scale, scale);
           break;
         }
         case "table": {
@@ -647,16 +655,18 @@ export class Renderer {
     ctx.restore();
   }
 
-  private _zoneLabel(text: string, cx: number, y: number): void {
+  private _zoneLabel(text: string, cx: number, y: number, scale: number): void {
     const ctx = this.ctx;
     ctx.save();
-    ctx.font = FONT_ZONE;
+    // Scale-proportional like avatar initials — canvas is physical px, no ctx.scale().
+    const fontPx = Math.max(10, Math.round(FONT_ZONE_PX * scale));
+    ctx.font = `700 ${fontPx}px ${FONT_FAMILY}`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillStyle = ZONE_INK;
     // Manual letter-spacing for a calm, signage feel (portable across WebViews).
     const letters = text.toUpperCase().split("");
-    const sp = 2.5;
+    const sp = 2.5 * scale;
     let total = 0;
     for (const ch of letters) total += ctx.measureText(ch).width + sp;
     total -= sp;
@@ -833,7 +843,7 @@ export class Renderer {
     }
 
     // --- Name chip below the disc ---
-    this._drawNameChip(peer.name, sx, sy + r + 7, isSelf);
+    this._drawNameChip(peer.name, sx, sy + r + 7 * scale, isSelf, scale);
 
     ctx.restore();
   }
@@ -976,22 +986,30 @@ export class Renderer {
   }
 
   /** A subtle rounded chip behind the name so labels stay legible. */
-  private _drawNameChip(name: string, cx: number, top: number, isSelf: boolean): void {
+  private _drawNameChip(
+    name: string,
+    cx: number,
+    top: number,
+    isSelf: boolean,
+    scale: number,
+  ): void {
     const ctx = this.ctx;
-    ctx.font = FONT_LABEL;
+    // Scale-proportional like avatar initials — canvas is physical px, no ctx.scale().
+    const fontPx = Math.max(10, Math.round(FONT_LABEL_PX * scale));
+    ctx.font = `${fontPx}px ${FONT_FAMILY}`;
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
     const w = ctx.measureText(name).width;
-    const padX = 8;
-    const padY = 3.5;
+    const padX = 8 * scale;
+    const padY = 3.5 * scale;
     const chipW = w + padX * 2;
-    const chipH = 19;
+    const chipH = 19 * scale;
     const x = cx - chipW / 2;
 
-    roundRect(ctx, x, top, chipW, chipH, 7);
+    roundRect(ctx, x, top, chipW, chipH, 7 * scale);
     ctx.fillStyle = isSelf ? "rgba(255,252,246,0.96)" : "rgba(255,252,246,0.86)";
     ctx.fill();
-    ctx.lineWidth = 1;
+    ctx.lineWidth = Math.max(1, scale);
     ctx.strokeStyle = isSelf ? "rgba(224,122,82,0.6)" : "rgba(90,70,45,0.14)";
     ctx.stroke();
 
