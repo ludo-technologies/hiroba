@@ -102,6 +102,22 @@ const LEVEL_RELEASE = 0.12;
 /** Smoothed levels below this read as silence (ring hidden; loop may sleep). */
 const ACTIVITY_FLOOR = 0.02;
 
+/**
+ * Incoming-page ringtone (dual-tone, US-ring-like). Distinct from the canvas
+ * "speaking ring" visuals — this is actual audio so a callee working in another
+ * app notices before the server's ~25s ring timeout.
+ *
+ * Cadence is snappier than a desk phone (2s/4s) so a short desktop session
+ * still gets several bursts before timeout.
+ */
+const RING_ON_MS = 1200;
+const RING_OFF_MS = 2200;
+/** Classic North-American ring pair (Hz). */
+const RING_FREQ_A = 440;
+const RING_FREQ_B = 480;
+/** Peak gain per oscillator path; dual tones sum, so keep this modest. */
+const RING_GAIN = 0.09;
+
 // ---------------------------------------------------------------------------
 // AudioEngine
 // ---------------------------------------------------------------------------
@@ -182,6 +198,15 @@ export class AudioEngine {
    * public STUN so tests and any caller that omits it still work.
    */
   private iceServers: RTCIceServer[] = STUN_SERVERS;
+
+  /**
+   * Incoming page ringtone (Web Audio oscillators). Independent of any peer
+   * PC — media only starts after accept. Cleared by stopRingtone() / destroy().
+   */
+  private ringtoneActive = false;
+  private ringtoneTimer = 0;
+  private ringtoneOscs: OscillatorNode[] = [];
+  private ringtoneGain: GainNode | null = null;
 
   // -------------------------------------------------------------------------
   // Lifecycle
@@ -305,6 +330,94 @@ export class AudioEngine {
       if (entry.page) return true;
     }
     return false;
+  }
+
+  // -------------------------------------------------------------------------
+  // Incoming page ringtone (audio alert while an offer is pending)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Start the looping dual-tone ringtone for an incoming `page_offer`.
+   * Idempotent: a second call while already ringing is a no-op (multiple
+   * concurrent offers share one sound). Routes through the same AudioContext
+   * as spatial voice so the user's chosen speaker device (if any) is used.
+   */
+  startRingtone(): void {
+    if (this.ringtoneActive) return;
+    this.ringtoneActive = true;
+    this._scheduleRingBurst();
+  }
+
+  /** Stop the ringtone and free oscillator nodes. Safe to call when idle. */
+  stopRingtone(): void {
+    this.ringtoneActive = false;
+    if (this.ringtoneTimer) {
+      clearTimeout(this.ringtoneTimer);
+      this.ringtoneTimer = 0;
+    }
+    this._stopRingBurst();
+  }
+
+  /** Whether the incoming-page ringtone is currently scheduled/playing. */
+  get isRinging(): boolean {
+    return this.ringtoneActive;
+  }
+
+  /** Schedule on → off → on… until stopRingtone(). */
+  private _scheduleRingBurst(): void {
+    if (!this.ringtoneActive) return;
+    this._startRingBurst();
+    // Bare setTimeout (not window.*) so unit tests under Node can exercise this.
+    this.ringtoneTimer = setTimeout(() => {
+      this._stopRingBurst();
+      if (!this.ringtoneActive) return;
+      this.ringtoneTimer = setTimeout(() => {
+        this._scheduleRingBurst();
+      }, RING_OFF_MS) as unknown as number;
+    }, RING_ON_MS) as unknown as number;
+  }
+
+  private _startRingBurst(): void {
+    this._stopRingBurst(); // belt-and-braces if a prior burst hung around
+    const ctx = this._getAudioContext();
+    if (ctx.state === "suspended") void ctx.resume();
+
+    const now = ctx.currentTime;
+    const gain = ctx.createGain();
+    // Soft attack/release so each burst doesn't click.
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(RING_GAIN, now + 0.02);
+    gain.connect(ctx.destination);
+
+    const makeOsc = (freq: number): OscillatorNode => {
+      const o = ctx.createOscillator();
+      o.type = "sine";
+      o.frequency.value = freq;
+      o.connect(gain);
+      o.start(now);
+      return o;
+    };
+
+    this.ringtoneGain = gain;
+    this.ringtoneOscs = [makeOsc(RING_FREQ_A), makeOsc(RING_FREQ_B)];
+  }
+
+  private _stopRingBurst(): void {
+    for (const o of this.ringtoneOscs) {
+      try {
+        o.stop();
+      } catch { /* already stopped */ }
+      try {
+        o.disconnect();
+      } catch { /* already disconnected */ }
+    }
+    this.ringtoneOscs = [];
+    if (this.ringtoneGain) {
+      try {
+        this.ringtoneGain.disconnect();
+      } catch { /* already disconnected */ }
+      this.ringtoneGain = null;
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -769,6 +882,7 @@ export class AudioEngine {
   // -------------------------------------------------------------------------
 
   destroy(): void {
+    this.stopRingtone();
     for (const entry of this.peers.values()) this._closePeer(entry);
     this.peers.clear();
     this.stopMicPreview();

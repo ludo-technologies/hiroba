@@ -328,6 +328,9 @@ peer with the **numerically smaller id** is the initiator (avoids glare).
 ```
 Someone is calling you. Show accept/decline UI; do **not** open WebRTC yet.
 Decline with `page_end{to: from}`; accept with `page_accept{to: from}`.
+Clients SHOULD play a ringtone and request OS attention (Dock bounce / taskbar
+flash) so an unfocused window is not a silent miss — unanswered rings time out
+server-side (~25s) as a decline.
 
 ### `page_ringing` — outgoing page is ringing (to the caller)
 ```json

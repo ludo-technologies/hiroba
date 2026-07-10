@@ -17,6 +17,7 @@
  * Invariant: while in the "space" state, `session` is non-null.
  */
 
+import { getCurrentWindow, UserAttentionType } from "@tauri-apps/api/window";
 import { HirobaNet } from "./net.js";
 import { Renderer, type FrameLevels } from "./render.js";
 import { InputHandler, isTypingTarget } from "./input.js";
@@ -1082,6 +1083,7 @@ function bindServerMessages(net: HirobaNet): void {
     const name = session.roster.get(from)?.name ?? from;
     session.ringingIn.set(from, name);
     updateCallBanner();
+    syncIncomingAlert();
     rebuildRoster();
     wake();
   });
@@ -1096,6 +1098,7 @@ function bindServerMessages(net: HirobaNet): void {
     // Voice goes live only after both sides have accepted (PROTOCOL.md §page).
     void goLiveForPage();
     updateCallBanner();
+    syncIncomingAlert();
     rebuildRoster();
     wake();
   });
@@ -1136,6 +1139,7 @@ function bindServerMessages(net: HirobaNet): void {
       stopCamera();
     }
     updateCallBanner();
+    syncIncomingAlert();
     void restoreMuteAfterPage();
     rebuildRoster();
     wake();
@@ -1206,6 +1210,40 @@ function updateCallBanner(): void {
   }
   ui.setCall(null);
   syncScreenReopenButton();
+}
+
+/**
+ * Ringtone + Dock/taskbar attention while any incoming offer is pending.
+ * The in-app banner alone is invisible when the window is unfocused — without
+ * this the ring→accept flow (PROTOCOL.md §page) times out silently (~25s).
+ * Keeps ringing across concurrent offers; stops when `ringingIn` is empty.
+ */
+function syncIncomingAlert(): void {
+  if (!session) return;
+  if (session.ringingIn.size > 0) {
+    session.audio.startRingtone();
+    void requestWindowAttention(true);
+  } else {
+    session.audio.stopRingtone();
+    void requestWindowAttention(false);
+  }
+}
+
+/**
+ * Ask the OS to surface the app (Dock bounce / taskbar flash). Critical keeps
+ * requesting until focus; `active: false` clears the request where the WM
+ * supports it (no-op on macOS for null).
+ */
+async function requestWindowAttention(active: boolean): Promise<void> {
+  if (!isTauri()) return;
+  try {
+    const win = getCurrentWindow();
+    await win.requestUserAttention(
+      active ? UserAttentionType.Critical : null,
+    );
+  } catch (err) {
+    console.warn("[attention] requestUserAttention failed:", err);
+  }
 }
 
 /** Pick the best remote video to show (page peers only; single-call prefers that peer). */
@@ -1503,6 +1541,7 @@ function handleHangUp(): void {
   }
 
   updateCallBanner();
+  syncIncomingAlert();
   rebuildRoster();
   wake();
 }
@@ -1597,7 +1636,9 @@ function teardownSession(): void {
   cancelAnimationFrame(audioSettingsRaf);
 
   s.input.destroy();
+  // destroy() also stopRingtone(); clear Dock/taskbar attention explicitly.
   s.audio.destroy();
+  void requestWindowAttention(false);
   s.net.close();
 
   canvas.classList.remove("walkable", "can-page");

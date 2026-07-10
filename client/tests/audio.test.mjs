@@ -32,17 +32,43 @@ class FakeAnalyser extends FakeNode {
     buf.fill(128); // silence (128 = zero in unsigned time-domain)
   }
 }
+class FakeOscillator extends FakeNode {
+  constructor() {
+    super();
+    FakeOscillator.instances.push(this);
+    this.type = "sine";
+    this.frequency = { value: 0 };
+    this.started = false;
+    this.stopped = false;
+  }
+  start() {
+    this.started = true;
+  }
+  stop() {
+    this.stopped = true;
+  }
+}
+FakeOscillator.instances = [];
+
 class FakeAudioContext {
   state = "running";
+  currentTime = 0;
   destination = {};
   createMediaStreamSource() {
     return new FakeNode();
   }
   createGain() {
-    return new FakeGain();
+    const g = new FakeGain();
+    // Web Audio automations used by the ringtone envelope.
+    g.gain.setValueAtTime = () => {};
+    g.gain.linearRampToValueAtTime = () => {};
+    return g;
   }
   createAnalyser() {
     return new FakeAnalyser();
+  }
+  createOscillator() {
+    return new FakeOscillator();
   }
   resume() {
     return Promise.resolve();
@@ -126,6 +152,7 @@ function installMocks() {
   });
   FakePC.instances = [];
   FakeAudio.instances = [];
+  FakeOscillator.instances = [];
   FakeMic.lastTrack = null;
 }
 
@@ -269,6 +296,51 @@ test("space switch tears down proximity links but keeps page links", async () =>
   assert.equal(eng.peers.has("4"), false, "proximity peer 4 was dropped on space switch");
   assert.equal(eng.peers.has("9"), true, "the page link survived the space switch");
   assert.equal(eng.hasPage(), true, "page link is still active after switching spaces");
+});
+
+test("incoming page ringtone starts dual-tone oscillators and stops cleanly", () => {
+  installMocks();
+  const eng = new AudioEngine();
+  eng.init(SPACE, () => {}, () => {});
+
+  assert.equal(eng.isRinging, false, "idle engine is not ringing");
+  eng.startRingtone();
+  assert.equal(eng.isRinging, true, "startRingtone latches the ringing flag");
+  assert.equal(FakeOscillator.instances.length, 2, "dual-tone ring uses two oscillators");
+  assert.ok(
+    FakeOscillator.instances.every((o) => o.started),
+    "both oscillators were started",
+  );
+
+  // Idempotent: a second offer must not stack another pair of oscillators.
+  eng.startRingtone();
+  assert.equal(FakeOscillator.instances.length, 2, "startRingtone is idempotent");
+
+  eng.stopRingtone();
+  assert.equal(eng.isRinging, false, "stopRingtone clears the flag");
+  assert.ok(
+    FakeOscillator.instances.every((o) => o.stopped),
+    "both oscillators were stopped",
+  );
+
+  // Safe to call again while idle.
+  eng.stopRingtone();
+  assert.equal(eng.isRinging, false);
+});
+
+test("destroy stops an in-progress ringtone", () => {
+  installMocks();
+  const eng = new AudioEngine();
+  eng.init(SPACE, () => {}, () => {});
+  eng.startRingtone();
+  assert.equal(eng.isRinging, true);
+
+  eng.destroy();
+  assert.equal(eng.isRinging, false, "destroy clears ringtone state");
+  assert.ok(
+    FakeOscillator.instances.every((o) => o.stopped),
+    "destroy stops ringtone oscillators",
+  );
 });
 
 test("a signal-created peer keeps proximity audio after a page is added and ended", async () => {
