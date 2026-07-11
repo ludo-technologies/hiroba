@@ -79,7 +79,7 @@ const AVATAR_MAX_CHARS = 64 * 1024;
 
 /** Curated friendly palette offered as one-tap swatches. */
 const PALETTE = [
-  "#e07a52", // clay (accent)
+  "#b54f2c", // clay (accent)
   "#e6a94e", // amber
   "#d9594f", // coral
   "#86b27a", // sage
@@ -1485,7 +1485,7 @@ function pickInk(hex: string): string {
 /** A translucent version of a hex color, used for the avatar's soft glow. */
 function hexToGlow(hex: string): string {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex);
-  if (!m) return "rgba(224, 122, 82, 0.6)";
+  if (!m) return "rgba(181, 79, 44, 0.6)";
   const n = parseInt(m[1], 16);
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, 0.5)`;
 }

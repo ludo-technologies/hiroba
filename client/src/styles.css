@@ -26,21 +26,25 @@
 
   --ink:        #3a2e20; /* primary text — warm dark brown */
   --ink-soft:   #6b5b46; /* secondary text */
-  --ink-mute:   #9a8a72; /* tertiary / labels */
+  /* Tertiary / labels — ≥4.5:1 on --paper (was #9a8a72 ≈3.1:1). */
+  --ink-mute:   #7a6b55;
 
   --edge:       rgba(90, 70, 45, 0.14);
   --edge-2:     rgba(90, 70, 45, 0.26);
 
-  /* The one accent: warm clay / coral */
-  --accent:     #e07a52;
-  --accent-lo:  #cf6841;
-  --accent-hi:  #ee8e64;
-  --accent-soft: rgba(224, 122, 82, 0.16);
+  /* Warm clay / coral — darkened so white label text on CTAs meets WCAG AA
+   * (≥4.5:1). Also usable as text on --paper. */
+  --accent:     #b54f2c;
+  --accent-lo:  #a04426;
+  --accent-hi:  #c05030;
+  --accent-soft: rgba(181, 79, 44, 0.16);
 
-  --sage:       #7fa863; /* "live" / present-and-talking green */
-  --sage-soft:  rgba(127, 168, 99, 0.16);
+  /* Live / present-and-talking green — AA with white on fill. */
+  --sage:       #4f7a3a;
+  --sage-soft:  rgba(79, 122, 58, 0.16);
 
-  --danger:     #d4583c;
+  /* Error fill + text — AA on --paper and with white on solid fill. */
+  --danger:     #b84830;
 
   /* Radii */
   --radius-card: 20px;
@@ -50,7 +54,7 @@
   /* Elevation — warm, soft shadows */
   --shadow-card: 0 24px 60px -18px rgba(60, 40, 20, 0.45), 0 2px 8px rgba(60, 40, 20, 0.12);
   --shadow-hud:  0 6px 20px rgba(60, 40, 20, 0.18);
-  --glow-accent: 0 8px 24px -8px rgba(224, 122, 82, 0.5);
+  --glow-accent: 0 8px 24px -8px rgba(181, 79, 44, 0.5);
 
   /* Motion */
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
@@ -189,7 +193,7 @@ body {
   width: 44px;
   height: 44px;
   display: block;
-  filter: drop-shadow(0 4px 10px rgba(224, 122, 82, 0.35));
+  filter: drop-shadow(0 4px 10px rgba(181, 79, 44, 0.35));
 }
 
 .logo-mark svg {
@@ -251,7 +255,7 @@ body {
   border: 3px solid #fffaf2;
   box-shadow:
     0 4px 14px rgba(60, 40, 20, 0.28),
-    0 0 22px -4px var(--avatar-glow, rgba(224, 122, 82, 0.5));
+    0 0 22px -4px var(--avatar-glow, rgba(181, 79, 44, 0.5));
   transition: background 0.3s var(--ease), box-shadow 0.3s var(--ease);
   user-select: none;
   cursor: pointer;
@@ -307,7 +311,7 @@ body {
 .avatar-remove:hover,
 .avatar-remove:focus-visible {
   color: var(--danger);
-  border-color: rgba(212, 88, 60, 0.35);
+  border-color: rgba(184, 72, 48, 0.35);
   background: #fff5f0;
 }
 
@@ -385,7 +389,7 @@ body {
 /* The "custom color" swatch shows a hue-wheel hint. */
 .swatch.swatch-custom {
   background:
-    conic-gradient(from 0deg, #e07a52, #e6a94e, #c9b24a, #86b27a, #4f9dde, #b07ad0, #e07a52);
+    conic-gradient(from 0deg, #b54f2c, #e6a94e, #c9b24a, #86b27a, #4f9dde, #b07ad0, #b54f2c);
 }
 
 .swatch.swatch-custom::after {
@@ -442,7 +446,7 @@ body {
 
 #join-btn:hover:not(:disabled) {
   filter: brightness(1.05);
-  box-shadow: 0 12px 30px -8px rgba(224, 122, 82, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  box-shadow: 0 12px 30px -8px rgba(181, 79, 44, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
 #join-btn:active:not(:disabled) {
@@ -702,10 +706,10 @@ body {
 
 /* Live: sage green, present and talking */
 #mic[aria-pressed="true"] {
-  border-color: rgba(127, 168, 99, 0.6);
-  color: #5e864a;
+  border-color: rgba(79, 122, 58, 0.6);
+  color: var(--sage);
   background: var(--sage-soft);
-  box-shadow: var(--shadow-hud), 0 0 16px -4px rgba(127, 168, 99, 0.5);
+  box-shadow: var(--shadow-hud), 0 0 16px -4px rgba(79, 122, 58, 0.5);
 }
 
 /* Muted: dim glyph */
@@ -724,13 +728,13 @@ body {
 }
 
 @keyframes mic-attention {
-  0%, 100% { box-shadow: var(--shadow-hud), 0 0 0 0 rgba(224, 122, 82, 0); }
-  50%      { box-shadow: var(--shadow-hud), 0 0 0 6px rgba(224, 122, 82, 0.16); }
+  0%, 100% { box-shadow: var(--shadow-hud), 0 0 0 0 rgba(181, 79, 44, 0); }
+  50%      { box-shadow: var(--shadow-hud), 0 0 0 6px rgba(181, 79, 44, 0.16); }
 }
 
 #leave:hover {
   color: var(--danger);
-  border-color: rgba(212, 88, 60, 0.5);
+  border-color: rgba(184, 72, 48, 0.5);
 }
 
 /* Gear next to the mic button — opens the audio-settings panel */
@@ -805,13 +809,13 @@ body {
   height: 7px;
   border-radius: 50%;
   background: var(--sage);
-  box-shadow: 0 0 0 0 rgba(127, 168, 99, 0.5);
+  box-shadow: 0 0 0 0 rgba(79, 122, 58, 0.5);
   animation: dot-pulse 1.9s ease-in-out infinite;
 }
 
 @keyframes dot-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(127, 168, 99, 0.5); }
-  50%      { box-shadow: 0 0 0 6px rgba(127, 168, 99, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(79, 122, 58, 0.5); }
+  50%      { box-shadow: 0 0 0 6px rgba(79, 122, 58, 0); }
 }
 
 /* ---------------------------------------------------------------------------
@@ -962,7 +966,7 @@ body {
 }
 
 .roster-row.is-self {
-  background: rgba(224, 122, 82, 0.10);
+  background: rgba(181, 79, 44, 0.10);
 }
 
 .roster-row.is-offline {
@@ -1038,21 +1042,21 @@ body {
       0 1px 3px rgba(60, 40, 20, 0.2),
       0 0 0 2px #fffaf2,
       0 0 0 3.5px var(--sage),
-      0 0 0 3.5px rgba(127, 168, 99, 0.55);
+      0 0 0 3.5px rgba(79, 122, 58, 0.55);
   }
   70% {
     box-shadow:
       0 1px 3px rgba(60, 40, 20, 0.2),
       0 0 0 2px #fffaf2,
       0 0 0 3.5px var(--sage),
-      0 0 0 9px rgba(127, 168, 99, 0);
+      0 0 0 9px rgba(79, 122, 58, 0);
   }
   100% {
     box-shadow:
       0 1px 3px rgba(60, 40, 20, 0.2),
       0 0 0 2px #fffaf2,
       0 0 0 3.5px var(--sage),
-      0 0 0 3.5px rgba(127, 168, 99, 0);
+      0 0 0 3.5px rgba(79, 122, 58, 0);
   }
 }
 
@@ -1096,7 +1100,7 @@ body {
   color: var(--ink-mute);
 }
 
-.roster-row[data-tone="in_call"] .roster-status { color: #5e864a; font-weight: 600; }
+.roster-row[data-tone="in_call"] .roster-status { color: var(--sage); font-weight: 600; }
 .roster-row[data-tone="dnd"]     .roster-status { color: var(--danger); font-weight: 600; }
 .roster-row[data-tone="away"]    .roster-status { color: var(--ink-mute); }
 
@@ -1169,19 +1173,19 @@ body {
 
 #status-active[aria-checked="true"] {
   background: var(--sage-soft);
-  border-color: rgba(127, 168, 99, 0.55);
+  border-color: rgba(79, 122, 58, 0.55);
   color: #4f7a3a;
 }
 
 #status-away[aria-checked="true"] {
   background: var(--accent-soft);
-  border-color: rgba(224, 122, 82, 0.5);
+  border-color: rgba(181, 79, 44, 0.5);
   color: var(--accent-lo);
 }
 
 #status-dnd[aria-checked="true"] {
-  background: rgba(212, 88, 60, 0.14);
-  border-color: rgba(212, 88, 60, 0.5);
+  background: rgba(184, 72, 48, 0.14);
+  border-color: rgba(184, 72, 48, 0.5);
   color: var(--danger);
 }
 
@@ -1272,9 +1276,9 @@ body {
   gap: 10px;
   padding: 9px 12px 9px 15px;
   background: linear-gradient(180deg, #fff, var(--paper));
-  border: 1px solid rgba(127, 168, 99, 0.5);
+  border: 1px solid rgba(79, 122, 58, 0.5);
   border-radius: var(--radius-pill);
-  box-shadow: var(--shadow-hud), 0 0 18px -6px rgba(127, 168, 99, 0.5);
+  box-shadow: var(--shadow-hud), 0 0 18px -6px rgba(79, 122, 58, 0.5);
   z-index: 58;
   font-size: 13px;
   font-weight: 600;
@@ -1288,13 +1292,13 @@ body {
 
 /* Incoming ring: warmer border so it reads as an interrupt, not "already live". */
 .call-banner[data-mode="incoming"] {
-  border-color: rgba(212, 88, 60, 0.55);
-  box-shadow: var(--shadow-hud), 0 0 18px -6px rgba(212, 88, 60, 0.45);
+  border-color: rgba(184, 72, 48, 0.55);
+  box-shadow: var(--shadow-hud), 0 0 18px -6px rgba(184, 72, 48, 0.45);
 }
 
 .call-banner[data-mode="outgoing"] {
-  border-color: rgba(224, 122, 82, 0.5);
-  box-shadow: var(--shadow-hud), 0 0 18px -6px rgba(224, 122, 82, 0.4);
+  border-color: rgba(181, 79, 44, 0.5);
+  box-shadow: var(--shadow-hud), 0 0 18px -6px rgba(181, 79, 44, 0.4);
 }
 
 .call-dot {
@@ -2052,8 +2056,8 @@ body {
 
 .invite-revoke-btn:hover,
 .invite-revoke-btn:focus-visible {
-  background: rgba(212, 88, 60, 0.1);
-  border-color: rgba(212, 88, 60, 0.35);
+  background: rgba(184, 72, 48, 0.1);
+  border-color: rgba(184, 72, 48, 0.35);
 }
 
 .invite-empty {

@@ -119,8 +119,9 @@ const RUG_COMMONS = "#e3d2c0"; // warm neutral
 const ZONE_INK = "rgba(74,58,40,0.42)";
 
 // The one accent: warm clay/coral, for the proximity ring & self.
-const NEAR_FILL = "rgba(224,122,82,0.07)";
-const NEAR_STROKE = "rgba(224,122,82,0.28)";
+// Matches --accent (#b54f2c) so canvas chrome tracks the AA-safe UI tokens.
+const NEAR_FILL = "rgba(181,79,44,0.07)";
+const NEAR_STROKE = "rgba(181,79,44,0.28)";
 const SELF_HALO = "rgba(255,255,255,0.55)";
 
 // Speaking ripples.
@@ -128,9 +129,9 @@ const RIPPLE_COUNT = 3;
 const RIPPLE_PERIOD = 1.7; // seconds for one ring to travel its full reach
 
 // Status ring colours — matched to the sidebar chrome.
-const STATUS_AWAY_RING = "rgba(154, 138, 114, 0.9)";
-const STATUS_DND_RING = "rgba(212, 88, 60, 0.95)";
-const STATUS_CALL_RING = "#7fa863";
+const STATUS_AWAY_RING = "rgba(122, 107, 85, 0.9)"; // --ink-mute
+const STATUS_DND_RING = "rgba(184, 72, 48, 0.95)"; // --danger
+const STATUS_CALL_RING = "#4f7a3a"; // --sage
 const STATUS_CALL_PULSE_PERIOD = 1.7;
 
 // Easing time-constants (seconds). Smaller = snappier. Frame-rate independent
@@ -701,12 +702,12 @@ export class Renderer {
     // centre dot
     ctx.beginPath();
     ctx.arc(sx, sy, 3.5, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(224,122,82,0.85)";
+    ctx.fillStyle = "rgba(181,79,44,0.85)";
     ctx.fill();
     // expanding, fading ring
     ctx.beginPath();
     ctx.arc(sx, sy, ringR, 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(224,122,82,${0.55 * (1 - phase)})`;
+    ctx.strokeStyle = `rgba(181,79,44,${0.55 * (1 - phase)})`;
     ctx.lineWidth = 2;
     ctx.stroke();
     ctx.restore();
@@ -821,7 +822,7 @@ export class Renderer {
       ctx.globalAlpha = alpha * 0.9;
       ctx.beginPath();
       ctx.arc(sx, sy, r + Math.max(5, r * 0.22), 0, Math.PI * 2);
-      ctx.strokeStyle = "rgba(224,122,82,0.85)";
+      ctx.strokeStyle = "rgba(181,79,44,0.85)";
       ctx.lineWidth = Math.max(2.5, r * 0.1);
       ctx.stroke();
       ctx.restore();
@@ -952,10 +953,10 @@ export class Renderer {
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.fillStyle = "rgba(255,251,243,0.96)";
     ctx.fill();
-    ctx.strokeStyle = "rgba(212, 88, 60, 0.55)";
+    ctx.strokeStyle = "rgba(184, 72, 48, 0.55)";
     ctx.lineWidth = 1;
     ctx.stroke();
-    ctx.strokeStyle = "rgba(212, 88, 60, 0.95)";
+    ctx.strokeStyle = "rgba(184, 72, 48, 0.95)";
     ctx.lineWidth = Math.max(1.8, r * 0.24);
     ctx.beginPath();
     ctx.moveTo(cx - r * 0.48, cy);
@@ -976,7 +977,7 @@ export class Renderer {
     ctx.lineWidth = 1;
     ctx.stroke();
     // Slash.
-    ctx.strokeStyle = "rgba(224,108,72,0.95)";
+    ctx.strokeStyle = "rgba(181,79,44,0.95)";
     ctx.lineWidth = Math.max(1.6, r * 0.22);
     ctx.beginPath();
     ctx.moveTo(cx - r * 0.5, cy - r * 0.5);
@@ -1010,7 +1011,7 @@ export class Renderer {
     ctx.fillStyle = isSelf ? "rgba(255,252,246,0.96)" : "rgba(255,252,246,0.86)";
     ctx.fill();
     ctx.lineWidth = Math.max(1, scale);
-    ctx.strokeStyle = isSelf ? "rgba(224,122,82,0.6)" : "rgba(90,70,45,0.14)";
+    ctx.strokeStyle = isSelf ? "rgba(181,79,44,0.6)" : "rgba(90,70,45,0.14)";
     ctx.stroke();
 
     ctx.fillStyle = "#4a3a28";
@@ -1100,7 +1101,7 @@ function easeOutBack(t: number): number {
 /** Parse #RRGGBB into [r,g,b]; falls back to a warm clay on malformed input. */
 function parseHex(hex: string): [number, number, number] {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex);
-  if (!m) return [224, 122, 82];
+  if (!m) return [181, 79, 44];
   const n = parseInt(m[1], 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }

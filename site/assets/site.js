@@ -73,8 +73,8 @@
   const RUG_CAFE = '#ecd6ad';
   const RUG_COMMONS = '#e3d2c0';
   const ZONE_INK = 'rgba(74,58,40,0.42)';
-  const NEAR_FILL = 'rgba(224,122,82,0.07)';
-  const NEAR_STROKE = 'rgba(224,122,82,0.28)';
+  const NEAR_FILL = 'rgba(181,79,44,0.07)';
+  const NEAR_STROKE = 'rgba(181,79,44,0.28)';
   const SELF_HALO = 'rgba(255,255,255,0.55)';
   const PEER_RADIUS = 40; // world units
   const SELF_RADIUS = 46;
@@ -382,7 +382,7 @@
 
   function parseHex(hex) {
     const m = /^#?([0-9a-f]{6})$/i.exec(hex);
-    if (!m) return [224, 122, 82];
+    if (!m) return [181, 79, 44];
     const n = parseInt(m[1], 16);
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
   }
@@ -551,7 +551,7 @@
     ctx.fillStyle = isSelf ? 'rgba(255,252,246,0.96)' : 'rgba(255,252,246,0.86)';
     ctx.fill();
     ctx.lineWidth = 1;
-    ctx.strokeStyle = isSelf ? 'rgba(224,122,82,0.6)' : 'rgba(90,70,45,0.14)';
+    ctx.strokeStyle = isSelf ? 'rgba(181,79,44,0.6)' : 'rgba(90,70,45,0.14)';
     ctx.stroke();
     ctx.fillStyle = '#4a3a28';
     ctx.fillText(name, cx, top + 2.5);
@@ -685,11 +685,11 @@
       const phase = t % 1;
       ctx.beginPath();
       ctx.arc(wx, wy, 3, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(224,122,82,0.85)';
+      ctx.fillStyle = 'rgba(181,79,44,0.85)';
       ctx.fill();
       ctx.beginPath();
       ctx.arc(wx, wy, 6 + 4.5 * phase, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(224,122,82,${0.55 * (1 - phase)})`;
+      ctx.strokeStyle = `rgba(181,79,44,${0.55 * (1 - phase)})`;
       ctx.lineWidth = 1.6;
       ctx.stroke();
     }
