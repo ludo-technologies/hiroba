@@ -105,7 +105,7 @@ const EN = {
   // Onboarding / nudge
   onboardOr: "or",
   onboardWalk: "to walk around",
-  onboardClick: "— or click the floor",
+  onboardClick: "— or click the floor / a seat",
   onboardCallTip: "Call from the sidebar · DND blocks unexpected calls",
   nudgeText: "Someone's nearby — press M to talk",
 
@@ -299,7 +299,7 @@ const JA: typeof EN = {
   // Onboarding / nudge
   onboardOr: "または",
   onboardWalk: "で移動",
-  onboardClick: "(クリックでも移動できます)",
+  onboardClick: "(クリックで移動・席に座れます)",
   onboardCallTip: "サイドバーの「呼ぶ」で通話 · 取り込み中は着信を遮断",
   nudgeText: "近くに誰かいます — M キーで話せます",
 

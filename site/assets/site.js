@@ -47,10 +47,11 @@
   };
 
   // World-unit space geometry, like the server hands the client.
+  // kind mirrors SpaceDescriptor.kind — lobby vs team floor plans differ.
   const SPACES = {
-    lobby: { w: 1100, h: 800, near: 230 },
-    dev: { w: 800, h: 600, near: 180 },
-    design: { w: 800, h: 600, near: 180 },
+    lobby: { w: 800, h: 600, near: 150, kind: 'lobby', capacity: 5 },
+    dev: { w: 800, h: 600, near: 1100, kind: 'team', capacity: 5 },
+    design: { w: 800, h: 600, near: 1100, kind: 'team', capacity: 5 },
   };
 
   /* ----- palette + constants, lifted from client/src/render.ts ----- */
@@ -76,73 +77,117 @@
   const NEAR_FILL = 'rgba(181,79,44,0.07)';
   const NEAR_STROKE = 'rgba(181,79,44,0.28)';
   const SELF_HALO = 'rgba(255,255,255,0.55)';
-  const PEER_RADIUS = 40; // world units
-  const SELF_RADIUS = 46;
+  const PEER_RADIUS = 34; // world units — matches client
+  const SELF_RADIUS = 38;
+  const SEAT_SIT_EPS = 14;
+  const SEAT_SIT_SCALE = 0.88;
   const RIPPLE_COUNT = 3;
   const RIPPLE_PERIOD = 1.7;
   const WALK_SPEED = 130; // world units / second
   const FONT_FAMILY = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+  const STOOL_R = 0.022;
 
-  /* ----- floor plan builder — the client's buildFloor, seats added ----- */
-  function buildFloor(dim) {
+  /* ----- floor plan builder — mirrors client/src/render.ts buildFloor ----- */
+  function pushStool(items, seats, x, y, r) {
+    items.push({ kind: 'stool', x, y, r });
+    seats.push({ x, y });
+  }
+
+  function buildLobbyFloor(dim) {
     const W = dim.w;
     const H = dim.h;
     const items = [];
     const seats = [];
+    const sr = STOOL_R * W;
 
-    // Focus desks (top-left)
     items.push({ kind: 'rug', x: 0.05 * W, y: 0.06 * H, w: 0.36 * W, h: 0.32 * H, color: RUG_FOCUS, label: 'Focus' });
     for (let i = 0; i < 3; i++) {
       const dx = (0.1 + i * 0.1) * W;
-      items.push({ kind: 'table', x: dx, y: 0.15 * H, w: 0.075 * W, h: 0.06 * H, round: false });
-      items.push({ kind: 'stool', x: dx + 0.037 * W, y: 0.24 * H, r: 0.016 * W });
-      seats.push({ x: dx + 0.037 * W, y: 0.245 * H });
+      items.push({ kind: 'table', x: dx, y: 0.14 * H, w: 0.085 * W, h: 0.07 * H, round: false });
+      pushStool(items, seats, dx + 0.042 * W, 0.25 * H, sr);
     }
-    items.push({ kind: 'plant', x: 0.07 * W, y: 0.33 * H, r: 0.03 * W });
+    items.push({ kind: 'plant', x: 0.07 * W, y: 0.33 * H, r: 0.035 * W });
 
-    // Meeting (top-right): round table ringed by stools
     items.push({ kind: 'rug', x: 0.58 * W, y: 0.06 * H, w: 0.37 * W, h: 0.32 * H, color: RUG_MEET, label: 'Meeting' });
-    const mcx = 0.765 * W, mcy = 0.22 * H, mtr = 0.075 * W;
+    const mcx = 0.765 * W, mcy = 0.22 * H, mtr = 0.085 * W;
     items.push({ kind: 'table', x: mcx - mtr, y: mcy - mtr, w: mtr * 2, h: mtr * 2, round: true });
     for (let i = 0; i < 6; i++) {
       const a = (i / 6) * Math.PI * 2 - Math.PI / 2;
-      const sx = mcx + Math.cos(a) * mtr * 1.7;
-      const sy = mcy + Math.sin(a) * mtr * 1.7;
-      items.push({ kind: 'stool', x: sx, y: sy, r: 0.016 * W });
-      seats.push({ x: sx, y: sy });
+      pushStool(items, seats, mcx + Math.cos(a) * mtr * 1.65, mcy + Math.sin(a) * mtr * 1.65, sr);
     }
 
-    // Lounge (bottom-left): couch + coffee table + plant
     items.push({ kind: 'rug', x: 0.05 * W, y: 0.6 * H, w: 0.37 * W, h: 0.33 * H, color: RUG_LOUNGE, label: 'Lounge' });
-    items.push({ kind: 'couch', x: 0.08 * W, y: 0.68 * H, w: 0.085 * W, h: 0.18 * H });
-    items.push({ kind: 'table', x: 0.2 * W, y: 0.72 * H, w: 0.1 * W, h: 0.09 * H, round: true });
-    items.push({ kind: 'plant', x: 0.37 * W, y: 0.66 * H, r: 0.03 * W });
-    seats.push({ x: 0.16 * W, y: 0.77 * H }, { x: 0.25 * W, y: 0.665 * H }, { x: 0.25 * W, y: 0.87 * H });
-
-    // Café (bottom-right): counter + stools + plant
-    items.push({ kind: 'rug', x: 0.58 * W, y: 0.6 * H, w: 0.37 * W, h: 0.33 * H, color: RUG_CAFE, label: 'Café' });
-    items.push({ kind: 'table', x: 0.62 * W, y: 0.66 * H, w: 0.29 * W, h: 0.055 * H, round: false });
-    for (let i = 0; i < 4; i++) {
-      const sx = (0.66 + i * 0.07) * W;
-      items.push({ kind: 'stool', x: sx, y: 0.745 * H, r: 0.016 * W });
-      seats.push({ x: sx, y: 0.75 * H });
+    items.push({ kind: 'couch', x: 0.08 * W, y: 0.66 * H, w: 0.1 * W, h: 0.2 * H });
+    for (const [sx, sy] of [[0.13, 0.72], [0.13, 0.8], [0.13, 0.88]]) {
+      seats.push({ x: sx * W, y: sy * H });
     }
-    items.push({ kind: 'plant', x: 0.9 * W, y: 0.86 * H, r: 0.03 * W });
+    items.push({ kind: 'table', x: 0.22 * W, y: 0.72 * H, w: 0.11 * W, h: 0.1 * H, round: true });
+    items.push({ kind: 'plant', x: 0.37 * W, y: 0.66 * H, r: 0.035 * W });
 
-    // Commons (centre): open gathering circle with a low table
+    items.push({ kind: 'rug', x: 0.58 * W, y: 0.6 * H, w: 0.37 * W, h: 0.33 * H, color: RUG_CAFE, label: 'Café' });
+    items.push({ kind: 'table', x: 0.62 * W, y: 0.66 * H, w: 0.29 * W, h: 0.065 * H, round: false });
+    for (let i = 0; i < 4; i++) {
+      pushStool(items, seats, (0.66 + i * 0.07) * W, 0.76 * H, sr);
+    }
+    items.push({ kind: 'plant', x: 0.9 * W, y: 0.86 * H, r: 0.035 * W });
+
     const cr = 0.12 * Math.min(W, H);
     items.push({ kind: 'rugRound', x: 0.5 * W, y: 0.5 * H, r: cr, color: RUG_COMMONS, label: 'Commons' });
     items.push({ kind: 'table', x: 0.47 * W, y: 0.47 * H, w: 0.06 * W, h: 0.06 * H, round: true });
     for (let i = 0; i < 5; i++) {
       const a = (i / 5) * Math.PI * 2 - Math.PI / 2;
-      seats.push({ x: 0.5 * W + Math.cos(a) * cr * 0.78, y: 0.5 * H + Math.sin(a) * cr * 0.78 });
+      seats.push({
+        x: 0.5 * W + Math.cos(a) * cr * 0.72,
+        y: 0.5 * H + Math.sin(a) * cr * 0.72,
+      });
     }
 
     return { items, seats };
   }
+
+  function buildTeamFloor(dim) {
+    const W = dim.w;
+    const H = dim.h;
+    const items = [];
+    const seats = [];
+    const n = Math.max(2, Math.min(dim.capacity || 5, 8));
+    const minSide = Math.min(W, H);
+    const sr = STOOL_R * W * 1.05;
+
+    items.push({ kind: 'rugRound', x: 0.5 * W, y: 0.5 * H, r: 0.3 * minSide, color: RUG_MEET });
+    const tr = 0.1 * minSide;
+    items.push({
+      kind: 'table',
+      x: 0.5 * W - tr,
+      y: 0.5 * H - tr,
+      w: tr * 2,
+      h: tr * 2,
+      round: true,
+    });
+    const ring = tr * 1.75;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 - Math.PI / 2;
+      pushStool(
+        items,
+        seats,
+        0.5 * W + Math.cos(a) * ring,
+        0.5 * H + Math.sin(a) * ring,
+        sr,
+      );
+    }
+    items.push({ kind: 'plant', x: 0.08 * W, y: 0.1 * H, r: 0.038 * W });
+    items.push({ kind: 'plant', x: 0.92 * W, y: 0.9 * H, r: 0.038 * W });
+
+    return { items, seats };
+  }
+
+  function buildFloor(dim) {
+    return dim.kind === 'team' ? buildTeamFloor(dim) : buildLobbyFloor(dim);
+  }
+
   const FLOORS = {};
   for (const id of SPACE_IDS) FLOORS[id] = buildFloor(SPACES[id]);
-  // Seat indices for a guaranteed opening scene (see below).
+  // Commons seats are the last 5 on the lobby plan (see buildLobbyFloor).
   const COMMONS_SEATS = { first: FLOORS.lobby.seats.length - 5, count: 5 };
 
   const members = [
@@ -199,14 +244,13 @@
     if (m.self) walkTarget = { x: m.tx, y: m.ty };
   }
 
-  // Opening scene: self and Ren chat at the lobby commons; Yuu takes a focus
-  // desk, Kan sits at the meeting table (he's on a page call), Hina (DND) is
-  // on the design lounge couch.
+  // Opening scene: self and Ren chat at the lobby commons; Yuu and Kan sit
+  // around the Dev team table (Kan is on a page call); Hina (DND) is in Design.
   placeAtSeat(members[0], FLOORS.lobby.seats[COMMONS_SEATS.first]);
   placeAtSeat(members[1], FLOORS.lobby.seats[COMMONS_SEATS.first + 2]);
   placeAtSeat(members[2], FLOORS.dev.seats[1]);
-  placeAtSeat(members[3], FLOORS.dev.seats[4]);
-  placeAtSeat(members[4], FLOORS.design.seats[9]);
+  placeAtSeat(members[3], FLOORS.dev.seats[3]);
+  placeAtSeat(members[4], FLOORS.design.seats[2]);
   members[5].x = members[5].tx = 0;
   members[5].y = members[5].ty = 0;
 
@@ -481,8 +525,14 @@
           ctx.arc(x, y, r, 0, Math.PI * 2);
           ctx.fillStyle = WOOD;
           ctx.fill();
+          ctx.beginPath();
+          ctx.arc(x, y, r * 0.55, 0, Math.PI * 2);
+          ctx.fillStyle = WOOD_HI;
+          ctx.fill();
           ctx.lineWidth = 1;
           ctx.strokeStyle = WOOD_EDGE;
+          ctx.beginPath();
+          ctx.arc(x, y, r, 0, Math.PI * 2);
           ctx.stroke();
           break;
         }
@@ -540,6 +590,10 @@
     ctx.restore();
   }
 
+  // Chips queue during the token pass and flush on top, so a nearby token
+  // can cover a body but never hide who someone is (mirrors the client).
+  const chipQueue = [];
+
   function drawNameChip(name, cx, top, isSelf) {
     ctx.font = `600 9px ${FONT_FAMILY}`;
     ctx.textAlign = 'center';
@@ -564,11 +618,21 @@
     return 1 + (c1 + 1) * x * x * x + c1 * x * x;
   }
 
+  function isSeated(m) {
+    if (!m.space || m.walking) return false;
+    const seats = FLOORS[m.space]?.seats;
+    if (!seats) return false;
+    return seats.some((s) => Math.hypot(m.x - s.x, m.y - s.y) <= SEAT_SIT_EPS);
+  }
+
   function drawPeer(t, ox, oy, scale, m) {
+    const seated = isSeated(m);
+    const sitNudge = seated ? 2.5 * scale : 0;
     const sx = ox + m.x * scale;
-    const sy = oy + m.y * scale;
+    const sy = oy + m.y * scale + sitNudge;
     const appear = m.fade > 0 ? easeOutBack(m.alpha) : m.alpha;
-    const r = (m.self ? SELF_RADIUS : PEER_RADIUS) * scale * (0.6 + 0.4 * appear);
+    const sitScale = seated ? SEAT_SIT_SCALE : 1;
+    const r = (m.self ? SELF_RADIUS : PEER_RADIUS) * scale * (0.6 + 0.4 * appear) * sitScale;
 
     ctx.save();
     ctx.globalAlpha = m.alpha;
@@ -616,7 +680,7 @@
 
     if (m.muted && !m.self) drawMuteBadge(sx + r * 0.72, sy - r * 0.72, Math.max(5, r * 0.32));
 
-    drawNameChip(name, sx, sy + r + 5, m.self);
+    chipQueue.push({ name, x: sx, top: sy + r + 5, isSelf: m.self, alpha: m.alpha });
 
     ctx.restore();
   }
@@ -695,8 +759,17 @@
     }
 
     // peers first, self on top so it's never occluded
+    chipQueue.length = 0;
     for (const m of here) if (!m.self) drawPeer(t, ox, oy, scale, m);
     if (self.space === view && self.alpha > 0) drawPeer(t, ox, oy, scale, self);
+
+    // name chips above every token (self queued last, so it wins)
+    for (const c of chipQueue) {
+      ctx.globalAlpha = c.alpha;
+      drawNameChip(c.name, c.x, c.top, c.isSelf);
+    }
+    ctx.globalAlpha = 1;
+    chipQueue.length = 0;
 
     // vignette for depth
     const vg = ctx.createRadialGradient(

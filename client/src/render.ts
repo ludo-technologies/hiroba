@@ -3,27 +3,24 @@
  *
  * Hiroba is a virtual office: a warm, furnished, top-down floor where presence
  * has *context*. Rather than dots floating in an empty void, people gather in
- * recognisable places — a Lounge, Focus desks, a Meeting rug, a Café counter,
- * and a central Commons. You can tell at a glance not just *who* is here but
- * *where* they are and what they're near. That spatial legibility is the whole
- * point of "ambient awareness".
+ * recognisable places. The floor plan depends on the space kind:
+ *  - Lobby: Focus / Meeting / Lounge / Café / Commons — open ambient floor.
+ *  - Team: one table ringed by seats — a simple work room (group call).
+ * Seats are clickable: walk-to-snap so idle people rest on furniture instead of
+ * scattering across open floor. Furniture is still static (no animation), so a
+ * quiet office repaints nothing at all (NFR-01).
  *
- * Design philosophy: presence-first and *calm*. To honour the product's core
- * value (NFR-01: idle CPU ≈ 0%) the renderer does NOT own a rAF loop. `main.ts`
- * drives a single demand-driven loop and calls `draw(now, levels)` each active
- * frame; `draw` returns whether anything is still animating so the loop knows
- * when it may sleep. The furniture is static — it never animates — so a quiet,
- * still office repaints nothing at all.
+ * Design philosophy: presence-first and *calm*. The renderer does NOT own a
+ * rAF loop — `main.ts` drives a demand-driven loop and calls `draw`.
  *
  * What the renderer adds over a static scene:
- *  - A furnished floor plan (rugs, tables, couches, plants) laid out in world
- *    units, scaled to the server's space so it always fits.
- *  - Smooth interpolation of remote peers toward their last server position
- *    (the wire only ticks at ~12 Hz; we glide between snapshots).
+ *  - Kind-specific floor plans with seat hit-targets for click-to-sit.
+ *  - Smooth interpolation of remote peers toward their last server position.
  *  - A gently eased camera that follows self.
  *  - Spawn / leave fades so presence appears and dissolves rather than popping.
  *  - Person tokens with a soft grounding shadow, a name chip, and a mute badge.
  *  - Speaking ripples: concentric rings that radiate from a talking peer.
+ *  - A slight "seated" pose when a token rests on a seat.
  *
  * All scene coordinates are computed in *physical* pixels (clientSize × dpr),
  * so we never double-apply devicePixelRatio.
@@ -75,6 +72,20 @@ type FloorItem =
   | { kind: "plant"; x: number; y: number; r: number }
   | { kind: "stool"; x: number; y: number; r: number };
 
+/** A sit target in world units. Click-to-sit walks here; tokens near a seat
+ *  draw slightly smaller so idle people read as "at a desk / chair". */
+interface Seat {
+  x: number;
+  y: number;
+  /** Click hit radius in world units (larger than the stool for forgiving taps). */
+  hitR: number;
+}
+
+interface FloorPlan {
+  items: FloorItem[];
+  seats: Seat[];
+}
+
 // Visual constants — tuned for a calm, legible, warm office.
 // Person tokens are sized in *world units* (not screen px) so they keep a
 // fixed proportion to the floor at any window size. Lobby and team spaces
@@ -85,8 +96,15 @@ type FloorItem =
 // (clientSize × dpr) with no ctx.scale(), so every draw call must multiply
 // by the current room `scale` — otherwise Retina/HiDPI halves the text while
 // avatars (which already use PEER_RADIUS * scale) stay correct.
-const PEER_RADIUS = 40; // world units
-const SELF_RADIUS = 46; // world units
+//
+// Tokens are a notch smaller than early drafts so furniture (and seats)
+// remains readable beside them.
+const PEER_RADIUS = 34; // world units
+const SELF_RADIUS = 38; // world units
+/** Within this distance of a seat centre, the token uses the seated pose. */
+const SEAT_SIT_EPS = 14;
+/** Seated tokens shrink slightly so they sit *on* the furniture, not over it. */
+const SEAT_SIT_SCALE = 0.88;
 const FONT_FAMILY = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 /** Name-chip text size at scale=1; multiply by scale when setting ctx.font. */
 const FONT_LABEL_PX = 12.5;
@@ -158,6 +176,9 @@ export class Renderer {
   /** Furniture for the current space, in world units (built in `init`). */
   private floor: FloorItem[] = [];
 
+  /** Sit targets for the current space (click-to-sit + seated pose). */
+  private seats: Seat[] = [];
+
   /** Eased camera centre, in world units. */
   private camX = 0;
   private camY = 0;
@@ -167,6 +188,19 @@ export class Renderer {
 
   /** Peer id under the pointer when it can be paged (drives a hover ring). */
   private pageHoverId: string | null = null;
+
+  /** Seat under the pointer (drives a soft hover ring on the stool). */
+  private seatHover: Seat | null = null;
+
+  /** Name chips queued during the token pass, flushed on a top layer so a
+   *  nearby token can cover a body but never hide who someone is. */
+  private chipQueue: Array<{
+    name: string;
+    x: number;
+    top: number;
+    isSelf: boolean;
+    alpha: number;
+  }> = [];
 
   /**
    * Decoded avatar images, keyed by their data URL (identical avatars share
@@ -219,7 +253,10 @@ export class Renderer {
     this.camY = space.height / 2;
     this.lastDraw = 0;
     this.peers.clear();
-    this.floor = buildFloor(space);
+    const plan = buildFloor(space);
+    this.floor = plan.items;
+    this.seats = plan.seats;
+    this.seatHover = null;
   }
 
   /** Return to the un-initialized state and paint the idle screen. */
@@ -228,7 +265,9 @@ export class Renderer {
     this.self = null;
     this.peers.clear();
     this.floor = [];
+    this.seats = [];
     this.walkTarget = null;
+    this.seatHover = null;
     this.avatarImages.clear();
     this.paintIdle();
   }
@@ -271,10 +310,47 @@ export class Renderer {
     return best?.id ?? null;
   }
 
+  /**
+   * Hit-test seats for click-to-sit. Returns the closest seat whose hit
+   * radius contains the point, or null. Peers should be tested first so a
+   * click on someone sitting still pages them.
+   */
+  seatAtScreen(clientX: number, clientY: number): { x: number; y: number } | null {
+    const world = this.screenToWorld(clientX, clientY);
+    if (!world) return null;
+
+    let best: { seat: Seat; d: number } | null = null;
+    for (const s of this.seats) {
+      const d = Math.hypot(world.x - s.x, world.y - s.y);
+      if (d <= s.hitR && (!best || d < best.d)) best = { seat: s, d };
+    }
+    return best ? { x: best.seat.x, y: best.seat.y } : null;
+  }
+
   /** Highlight a pageable peer under the pointer, or clear the hover ring. */
   setPageHover(peerId: string | null): void {
     if (this.pageHoverId === peerId) return;
     this.pageHoverId = peerId;
+    this.onWake?.();
+  }
+
+  /** Highlight a seat under the pointer (soft ring on the stool), or clear. */
+  setSeatHover(target: { x: number; y: number } | null): void {
+    const next =
+      target === null
+        ? null
+        : this.seats.find((s) => s.x === target.x && s.y === target.y) ?? null;
+    if (this.seatHover === next) return;
+    // Same coordinates but different object identity — compare by position.
+    if (
+      this.seatHover &&
+      next &&
+      this.seatHover.x === next.x &&
+      this.seatHover.y === next.y
+    ) {
+      return;
+    }
+    this.seatHover = next;
     this.onWake?.();
   }
 
@@ -357,6 +433,14 @@ export class Renderer {
     return n;
   }
 
+  /** True when a world position is resting on a seat (seated pose). */
+  private _isSeated(x: number, y: number): boolean {
+    for (const s of this.seats) {
+      if (Math.hypot(x - s.x, y - s.y) <= SEAT_SIT_EPS) return true;
+    }
+    return false;
+  }
+
   // -------------------------------------------------------------------------
   // Draw — called by main.ts each active frame
   // -------------------------------------------------------------------------
@@ -414,6 +498,7 @@ export class Renderer {
 
     this._drawFloorBoards(ox, oy, scale, space);
     this._drawFurniture(ox, oy, scale);
+    this._drawSeatHover(ox, oy, scale);
     this._drawNearRings(ox, oy, scale, self, space.nearRadius);
 
     // Click-to-walk destination: a calm pulsing ring until we arrive.
@@ -426,6 +511,7 @@ export class Renderer {
     const lerpK = ease(dt, PEER_LERP_TAU);
     const animK = ease(dt, ANIM_TAU);
     const reap: string[] = [];
+    this.chipQueue.length = 0;
 
     for (const p of this.peers.values()) {
       // Interpolate toward the latest server position.
@@ -446,14 +532,31 @@ export class Renderer {
       const level = levels.levelOf(p.id);
       if (level > 0) animating = true;
       if (p.status === "in_call") animating = true;
-      this._drawPeer(now, ox, oy, scale, p, false, level);
+      this._drawPeer(now, ox, oy, scale, p, false, level, this._isSeated(p.x, p.y));
     }
     for (const id of reap) this.peers.delete(id);
 
     // Self on top so it's never occluded.
     if (levels.selfLevel > 0) animating = true;
     if (self.status === "in_call") animating = true;
-    this._drawPeer(now, ox, oy, scale, self, true, levels.selfLevel);
+    this._drawPeer(
+      now,
+      ox,
+      oy,
+      scale,
+      self,
+      true,
+      levels.selfLevel,
+      this._isSeated(self.x, self.y),
+    );
+
+    // Name chips above every token (self's chip queued last, so it wins).
+    for (const c of this.chipQueue) {
+      ctx.globalAlpha = c.alpha;
+      this._drawNameChip(c.name, c.x, c.top, c.isSelf, scale);
+    }
+    ctx.globalAlpha = 1;
+    this.chipQueue.length = 0;
 
     this._drawVignette(ox, oy, scale, space);
 
@@ -617,8 +720,15 @@ export class Renderer {
           ctx.arc(x, y, r, 0, Math.PI * 2);
           ctx.fillStyle = WOOD;
           ctx.fill();
+          // Seat cushion highlight — reads more like a chair than a peg.
+          ctx.beginPath();
+          ctx.arc(x, y, r * 0.55, 0, Math.PI * 2);
+          ctx.fillStyle = WOOD_HI;
+          ctx.fill();
           ctx.lineWidth = 1;
           ctx.strokeStyle = WOOD_EDGE;
+          ctx.beginPath();
+          ctx.arc(x, y, r, 0, Math.PI * 2);
           ctx.stroke();
           break;
         }
@@ -654,6 +764,24 @@ export class Renderer {
     roundRect(ctx, x + off, y + off + 2, w, h, rad);
     ctx.fill();
     ctx.restore();
+  }
+
+  /** Soft accent ring on the seat under the pointer (stools, couch, commons). */
+  private _drawSeatHover(ox: number, oy: number, scale: number): void {
+    if (!this.seatHover) return;
+    const ctx = this.ctx;
+    const x = ox + this.seatHover.x * scale;
+    const y = oy + this.seatHover.y * scale;
+    const r = 14 * scale;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(181,79,44,0.4)";
+    ctx.lineWidth = Math.max(1.5, 2 * scale);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.35, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(181,79,44,0.18)";
+    ctx.fill();
   }
 
   private _zoneLabel(text: string, cx: number, y: number, scale: number): void {
@@ -746,18 +874,24 @@ export class Renderer {
     peer: RenderPeer,
     isSelf: boolean,
     level: number,
+    seated: boolean,
   ): void {
     const ctx = this.ctx;
+    // Seated tokens sit a touch lower on the furniture silhouette.
+    const sitNudge = seated ? 3 * scale : 0;
     const sx = ox + peer.x * scale;
-    const sy = oy + peer.y * scale;
+    const sy = oy + peer.y * scale + sitNudge;
 
     // Spawn/leave drive a combined appearance factor (alpha + scale).
     const appear = isSelf ? 1 : peer.leaving ? peer.leave : easeOutBack(peer.spawn);
     let alpha = isSelf ? 1 : clamp01(peer.leaving ? peer.leave : peer.spawn);
     if (peer.status === "away") alpha *= 0.62;
     // World-unit radius projected through the room scale, so the token keeps
-    // its proportion to the floor at any window size.
-    const r = (isSelf ? SELF_RADIUS : PEER_RADIUS) * scale * (0.6 + 0.4 * appear);
+    // its proportion to the floor at any window size. Seated pose shrinks a
+    // notch so people rest *on* stools instead of covering them.
+    const sitScale = seated ? SEAT_SIT_SCALE : 1;
+    const r =
+      (isSelf ? SELF_RADIUS : PEER_RADIUS) * scale * (0.6 + 0.4 * appear) * sitScale;
 
     ctx.save();
     ctx.globalAlpha = alpha;
@@ -843,8 +977,8 @@ export class Renderer {
       this._drawDndBadge(sx - r * 0.72, sy + r * 0.72, Math.max(7, r * 0.32));
     }
 
-    // --- Name chip below the disc ---
-    this._drawNameChip(peer.name, sx, sy + r + 7 * scale, isSelf, scale);
+    // --- Name chip below the disc (queued; drawn on the top layer) ---
+    this.chipQueue.push({ name: peer.name, x: sx, top: sy + r + 7 * scale, isSelf, alpha });
 
     ctx.restore();
   }
@@ -1024,52 +1158,219 @@ export class Renderer {
 // ---------------------------------------------------------------------------
 
 /**
- * Lay out a furnished office in world units, as fractions of the space so it
- * fits any server geometry. Five zones — Focus, Meeting, Lounge, Café, and a
- * central Commons — give presence a sense of place.
+ * Lay out furniture in world units, as fractions of the space so it fits any
+ * server geometry. Layout depends on `space.kind`:
+ *  - lobby → multi-zone open floor (Focus / Meeting / Lounge / Café / Commons)
+ *  - team  → one table + capacity seats (simple work room)
  */
-function buildFloor(space: SpaceDescriptor): FloorItem[] {
+function buildFloor(space: SpaceDescriptor): FloorPlan {
+  return space.kind === "team" ? buildTeamFloor(space) : buildLobbyFloor(space);
+}
+
+/** Default stool radius as a fraction of room width. */
+const STOOL_R = 0.022;
+/** Minimum click hit radius in world units (forgiving on small windows). */
+function seatHitR(stoolR: number): number {
+  return Math.max(stoolR * 2.4, 28);
+}
+
+function pushStool(
+  items: FloorItem[],
+  seats: Seat[],
+  x: number,
+  y: number,
+  r: number,
+): void {
+  items.push({ kind: "stool", x, y, r });
+  seats.push({ x, y, hitR: seatHitR(r) });
+}
+
+/** Open ambient lobby: five zones so presence has place-context. */
+function buildLobbyFloor(space: SpaceDescriptor): FloorPlan {
   const W = space.width;
   const H = space.height;
   const items: FloorItem[] = [];
+  const seats: Seat[] = [];
+  const sr = STOOL_R * W;
 
   // --- Focus desks (top-left): a row of desks with stools ---
-  items.push({ kind: "rug", x: 0.05 * W, y: 0.06 * H, w: 0.36 * W, h: 0.32 * H, color: RUG_FOCUS, label: "Focus" });
+  items.push({
+    kind: "rug",
+    x: 0.05 * W,
+    y: 0.06 * H,
+    w: 0.36 * W,
+    h: 0.32 * H,
+    color: RUG_FOCUS,
+    label: "Focus",
+  });
   for (let i = 0; i < 3; i++) {
-    const dx = (0.10 + i * 0.10) * W;
-    items.push({ kind: "table", x: dx, y: 0.15 * H, w: 0.075 * W, h: 0.06 * H, round: false });
-    items.push({ kind: "stool", x: dx + 0.037 * W, y: 0.24 * H, r: 0.016 * W });
+    const dx = (0.1 + i * 0.1) * W;
+    items.push({ kind: "table", x: dx, y: 0.14 * H, w: 0.085 * W, h: 0.07 * H, round: false });
+    pushStool(items, seats, dx + 0.042 * W, 0.25 * H, sr);
   }
-  items.push({ kind: "plant", x: 0.07 * W, y: 0.33 * H, r: 0.03 * W });
+  items.push({ kind: "plant", x: 0.07 * W, y: 0.33 * H, r: 0.035 * W });
 
   // --- Meeting (top-right): a round table ringed by stools ---
-  items.push({ kind: "rug", x: 0.58 * W, y: 0.06 * H, w: 0.37 * W, h: 0.32 * H, color: RUG_MEET, label: "Meeting" });
-  const mcx = 0.765 * W, mcy = 0.22 * H, mtr = 0.075 * W;
-  items.push({ kind: "table", x: mcx - mtr, y: mcy - mtr, w: mtr * 2, h: mtr * 2, round: true });
+  items.push({
+    kind: "rug",
+    x: 0.58 * W,
+    y: 0.06 * H,
+    w: 0.37 * W,
+    h: 0.32 * H,
+    color: RUG_MEET,
+    label: "Meeting",
+  });
+  const mcx = 0.765 * W;
+  const mcy = 0.22 * H;
+  const mtr = 0.085 * W;
+  items.push({
+    kind: "table",
+    x: mcx - mtr,
+    y: mcy - mtr,
+    w: mtr * 2,
+    h: mtr * 2,
+    round: true,
+  });
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2 - Math.PI / 2;
-    items.push({ kind: "stool", x: mcx + Math.cos(a) * mtr * 1.7, y: mcy + Math.sin(a) * mtr * 1.7, r: 0.016 * W });
+    pushStool(items, seats, mcx + Math.cos(a) * mtr * 1.65, mcy + Math.sin(a) * mtr * 1.65, sr);
   }
 
   // --- Lounge (bottom-left): couch + coffee table + plant ---
-  items.push({ kind: "rug", x: 0.05 * W, y: 0.6 * H, w: 0.37 * W, h: 0.33 * H, color: RUG_LOUNGE, label: "Lounge" });
-  items.push({ kind: "couch", x: 0.08 * W, y: 0.68 * H, w: 0.085 * W, h: 0.18 * H });
-  items.push({ kind: "table", x: 0.20 * W, y: 0.72 * H, w: 0.10 * W, h: 0.09 * H, round: true });
-  items.push({ kind: "plant", x: 0.37 * W, y: 0.66 * H, r: 0.03 * W });
+  items.push({
+    kind: "rug",
+    x: 0.05 * W,
+    y: 0.6 * H,
+    w: 0.37 * W,
+    h: 0.33 * H,
+    color: RUG_LOUNGE,
+    label: "Lounge",
+  });
+  items.push({ kind: "couch", x: 0.08 * W, y: 0.66 * H, w: 0.1 * W, h: 0.2 * H });
+  // Couch seats (no stool mesh — sit targets along the cushions).
+  for (const [sx, sy] of [
+    [0.13, 0.72],
+    [0.13, 0.8],
+    [0.13, 0.88],
+  ] as const) {
+    seats.push({ x: sx * W, y: sy * H, hitR: seatHitR(sr * 1.1) });
+  }
+  items.push({
+    kind: "table",
+    x: 0.22 * W,
+    y: 0.72 * H,
+    w: 0.11 * W,
+    h: 0.1 * H,
+    round: true,
+  });
+  items.push({ kind: "plant", x: 0.37 * W, y: 0.66 * H, r: 0.035 * W });
 
   // --- Café (bottom-right): counter + stools + plant ---
-  items.push({ kind: "rug", x: 0.58 * W, y: 0.6 * H, w: 0.37 * W, h: 0.33 * H, color: RUG_CAFE, label: "Café" });
-  items.push({ kind: "table", x: 0.62 * W, y: 0.66 * H, w: 0.29 * W, h: 0.055 * H, round: false });
+  items.push({
+    kind: "rug",
+    x: 0.58 * W,
+    y: 0.6 * H,
+    w: 0.37 * W,
+    h: 0.33 * H,
+    color: RUG_CAFE,
+    label: "Café",
+  });
+  items.push({
+    kind: "table",
+    x: 0.62 * W,
+    y: 0.66 * H,
+    w: 0.29 * W,
+    h: 0.065 * H,
+    round: false,
+  });
   for (let i = 0; i < 4; i++) {
-    items.push({ kind: "stool", x: (0.66 + i * 0.07) * W, y: 0.745 * H, r: 0.016 * W });
+    pushStool(items, seats, (0.66 + i * 0.07) * W, 0.76 * H, sr);
   }
-  items.push({ kind: "plant", x: 0.9 * W, y: 0.86 * H, r: 0.03 * W });
+  items.push({ kind: "plant", x: 0.9 * W, y: 0.86 * H, r: 0.035 * W });
 
-  // --- Commons (centre): the open gathering circle, with a low table ---
-  items.push({ kind: "rugRound", x: 0.5 * W, y: 0.5 * H, r: 0.12 * Math.min(W, H), color: RUG_COMMONS, label: "Commons" });
-  items.push({ kind: "table", x: 0.47 * W, y: 0.47 * H, w: 0.06 * W, h: 0.06 * H, round: true });
+  // --- Commons (centre): open gathering circle with a low table ---
+  const cr = 0.12 * Math.min(W, H);
+  items.push({
+    kind: "rugRound",
+    x: 0.5 * W,
+    y: 0.5 * H,
+    r: cr,
+    color: RUG_COMMONS,
+    label: "Commons",
+  });
+  items.push({
+    kind: "table",
+    x: 0.47 * W,
+    y: 0.47 * H,
+    w: 0.06 * W,
+    h: 0.06 * H,
+    round: true,
+  });
+  // Soft sit ring around the commons table (no extra stools — keeps the
+  // centre open while still offering idle rest spots).
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2 - Math.PI / 2;
+    seats.push({
+      x: 0.5 * W + Math.cos(a) * cr * 0.72,
+      y: 0.5 * H + Math.sin(a) * cr * 0.72,
+      hitR: seatHitR(sr),
+    });
+  }
 
-  return items;
+  return { items, seats };
+}
+
+/**
+ * Team work room: one table + capacity seats. Radii on the server already make
+ * the whole room one group call — the floor only needs a clear gathering place.
+ */
+function buildTeamFloor(space: SpaceDescriptor): FloorPlan {
+  const W = space.width;
+  const H = space.height;
+  const items: FloorItem[] = [];
+  const seats: Seat[] = [];
+  const n = Math.max(2, Math.min(space.capacity || 5, 8));
+  const minSide = Math.min(W, H);
+  const sr = STOOL_R * W * 1.05;
+
+  // Soft rug under the meeting area (no zone label — the tab names the room).
+  items.push({
+    kind: "rugRound",
+    x: 0.5 * W,
+    y: 0.5 * H,
+    r: 0.3 * minSide,
+    color: RUG_MEET,
+  });
+
+  // Central table.
+  const tr = 0.1 * minSide;
+  items.push({
+    kind: "table",
+    x: 0.5 * W - tr,
+    y: 0.5 * H - tr,
+    w: tr * 2,
+    h: tr * 2,
+    round: true,
+  });
+
+  // Seats ring the table (one per capacity slot).
+  const ring = tr * 1.75;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 - Math.PI / 2;
+    pushStool(
+      items,
+      seats,
+      0.5 * W + Math.cos(a) * ring,
+      0.5 * H + Math.sin(a) * ring,
+      sr,
+    );
+  }
+
+  // Corner plants — sparse, so the table stays the focus.
+  items.push({ kind: "plant", x: 0.08 * W, y: 0.1 * H, r: 0.038 * W });
+  items.push({ kind: "plant", x: 0.92 * W, y: 0.9 * H, r: 0.038 * W });
+
+  return { items, seats };
 }
 
 // ---------------------------------------------------------------------------

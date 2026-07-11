@@ -206,15 +206,23 @@ window.addEventListener("keydown", (e) => {
   void handleMicToggle();
 });
 
-// Click-to-walk: a click (or tap) on the floor sets the walk destination;
-// dragging with the button held steers it. Keyboard input still wins —
-// input.ts drops the target on the first movement key.
+// Click-to-walk / click-to-sit: a click on a seat walks to that stool and
+// settles into the seated pose; a click on open floor sets a free walk target.
+// Dragging with the button held steers free walk (seats are only snap-picked
+// on pointerdown so dragging across furniture doesn't re-target every stool).
+// Keyboard input still wins — input.ts drops the target on the first key.
 function pointToWalk(e: PointerEvent): void {
   if (!session || !e.isPrimary) return;
   const world = renderer.screenToWorld(e.clientX, e.clientY);
   if (!world) return;
   session.input.setMoveTarget(world.x, world.y);
 }
+
+// Where a seat click went down, in client px. A normal click wobbles a pixel
+// or two before pointerup; without this anchor that wobble would re-target
+// off the seat centre and the walk would no longer settle into the seat.
+let seatClickAnchor: { x: number; y: number } | null = null;
+const SEAT_DRAG_SLOP_PX = 8;
 
 /** Whether a roster member can be paged (same rules as the sidebar button). */
 function canPagePeer(id: string): boolean {
@@ -230,19 +238,36 @@ canvas.addEventListener("pointerdown", (e) => {
   if (e.button !== 0) return;
   if (!session || !e.isPrimary) return;
 
+  // Peers first: clicking someone sitting on a stool should page them, not re-sit.
   const peerId = renderer.peerAtScreen(e.clientX, e.clientY);
   if (peerId && canPagePeer(peerId)) {
     handlePage(peerId);
     renderer.setPageHover(null);
-    canvas.classList.remove("can-page");
+    renderer.setSeatHover(null);
+    canvas.classList.remove("can-page", "can-sit");
     return;
   }
 
+  const seat = renderer.seatAtScreen(e.clientX, e.clientY);
+  if (seat) {
+    session.input.setMoveTarget(seat.x, seat.y);
+    seatClickAnchor = { x: e.clientX, y: e.clientY };
+    return;
+  }
+
+  seatClickAnchor = null;
   pointToWalk(e);
 });
 
 canvas.addEventListener("pointermove", (e) => {
   if (e.buttons === 1) {
+    // Free-steer while dragging; don't snap to every seat under the path.
+    // A seat click keeps its snap until the pointer clearly drags away.
+    if (seatClickAnchor) {
+      const moved = Math.hypot(e.clientX - seatClickAnchor.x, e.clientY - seatClickAnchor.y);
+      if (moved < SEAT_DRAG_SLOP_PX) return;
+      seatClickAnchor = null;
+    }
     pointToWalk(e);
     return;
   }
@@ -251,11 +276,27 @@ canvas.addEventListener("pointermove", (e) => {
   const pageable = !!(peerId && canPagePeer(peerId));
   renderer.setPageHover(pageable ? peerId : null);
   canvas.classList.toggle("can-page", pageable);
+
+  if (pageable) {
+    renderer.setSeatHover(null);
+    canvas.classList.remove("can-sit");
+    return;
+  }
+
+  const seat = renderer.seatAtScreen(e.clientX, e.clientY);
+  renderer.setSeatHover(seat);
+  canvas.classList.toggle("can-sit", !!seat);
+});
+
+canvas.addEventListener("pointerup", () => {
+  seatClickAnchor = null;
 });
 
 canvas.addEventListener("pointerleave", () => {
+  seatClickAnchor = null;
   renderer.setPageHover(null);
-  canvas.classList.remove("can-page");
+  renderer.setSeatHover(null);
+  canvas.classList.remove("can-page", "can-sit");
 });
 
 // Closing the window is an intentional leave: tell the server so peers see us
@@ -1703,7 +1744,7 @@ function teardownSession(): void {
   void requestWindowAttention(false);
   s.net.close();
 
-  canvas.classList.remove("walkable", "can-page");
+  canvas.classList.remove("walkable", "can-page", "can-sit");
   renderer.setPageHover(null);
   renderer.reset();
   document.title = "Hiroba";
