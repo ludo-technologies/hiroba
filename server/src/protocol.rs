@@ -293,18 +293,22 @@ pub enum ServerMsg {
     /// as proximity.
     PageConnect { peer: String, initiator: bool },
 
-    /// A page could not be placed / completed. `reason` is "dnd", "offline",
-    /// "declined", or "timeout". To the caller.
+    /// A page could not be placed / completed. `reason` is "dnd", "busy",
+    /// "offline", "declined", or "timeout". To the caller.
     PageRejected { to: String, reason: String },
 
     /// A page link ended, or a pending offer was cancelled / timed out.
-    PageEnd { from: String },
+    PageEnd {
+        from: String,
+        /// Machine-readable cause for receiver-side feedback.
+        reason: String,
+    },
 
     /// Relayed WebRTC signaling from another peer.
     Signal { from: String, data: Value },
 
-    /// A request failed. Codes: auth_failed, space_full, space_limit,
-    /// unknown_space, forbidden. On auth_failed the server closes the socket
-    /// after this frame.
+    /// A request failed. Codes: auth_failed, org_suspended, space_full,
+    /// space_limit, unknown_space, forbidden. On auth_failed or org_suspended
+    /// the server closes the socket after this frame.
     Error { code: String, message: String },
 }

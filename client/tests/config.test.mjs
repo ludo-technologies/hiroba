@@ -194,3 +194,28 @@ test("resolveIceServers: with no server URL and no override, returns STUN", asyn
     assert.match(String(servers[0].urls), /^stun:/);
   });
 });
+
+test("resolveIceServers: an already-cancelled attempt aborts /ice immediately", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  await withFetch(
+    (_url, init) =>
+      new Promise((_resolve, reject) => {
+        if (init.signal.aborted) {
+          reject(new DOMException("cancelled", "AbortError"));
+          return;
+        }
+        init.signal.addEventListener(
+          "abort",
+          () => reject(new DOMException("cancelled", "AbortError")),
+          { once: true },
+        );
+      }),
+    async () => {
+      await assert.rejects(
+        resolveIceServers("ws://127.0.0.1:8787/ws", "", controller.signal),
+        { name: "AbortError" },
+      );
+    },
+  );
+});

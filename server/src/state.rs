@@ -368,7 +368,7 @@ pub enum CreateSpaceOutcome {
 pub enum PageOutcome {
     /// Offer delivered; callee is ringing (messages already sent).
     Ringing,
-    /// Could not place the page; `reason` is "dnd" or "offline".
+    /// Could not place the page; `reason` is "dnd", "busy", or "offline".
     Rejected(String),
 }
 
@@ -610,6 +610,7 @@ impl Org {
                 partner.paging.remove(id);
                 let _ = partner.tx.try_send(ServerMsg::PageEnd {
                     from: id.to_string(),
+                    reason: "ended".to_string(),
                 });
             }
         }
@@ -624,6 +625,7 @@ impl Org {
                 callee.ringing_in.remove(id);
                 let _ = callee.tx.try_send(ServerMsg::PageEnd {
                     from: id.to_string(),
+                    reason: "cancelled".to_string(),
                 });
             }
         }
@@ -873,6 +875,9 @@ impl Org {
         if target.dnd {
             return PageOutcome::Rejected("dnd".to_string());
         }
+        if !target.paging.is_empty() {
+            return PageOutcome::Rejected("busy".to_string());
+        }
         let Some(caller) = guard.members.get(from) else {
             return PageOutcome::Rejected("offline".to_string());
         };
@@ -994,6 +999,7 @@ impl Org {
                 if b.paging.remove(from) {
                     let _ = b.tx.try_send(ServerMsg::PageEnd {
                         from: from.to_string(),
+                        reason: "ended".to_string(),
                     });
                     changed.push(to.to_string());
                 }
@@ -1017,6 +1023,7 @@ impl Org {
                 b.ringing_in.remove(from);
                 let _ = b.tx.try_send(ServerMsg::PageEnd {
                     from: from.to_string(),
+                    reason: "cancelled".to_string(),
                 });
             }
             return;
@@ -1068,6 +1075,7 @@ impl Org {
             a.ringing_in.remove(caller);
             let _ = a.tx.try_send(ServerMsg::PageEnd {
                 from: caller.to_string(),
+                reason: "timeout".to_string(),
             });
         }
     }

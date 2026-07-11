@@ -293,13 +293,14 @@ export interface PageConnectMsg {
 export interface PageRejectedMsg {
   t: "page_rejected";
   to: string;
-  reason: "dnd" | "offline" | "declined" | "timeout";
+  reason: "dnd" | "busy" | "offline" | "declined" | "timeout";
 }
 
 /** A page link ended, or a pending offer was cancelled / timed out. */
 export interface PageEndedMsg {
   t: "page_end";
   from: string;
+  reason?: "ended" | "cancelled" | "timeout";
 }
 
 /** Relayed WebRTC signaling from another peer. */
@@ -312,7 +313,13 @@ export interface ServerSignalMsg {
 /** A request failed. */
 export interface ErrorMsg {
   t: "error";
-  code: "auth_failed" | "space_full" | "unknown_space" | "forbidden";
+  code:
+    | "auth_failed"
+    | "org_suspended"
+    | "space_full"
+    | "space_limit"
+    | "unknown_space"
+    | "forbidden";
   message: string;
 }
 

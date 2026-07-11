@@ -183,8 +183,9 @@ and page links. If `to` is not connected, the message is dropped silently.
 ```json
 { "t": "page", "to": "9" }
 ```
-If `to` is offline or `dnd`, the server replies `page_rejected` (`reason`:
-`"offline"` | `"dnd"`). Otherwise the server places a **ring** (no media yet):
+If `to` is offline, `dnd`, or already in a call, the server replies
+`page_rejected` (`reason`: `"offline"` | `"dnd"` | `"busy"`). Otherwise the
+server places a **ring** (no media yet):
 - callee receives `page_offer{from}`
 - caller receives `page_ringing{to}`
 
@@ -350,13 +351,17 @@ call"), distinct from proximity links. Clients SHOULD go voice-live after connec
 ```json
 { "t": "page_rejected", "to": "9", "reason": "dnd" }
 ```
-`reason` is `"dnd"`, `"offline"`, `"declined"`, or `"timeout"`. Sent to the
+`reason` is `"dnd"`, `"busy"`, `"offline"`, `"declined"`, or `"timeout"`. Sent to the
 caller only.
 
 ### `page_end` — a page link ended or a pending offer was cleared
 ```json
-{ "t": "page_end", "from": "9" }
+{ "t": "page_end", "from": "9", "reason": "timeout" }
 ```
+
+`reason` is `ended` for a live hang-up/disconnect, `cancelled` when the caller
+cancels a pending offer, or `timeout` when the callee did not answer. Clients
+should surface `timeout` to the callee as a missed call.
 Tear down the page link to `from`, or dismiss a pending `page_offer` from
 `from`. Sent when the peer hangs up, cancels, disconnects, or the ring times out.
 
@@ -369,9 +374,9 @@ Tear down the page link to `from`, or dismiss a pending `page_offer` from
 ```json
 { "t": "error", "code": "space_full", "message": "Team is full (5/5)." }
 ```
-Codes: `auth_failed`, `space_full`, `space_limit`, `unknown_space`,
-`forbidden`. On
-`auth_failed` the server closes the socket after sending this frame.
+Codes: `auth_failed`, `org_suspended`, `space_full`, `space_limit`,
+`unknown_space`, `forbidden`. On `auth_failed` or `org_suspended`, the server
+closes the socket after sending this frame.
 
 ---
 

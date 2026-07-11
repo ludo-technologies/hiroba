@@ -76,6 +76,7 @@ export function getIceServers(): RTCIceServer[] {
 export async function resolveIceServers(
   serverWsUrl?: string,
   token?: string,
+  signal?: AbortSignal,
 ): Promise<RTCIceServer[]> {
   // 1. Operator override wins outright — don't even hit the network.
   const injected = globalThis.window?.__HIROBA_CONFIG__?.iceServers;
@@ -83,19 +84,26 @@ export async function resolveIceServers(
 
   // 2. Ask the server (out-of-band over HTTP, never the WebSocket).
   if (serverWsUrl) {
+    const controller = new AbortController();
+    const timeoutId = globalThis.setTimeout(() => controller.abort(), 12_000);
+    const abort = () => controller.abort();
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) controller.abort();
     try {
       const headers: Record<string, string> = { accept: "application/json" };
       if (token) headers.authorization = `Bearer ${token}`;
-      const res = await fetch(iceEndpointFromWs(serverWsUrl), {
-        headers,
-      });
+      const res = await fetch(iceEndpointFromWs(serverWsUrl), { headers, signal: controller.signal });
       if (res.ok) {
         const body: unknown = await res.json();
         const servers = (body as { iceServers?: unknown } | null)?.iceServers;
         if (isValidIceServerList(servers)) return servers;
       }
-    } catch {
+    } catch (err) {
+      if (signal?.aborted) throw err;
       // Network/CORS/parse failure — fall through to STUN.
+    } finally {
+      globalThis.clearTimeout(timeoutId);
+      signal?.removeEventListener("abort", abort);
     }
   }
 

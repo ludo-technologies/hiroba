@@ -52,12 +52,31 @@ export class HirobaNet extends EventTarget {
    * Resolves as soon as the socket is open (so the caller can immediately
    * send `hello`). Rejects if the connection fails to open.
    */
-  connect(url: string): Promise<void> {
+  connect(url: string, signal?: AbortSignal, timeoutMs = 12_000): Promise<void> {
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(url);
       this.ws = ws;
 
-      ws.addEventListener("open", () => resolve(), { once: true });
+      let settled = false;
+      const finish = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        signal?.removeEventListener("abort", abort);
+        fn();
+      };
+      const abort = () => finish(() => {
+        ws.close();
+        reject(new DOMException("Connection cancelled", "AbortError"));
+      });
+      const timer = window.setTimeout(() => finish(() => {
+        ws.close();
+        reject(new Error("connection_timeout"));
+      }), timeoutMs);
+      signal?.addEventListener("abort", abort, { once: true });
+      if (signal?.aborted) return abort();
+
+      ws.addEventListener("open", () => finish(resolve), { once: true });
 
       ws.addEventListener(
         "error",
@@ -65,7 +84,7 @@ export class HirobaNet extends EventTarget {
           // The browser gives no detail on WS error events for security
           // reasons. Surface a typed event so the UI can react.
           this.dispatchEvent(new CustomEvent("neterror"));
-          reject(new Error("WebSocket connection failed"));
+          finish(() => reject(new Error("WebSocket connection failed")));
         },
         { once: true },
       );

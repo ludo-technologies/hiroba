@@ -129,6 +129,7 @@ let audioSettingsRaf = 0;
 // Ambient-prompt state.
 let moveHintActive = false;
 let nudgeShown = false;
+let connectAbort: AbortController | null = null;
 
 // Idle → away (NFR-01: dim + go quiet after inactivity).
 // Keep IDLE_MINUTES in sync with the "5 minutes" copy in i18n activeTitle/awayTitle.
@@ -149,6 +150,7 @@ renderer.setWakeCallback(wake);
 const ui = new UIManager(
   {
     onJoin: handleJoin,
+    onCancelConnect: handleCancelConnect,
     onLogin: handleLogin,
     onLogout: handleLogout,
     onCreateOrg: handleCreateOrg,
@@ -530,15 +532,24 @@ function effectiveToken(manual: string): string {
 // Connection orchestration
 // ---------------------------------------------------------------------------
 
-function openConnection(values: JoinFormValues): Promise<{ net: HirobaNet; msg: WelcomeMsg }> {
+function openConnection(values: JoinFormValues, signal: AbortSignal): Promise<{ net: HirobaNet; msg: WelcomeMsg }> {
   return new Promise((resolve, reject) => {
     const net = new HirobaNet();
     let settled = false;
-    const fail = () => {
+    const finish = (fn: () => void, close = false) => {
       if (settled) return;
       settled = true;
-      reject(new Error("connection failed"));
+      signal.removeEventListener("abort", abort);
+      if (close) net.close();
+      fn();
     };
+    const abort = () => finish(() => reject(new Error("cancelled")), true);
+    const fail = () => finish(
+      () => reject(new Error(signal.aborted ? "cancelled" : "connection failed")),
+      true,
+    );
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) return abort();
     net.onError(fail);
     net.onClose(fail);
     // A pre-welcome `error` frame (auth_failed, org_suspended, …) beats the
@@ -547,15 +558,19 @@ function openConnection(values: JoinFormValues): Promise<{ net: HirobaNet; msg: 
     net.on(
       "error",
       (e) => {
-        if (settled) return;
-        settled = true;
-        reject(new Error(e.detail.code));
+        finish(() => reject(new Error(e.detail.code)), true);
       },
       { once: true },
     );
     net
-      .connect(values.serverUrl)
+      .connect(values.serverUrl, signal)
       .then(() => {
+        if (signal.aborted) return abort();
+        net.on(
+          "welcome",
+          (e) => finish(() => resolve({ net, msg: e.detail })),
+          { once: true },
+        );
         net.send({
           t: "hello",
           token: values.token || undefined,
@@ -563,15 +578,6 @@ function openConnection(values: JoinFormValues): Promise<{ net: HirobaNet; msg: 
           color: values.color,
           avatar: values.avatar || undefined,
         });
-        net.on(
-          "welcome",
-          (e) => {
-            if (settled) return;
-            settled = true;
-            resolve({ net, msg: e.detail });
-          },
-          { once: true },
-        );
       })
       .catch(fail);
   });
@@ -579,11 +585,12 @@ function openConnection(values: JoinFormValues): Promise<{ net: HirobaNet; msg: 
 
 async function connectSession(
   values: JoinFormValues,
+  signal: AbortSignal,
 ): Promise<{ net: HirobaNet; msg: WelcomeMsg; iceServers: RTCIceServer[] }> {
   // Resolve ICE before opening the WebSocket so a slow /ice response cannot
   // leave post-welcome events arriving before session handlers are installed.
-  const iceServers = await resolveIceServers(values.serverUrl, values.token);
-  const { net, msg } = await openConnection(values);
+  const iceServers = await resolveIceServers(values.serverUrl, values.token, signal);
+  const { net, msg } = await openConnection(values, signal);
   return { net, msg, iceServers };
 }
 
@@ -594,15 +601,47 @@ async function handleJoin(values: JoinFormValues): Promise<void> {
   lastJoin = values;
   userLeaving = false;
   reconnectAttempts = 0;
+  const controller = new AbortController();
+  connectAbort?.abort();
+  connectAbort = controller;
   try {
-    const { net, msg, iceServers } = await connectSession(values);
+    const { net, msg, iceServers } = await connectSession(values, controller.signal);
+    if (controller.signal.aborted || connectAbort !== controller) {
+      net.close();
+      return;
+    }
     startSession(net, msg, iceServers);
     moveHintActive = true;
     ui.showMoveHint();
   } catch (err) {
     const code = err instanceof Error ? err.message : "";
-    ui.showJoin(code === "auth_failed" ? t.errAuthFailed : t.errConnect);
+    if (code === "cancelled" || (err instanceof DOMException && err.name === "AbortError")) return;
+    ui.showJoin(connectionErrorCopy(code));
+  } finally {
+    if (connectAbort === controller) connectAbort = null;
   }
+}
+
+function handleCancelConnect(): void {
+  connectAbort?.abort();
+  connectAbort = null;
+  ui.showJoin();
+}
+
+function connectionErrorCopy(code: string): string {
+  switch (code) {
+    case "auth_failed": return t.errAuthFailed;
+    case "org_suspended": return t.errOrgSuspended;
+    case "space_full": return t.errSpaceFull;
+    case "space_limit": return t.errSpaceLimit;
+    case "unknown_space": return t.errUnknownSpace;
+    case "forbidden": return t.errForbidden;
+    default: return t.errConnect;
+  }
+}
+
+function isPermanentConnectionError(code: string): boolean {
+  return ["auth_failed", "org_suspended", "space_full", "space_limit", "unknown_space", "forbidden"].includes(code);
 }
 
 function startSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[]): void {
@@ -638,21 +677,33 @@ function scheduleReconnect(): void {
   ui.showReconnecting(attempt, MAX_RECONNECT);
   reconnectTimer = window.setTimeout(async () => {
     if (userLeaving || !lastJoin) return;
+    const controller = new AbortController();
+    connectAbort = controller;
     try {
-      const { net, msg, iceServers } = await connectSession(lastJoin);
-      if (userLeaving) {
+      const { net, msg, iceServers } = await connectSession(lastJoin, controller.signal);
+      if (userLeaving || controller.signal.aborted || connectAbort !== controller) {
         net.close();
         return;
       }
       startSession(net, msg, iceServers);
-    } catch {
+    } catch (err) {
+      const code = err instanceof Error ? err.message : "";
+      if (userLeaving || code === "cancelled" || (err instanceof DOMException && err.name === "AbortError")) return;
+      if (isPermanentConnectionError(code)) {
+        ui.showJoin(connectionErrorCopy(code));
+        return;
+      }
       scheduleReconnect();
+    } finally {
+      if (connectAbort === controller) connectAbort = null;
     }
   }, delay);
 }
 
 function handleCancelReconnect(): void {
   window.clearTimeout(reconnectTimer);
+  connectAbort?.abort();
+  connectAbort = null;
   reconnectAttempts = 0;
   userLeaving = true;
   ui.showJoin();
@@ -1114,15 +1165,7 @@ function bindServerMessages(net: HirobaNet): void {
     const name = session.roster.get(e.detail.to)?.name ?? t.someone;
     session.ringingOut.delete(e.detail.to);
     const reason = e.detail.reason;
-    const msg =
-      reason === "dnd"
-        ? t.pageDnd(name)
-        : reason === "declined"
-          ? t.pageDeclined(name)
-          : reason === "timeout"
-            ? t.pageTimeout(name)
-            : t.pageOffline(name);
-    ui.showToast(msg);
+    ui.showToast(pageRejectedCopy(reason, name));
     updateCallBanner();
     rebuildRoster();
     wake();
@@ -1131,11 +1174,14 @@ function bindServerMessages(net: HirobaNet): void {
   net.on("page_end", (e) => {
     if (!session) return;
     const { from } = e.detail;
+    const wasIncoming = session.ringingIn.has(from);
+    const name = session.ringingIn.get(from) ?? session.roster.get(from)?.name ?? from;
     // Pending offer cancelled / timed out, or live hang-up.
     session.ringingIn.delete(from);
     session.ringingOut.delete(from);
     session.audio.endPage(from); // keeps proximity audio if still near
     session.pages.delete(from);
+    if (wasIncoming && e.detail.reason === "timeout") ui.showToast(t.pageMissed(name));
     session.remoteVideos.delete(from);
     if (session.visibleScreen?.kind === "remote" && session.visibleScreen.peerId === from) {
       showNextScreenShare();
@@ -1158,9 +1204,19 @@ function bindServerMessages(net: HirobaNet): void {
   });
 }
 
+function pageRejectedCopy(reason: "dnd" | "busy" | "offline" | "declined" | "timeout", name: string): string {
+  switch (reason) {
+    case "dnd": return t.pageDnd(name);
+    case "busy": return t.pageBusy(name);
+    case "declined": return t.pageDeclined(name);
+    case "timeout": return t.pageTimeout(name);
+    case "offline": return t.pageOffline(name);
+  }
+}
+
 /**
  * What the call banner is currently showing (and what Accept / Hang-up act on).
- * Priority: live call > first incoming offer > first outgoing ring.
+ * Priority: first incoming offer > live call > first outgoing ring.
  * Hang-up must only affect this focus — never tear down hidden concurrent rings.
  */
 type CallFocus =
@@ -1170,11 +1226,11 @@ type CallFocus =
 
 function callFocus(): CallFocus | null {
   if (!session) return null;
-  if (session.pages.size > 0) return { mode: "in_call" };
   if (session.ringingIn.size > 0) {
     const [peerId, name] = [...session.ringingIn.entries()][0];
     return { mode: "incoming", peerId, name };
   }
+  if (session.pages.size > 0) return { mode: "in_call" };
   if (session.ringingOut.size > 0) {
     const [peerId, name] = [...session.ringingOut.entries()][0];
     return { mode: "outgoing", peerId, name };

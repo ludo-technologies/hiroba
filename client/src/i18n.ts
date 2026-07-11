@@ -36,7 +36,6 @@ const EN = {
   fieldInvite: "Invite code (optional)",
   invitePlaceholder: "Paste an invite code or link",
   enter: "Enter Hiroba",
-  connecting: "Connecting…",
 
   // Org setup (first sign-in without an invite)
   orgSetupTitle: "Name your organization",
@@ -73,6 +72,11 @@ const EN = {
   errAuthUrl: "Please set the auth server URL (under Server settings).",
   errConnect: "Could not connect to the server. Check the URL and try again.",
   errAuthFailed: "The server rejected the sign-in. Please sign in and try again.",
+  errOrgSuspended: "This organization is suspended. Ask an administrator to update billing.",
+  errSpaceFull: "This space is full. Try another space or ask an administrator.",
+  errSpaceLimit: "This organization has reached its space limit.",
+  errUnknownSpace: "That space no longer exists. Rejoin and choose another space.",
+  errForbidden: "You don't have permission to perform this action.",
   errRejoin: "Lost connection to the server. Please rejoin.",
   errSessionExpired: "Your session expired — please sign in again.",
   errMicDenied: "Microphone access denied. Check browser/OS permissions.",
@@ -201,9 +205,11 @@ const EN = {
   pageCalling: (name: string) => `Calling ${name}…`,
   pageIncoming: (name: string) => `Incoming call from ${name}`,
   pageDnd: (name: string) => `${name} is in do-not-disturb.`,
+  pageBusy: (name: string) => `${name} is already in a call.`,
   pageOffline: (name: string) => `${name} is offline.`,
   pageDeclined: (name: string) => `${name} declined the call.`,
   pageTimeout: (name: string) => `${name} didn't answer.`,
+  pageMissed: (name: string) => `You missed a call from ${name}.`,
 };
 
 const JA: typeof EN = {
@@ -224,7 +230,6 @@ const JA: typeof EN = {
   fieldInvite: "招待コード(任意)",
   invitePlaceholder: "招待コードまたはリンクを貼り付け",
   enter: "オフィスに入る",
-  connecting: "接続中…",
 
   // Org setup (first sign-in without an invite)
   orgSetupTitle: "組織に名前をつけましょう",
@@ -261,6 +266,11 @@ const JA: typeof EN = {
   errAuthUrl: "認証サーバーのURLを設定してください(サーバー設定内)。",
   errConnect: "サーバーに接続できませんでした。URLを確認してもう一度お試しください。",
   errAuthFailed: "サーバーに認証を拒否されました。サインインしてからもう一度お試しください。",
+  errOrgSuspended: "この組織は利用停止中です。管理者にお支払い状況の確認を依頼してください。",
+  errSpaceFull: "このスペースは満員です。別のスペースを選ぶか、管理者にご相談ください。",
+  errSpaceLimit: "この組織はスペース数の上限に達しています。",
+  errUnknownSpace: "指定されたスペースは存在しません。再入室して別のスペースを選んでください。",
+  errForbidden: "この操作を行う権限がありません。",
   errRejoin: "サーバーとの接続が切れました。もう一度入室してください。",
   errSessionExpired: "セッションの有効期限が切れました。もう一度サインインしてください。",
   errMicDenied: "マイクを使用できません。ブラウザ/OSの権限設定を確認してください。",
@@ -388,9 +398,11 @@ const JA: typeof EN = {
   pageCalling: (name: string) => `${name} に呼びかけ中…`,
   pageIncoming: (name: string) => `${name} から着信`,
   pageDnd: (name: string) => `${name} は取り込み中です。`,
+  pageBusy: (name: string) => `${name} は通話中です。`,
   pageOffline: (name: string) => `${name} はオフラインです。`,
   pageDeclined: (name: string) => `${name} が通話を拒否しました。`,
   pageTimeout: (name: string) => `${name} が応答しませんでした。`,
+  pageMissed: (name: string) => `${name} からの着信に応答できませんでした。`,
 };
 
 /** The active message catalog. */

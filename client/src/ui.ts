@@ -242,6 +242,8 @@ export interface MemberEntry {
 
 export interface UICallbacks {
   onJoin(values: JoinFormValues): void;
+  /** Cancel the current connection attempt. */
+  onCancelConnect(): void;
   /** Start an interactive OAuth login via the Tauri shell (FR-13). */
   onLogin(provider: "google" | "github", authUrl: string, invite: string): void;
   /** Drop the stored session and return to the signed-out state. */
@@ -404,6 +406,7 @@ export class UIManager {
     this.hideMoveHint();
     this.setMuteNudge(false);
     elJoinBtn.disabled = false;
+    delete elJoinBtn.dataset.connecting;
     elJoinBtn.textContent = ENTER_LABEL;
     if (error) {
       elJoinError.textContent = error;
@@ -425,6 +428,7 @@ export class UIManager {
     elTabs.removeAttribute("hidden");
     elJoinError.setAttribute("hidden", "");
     elJoinBtn.disabled = false;
+    delete elJoinBtn.dataset.connecting;
     elJoinBtn.textContent = ENTER_LABEL;
     // Join via Enter can leave focus stranded on a now-hidden input. Shortcuts
     // already survive that (isTypingTarget ignores [hidden] subtrees); this
@@ -1425,8 +1429,12 @@ export class UIManager {
         return;
       }
 
-      elJoinBtn.disabled = true;
-      elJoinBtn.textContent = t.connecting;
+      if (elJoinBtn.dataset.connecting === "true") {
+        this.callbacks.onCancelConnect();
+        return;
+      }
+      elJoinBtn.dataset.connecting = "true";
+      elJoinBtn.textContent = t.cancel;
       elJoinError.setAttribute("hidden", "");
 
       this._persistToStorage(name, color, serverUrl, token);
