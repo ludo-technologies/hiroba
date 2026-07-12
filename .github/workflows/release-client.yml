@@ -34,13 +34,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Official installers: macOS + Windows only. Linux desktop is best-effort
+        # (build from source); not a first-class release target.
         include:
           - platform: macos-latest
             args: --target aarch64-apple-darwin
           - platform: macos-latest
             args: --target x86_64-apple-darwin
-          - platform: ubuntu-22.04
-            args: ''
           - platform: windows-latest
             args: ''
 
@@ -83,12 +83,6 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: client/src-tauri
-
-      - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: Install frontend dependencies
         working-directory: client
