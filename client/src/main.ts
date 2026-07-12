@@ -33,7 +33,7 @@ import { shouldDraw, shouldKeepAwake } from "./loop.js";
 import { startUpdateChecks } from "./updater.js";
 import { startDeepLinkListener } from "./deeplink.js";
 import { resolveIceServers } from "./config.js";
-import { spaceLabel, t } from "./i18n.js";
+import { locale, spaceLabel, t } from "./i18n.js";
 import {
   clearSession,
   decodeClaims,
@@ -387,7 +387,10 @@ async function handleCreateOrg(name: string): Promise<void> {
         "Content-Type": "application/json",
         Authorization: `Bearer ${pendingProvisionalToken}`,
       },
-      body: JSON.stringify({ name }),
+      // Billing currency follows the UI locale, mirroring the pricing the user
+      // was shown (¥300 on the ja site, $2 elsewhere). Stripe pins it for the
+      // org's lifetime; self-host auth backends just ignore the field.
+      body: JSON.stringify({ name, currency: locale === "ja" ? "jpy" : "usd" }),
     });
     if (resp.status === 403) throw new Error(t.errAlreadyInOrg);
     if (resp.status === 401) throw new Error(t.errSessionExpired);
