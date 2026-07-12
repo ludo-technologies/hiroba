@@ -53,6 +53,7 @@ export interface SessionClaims {
 export interface AuthSession {
   token: string;
   claims: SessionClaims;
+  refreshToken: string;
 }
 
 /** Decode a JWT payload without verifying — the server verifies; we only need
@@ -104,6 +105,7 @@ export async function oauthLogin(
   const result = await invoke<{
     token?: string;
     claims?: SessionClaims;
+    refresh_token?: string;
     pending?: string;
     provisional_token?: string;
   }>("oauth_login", {
@@ -118,10 +120,13 @@ export async function oauthLogin(
     return { kind: "pending_org", provisionalToken: result.provisional_token };
   }
   const claims = result.token ? decodeClaims(result.token) : null;
-  if (!result.token || !claims) {
+  if (!result.token || !result.refresh_token || !claims) {
     throw new Error("auth backend returned a malformed token");
   }
-  return { kind: "session", session: { token: result.token, claims } };
+  return {
+    kind: "session",
+    session: { token: result.token, claims, refreshToken: result.refresh_token },
+  };
 }
 
 /**
@@ -162,19 +167,53 @@ export function parseInviteDeepLink(url: string): string | null {
 // ---------------------------------------------------------------------------
 
 const KEYCHAIN_KEY = "session-token";
+const REFRESH_KEYCHAIN_KEY = "refresh-token";
+let loadingSession: Promise<AuthSession | null> | null = null;
 
-/** Restore a previously saved session; drops it if expired or unreadable. */
-export async function loadSession(): Promise<AuthSession | null> {
+/** Restore a saved session, refreshing its short-lived JWT when necessary. */
+export function loadSession(authUrl: string): Promise<AuthSession | null> {
+  if (loadingSession) return loadingSession;
+  loadingSession = restoreSession(authUrl).finally(() => {
+    loadingSession = null;
+  });
+  return loadingSession;
+}
+
+async function restoreSession(authUrl: string): Promise<AuthSession | null> {
   if (!isTauri()) return null;
   try {
-    const token = await invoke<string | null>("secret_load", { key: KEYCHAIN_KEY });
-    if (!token) return null;
+    const [token, refreshToken] = await Promise.all([
+      invoke<string | null>("secret_load", { key: KEYCHAIN_KEY }),
+      invoke<string | null>("secret_load", { key: REFRESH_KEYCHAIN_KEY }),
+    ]);
+    if (!token || !refreshToken) return null;
     const claims = decodeClaims(token);
-    if (!claims || !isLive(claims)) {
+    if (!claims) {
       await clearSession();
       return null;
     }
-    return { token, claims };
+    if (isLive(claims)) return { token, claims, refreshToken };
+
+    const resp = await fetch(`${authUrl.replace(/\/$/, "")}/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+    if (resp.status === 401) {
+      await clearSession();
+      return null;
+    }
+    if (!resp.ok) return null;
+    const data: { token?: string; refresh_token?: string } = await resp.json();
+    const refreshedClaims = data.token ? decodeClaims(data.token) : null;
+    if (!data.token || !data.refresh_token || !refreshedClaims) return null;
+    const session: AuthSession = {
+      token: data.token,
+      claims: refreshedClaims,
+      refreshToken: data.refresh_token,
+    };
+    await saveSession(session);
+    return session;
   } catch {
     return null;
   }
@@ -182,13 +221,19 @@ export async function loadSession(): Promise<AuthSession | null> {
 
 export async function saveSession(session: AuthSession): Promise<void> {
   if (!isTauri()) return;
-  await invoke("secret_save", { key: KEYCHAIN_KEY, value: session.token });
+  await Promise.all([
+    invoke("secret_save", { key: KEYCHAIN_KEY, value: session.token }),
+    invoke("secret_save", { key: REFRESH_KEYCHAIN_KEY, value: session.refreshToken }),
+  ]);
 }
 
 export async function clearSession(): Promise<void> {
   if (!isTauri()) return;
   try {
-    await invoke("secret_delete", { key: KEYCHAIN_KEY });
+    await Promise.all([
+      invoke("secret_delete", { key: KEYCHAIN_KEY }),
+      invoke("secret_delete", { key: REFRESH_KEYCHAIN_KEY }),
+    ]);
   } catch {
     /* nothing to clear */
   }

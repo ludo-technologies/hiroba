@@ -318,7 +318,7 @@ window.addEventListener("pagehide", () => {
 let authSession: AuthSession | null = null;
 
 void (async () => {
-  authSession = await loadSession();
+  authSession = await loadSession(ui.getAuthUrl());
   if (authSession) reflectAuthSession();
 })();
 
@@ -395,11 +395,15 @@ async function handleCreateOrg(name: string): Promise<void> {
     if (resp.status === 403) throw new Error(t.errAlreadyInOrg);
     if (resp.status === 401) throw new Error(t.errSessionExpired);
     if (!resp.ok) throw new Error(t.errOrgCreate);
-    const data: { token: string } = await resp.json();
+    const data: { token: string; refresh_token: string } = await resp.json();
     const claims = decodeClaims(data.token);
-    if (!claims) throw new Error(t.errOrgCreate);
+    if (!claims || !data.refresh_token) throw new Error(t.errOrgCreate);
     pendingProvisionalToken = null;
-    const session: AuthSession = { token: data.token, claims };
+    const session: AuthSession = {
+      token: data.token,
+      claims,
+      refreshToken: data.refresh_token,
+    };
     await saveSession(session);
     authSession = session;
     ui.hideOrgSetup();
@@ -563,11 +567,12 @@ async function handleOpenBilling(): Promise<void> {
 /** The token a new connection should present: a manual (Advanced) token wins,
  *  then a live OAuth session; otherwise guest. Expired sessions are dropped
  *  on the spot so we don't knock on the server with a dead JWT. */
-function effectiveToken(manual: string): string {
+async function effectiveToken(manual: string): Promise<string> {
   if (manual) return manual;
-  if (authSession && !isLive(authSession.claims)) {
-    handleLogout();
-    ui.showError(t.errSessionExpired);
+  if (!authSession || !isLive(authSession.claims)) {
+    authSession = await loadSession(ui.getAuthUrl());
+    reflectAuthSession();
+    if (!authSession) ui.showError(t.errSessionExpired);
   }
   return authSession?.token ?? "";
 }
@@ -641,7 +646,7 @@ async function connectSession(
 async function handleJoin(values: JoinFormValues): Promise<void> {
   // Resolve the token once and remember it, so auto-reconnect reuses the same
   // credential the session was opened with.
-  values = { ...values, token: effectiveToken(values.token) };
+  values = { ...values, token: await effectiveToken(values.token) };
   lastJoin = values;
   userLeaving = false;
   reconnectAttempts = 0;

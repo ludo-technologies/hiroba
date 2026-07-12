@@ -35,6 +35,8 @@ const LOGIN_TIMEOUT: Duration = Duration::from_secs(180);
 pub struct LoginResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
     #[serde(skip_serializing_if = "serde_json::Value::is_null")]
     pub claims: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -63,16 +65,12 @@ pub async fn oauth_login(
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .map_err(|e| format!("cannot bind loopback listener: {e}"))?;
-    let port = listener
-        .local_addr()
-        .map_err(|e| e.to_string())?
-        .port();
+    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     let redirect_uri = format!("http://127.0.0.1:{port}/callback");
 
     // ── System browser → backend → provider consent ───────────────────────
-    let login_url = format!(
-        "{auth_base}/login/{provider}?port={port}&challenge={challenge}&state={state}"
-    );
+    let login_url =
+        format!("{auth_base}/login/{provider}?port={port}&challenge={challenge}&state={state}");
     open::that_detached(&login_url).map_err(|e| format!("cannot open browser: {e}"))?;
 
     // ── Wait for the provider redirect ─────────────────────────────────────
@@ -113,6 +111,7 @@ pub async fn oauth_login(
             .to_string();
         return Ok(LoginResult {
             token: None,
+            refresh_token: None,
             claims: serde_json::Value::Null,
             pending: Some("org_setup".to_string()),
             provisional_token: Some(provisional),
@@ -123,8 +122,13 @@ pub async fn oauth_login(
         .as_str()
         .ok_or("token response missing token")?
         .to_string();
+    let refresh_token = body["refresh_token"]
+        .as_str()
+        .ok_or("token response missing refresh_token")?
+        .to_string();
     Ok(LoginResult {
         token: Some(token),
+        refresh_token: Some(refresh_token),
         claims: body["claims"].clone(),
         pending: None,
         provisional_token: None,
