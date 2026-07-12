@@ -187,12 +187,10 @@
     invitedCta: 'Download the app',
     downloadCtaMac: 'Download for macOS',
     downloadCtaWin: 'Download for Windows',
-    downloadCtaLinux: 'Download for Linux',
     downloadMacArm: 'macOS (Apple Silicon)',
     downloadMacIntel: 'macOS (Intel)',
     downloadMacUniversal: 'macOS',
     downloadWin: 'Windows',
-    downloadLinux: 'Linux',
     downloadMoreSep: ' \u00b7 ',
     downloadChooseMac: 'Choose your Mac version below',
 
@@ -308,7 +306,7 @@
     downloadSecNo: 'Download',
     downloadTitle: 'Download the desktop app.',
     downloadLede:
-      'Builds for macOS, Windows, and Linux, served from GitHub Releases. macOS builds are signed and notarized.',
+      'Builds for macOS and Windows, served from GitHub Releases. macOS builds are signed and notarized.',
 
     ctaDownloadHref,
   };
@@ -469,12 +467,10 @@
     invitedCta: 'アプリをダウンロード',
     downloadCtaMac: 'macOS 版をダウンロード',
     downloadCtaWin: 'Windows 版をダウンロード',
-    downloadCtaLinux: 'Linux 版をダウンロード',
     downloadMacArm: 'macOS（Apple Silicon）',
     downloadMacIntel: 'macOS（Intel）',
     downloadMacUniversal: 'macOS',
     downloadWin: 'Windows',
-    downloadLinux: 'Linux',
     downloadMoreSep: ' · ',
     downloadChooseMac: 'お使いの Mac に合わせて選んでください',
 
@@ -584,7 +580,7 @@
     downloadTitle:
       '<span class="nowrap">デスクトップアプリを</span><span class="nowrap">ダウンロード。</span>',
     downloadLede:
-      'macOS / Windows / Linux 向けのビルドを GitHub Releases で配布しています。macOS 版は署名・公証済みです。',
+      'macOS / Windows 向けのビルドを GitHub Releases で配布しています。macOS 版は署名・公証済みです。',
 
     ctaDownloadHref,
   };

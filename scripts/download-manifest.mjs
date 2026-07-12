@@ -8,12 +8,14 @@ export const RELEASE_API = `https://api.github.com/repos/${REPO}/releases/latest
 export const FALLBACK_URL = `https://github.com/${REPO}/releases/latest`;
 
 /** @type {Array<{ id: string, match: (name: string) => boolean }>} */
+// Landing CTAs only surface macOS + Windows. Linux artifacts still ship on
+// GitHub Releases for power users; they are not linked from the marketing site.
 export const PICKERS = [
   { id: 'mac-arm', match: (name) => /aarch64\.dmg$/i.test(name) },
   { id: 'mac-intel', match: (name) => /_x64\.dmg$/i.test(name) },
   { id: 'mac-universal', match: (name) => /universal\.dmg$/i.test(name) },
-  { id: 'win', match: (name) => /\.msi$/i.test(name) || /-setup\.exe$/i.test(name) },
-  { id: 'linux', match: (name) => /\.AppImage$/i.test(name) },
+  // Prefer the NSIS installer when both .exe and .msi are present.
+  { id: 'win', match: (name) => /-setup\.exe$/i.test(name) || /\.msi$/i.test(name) },
 ];
 
 /**

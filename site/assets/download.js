@@ -7,7 +7,6 @@
   const PRIMARY_LABEL = {
     mac: 'downloadCtaMac',
     win: 'downloadCtaWin',
-    linux: 'downloadCtaLinux',
     fallback: 'invitedCta',
   };
 
@@ -16,8 +15,10 @@
     'mac-intel': 'downloadMacIntel',
     'mac-universal': 'downloadMacUniversal',
     win: 'downloadWin',
-    linux: 'downloadLinux',
   };
+
+  /** Stable order for the secondary download links (primary is filtered out). */
+  const MORE_ORDER = ['mac-arm', 'mac-intel', 'mac-universal', 'win'];
 
   function t(key) {
     return window.HirobaSiteI18n?.t?.[key] ?? null;
@@ -44,8 +45,8 @@
       navigator.platform ||
       '';
     if (/Win/i.test(platform) || /Windows/i.test(ua)) return 'win';
-    if (/Linux/i.test(platform) && !/Android/i.test(ua)) return 'linux';
     if (/Mac/i.test(platform) || /Macintosh/i.test(ua)) return 'mac';
+    // Linux and other OSes: no first-class CTA; show fallback + Mac/Windows more links.
     return 'other';
   }
 
@@ -109,14 +110,12 @@
       return null;
     }
     if (osFamily === 'win' && picks.has('win')) return picks.get('win');
-    if (osFamily === 'linux' && picks.has('linux')) return picks.get('linux');
-    return picks.values().next().value ?? null;
+    return null;
   }
 
   function primaryLabelKey(osFamily) {
     if (osFamily === 'mac') return PRIMARY_LABEL.mac;
     if (osFamily === 'win') return PRIMARY_LABEL.win;
-    if (osFamily === 'linux') return PRIMARY_LABEL.linux;
     return PRIMARY_LABEL.fallback;
   }
 
@@ -164,13 +163,19 @@
     }
   }
 
+  function orderedMoreItems(picks, primary, osFamily, macArch) {
+    if (isMacArchAmbiguous(osFamily, macArch, picks)) {
+      return [picks.get('mac-arm'), picks.get('mac-intel')].filter(Boolean);
+    }
+    return MORE_ORDER.map((id) => picks.get(id))
+      .filter(Boolean)
+      .filter((p) => p.url !== primary?.url);
+  }
+
   function wireMore(container, picks, primary, osFamily, macArch) {
     if (!container) return;
     const choiceMode = isMacArchAmbiguous(osFamily, macArch, picks);
-    let items = [...picks.values()].filter((p) => p.url !== primary?.url);
-    if (choiceMode) {
-      items = [picks.get('mac-arm'), picks.get('mac-intel')].filter(Boolean);
-    }
+    const items = orderedMoreItems(picks, primary, osFamily, macArch);
     container.classList.toggle('is-choice', choiceMode);
     if (!items.length) {
       container.hidden = true;
@@ -211,7 +216,9 @@
     const macArch = osFamily === 'mac' ? await detectMacArch() : null;
     const primary = pickPrimary(picks, osFamily, macArch);
     const macAmbiguous = isMacArchAmbiguous(osFamily, macArch, picks);
-    const footerPick = macAmbiguous ? null : (primary ?? picks.values().next().value ?? null);
+    // Footer keeps a direct installer when we know the platform; otherwise the
+    // releases page (default href) is fine.
+    const footerPick = macAmbiguous ? null : primary;
 
     wirePrimary(primaryEls, primary, osFamily, macArch, picks);
     wireFooter(footerEls, footerPick);

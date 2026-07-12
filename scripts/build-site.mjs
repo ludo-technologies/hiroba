@@ -5,7 +5,7 @@
  * - Copies site/ and stamps {{ASSET_VERSION}} in HTML with a deploy-time id
  *   (git short SHA by default, or SITE_ASSET_VERSION / CF_PAGES_COMMIT_SHA).
  * - Fetches the latest GitHub Release and injects a download manifest into HTML
- *   so download buttons point at the correct .dmg/.msi/.AppImage immediately.
+ *   so download buttons point at the correct .dmg / Windows installer immediately.
  *
  * Set HIROBA_SKIP_RELEASE_FETCH=1 to build offline (download.js falls back to
  * the GitHub Releases page).
