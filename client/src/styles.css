@@ -405,6 +405,56 @@ body {
   background: var(--paper);
 }
 
+/* --- Language switcher (join card + audio settings; EN | JA pill) --- */
+
+.lang-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--edge-2);
+  border-radius: var(--radius-pill);
+  background: #fffdf8;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+/* Join card: opposite the server-settings gear */
+#lang-switch-join {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+}
+
+.lang-switch button {
+  padding: 4px 10px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink-mute);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.lang-switch button:hover {
+  color: var(--ink-soft);
+}
+
+.lang-switch button.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.lang-switch button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 /* --- Join-card gear (opens the server-settings dialog) --- */
 
 .join-settings-btn {

@@ -15,7 +15,14 @@
  */
 
 import type { SpaceDescriptor } from "./protocol.js";
-import { applyStaticI18n, locale, spaceLabel, t } from "./i18n.js";
+import {
+  applyStaticI18n,
+  locale,
+  setLocale,
+  spaceLabel,
+  t,
+  type Locale,
+} from "./i18n.js";
 import { extractInviteCode } from "./auth.js";
 import { CustomSelect, type SelectOption } from "./select.js";
 
@@ -64,9 +71,6 @@ function persistUrlDeviation(key: string, value: string, defaultValue: string): 
   if (value === defaultValue) localStorage.removeItem(key);
   else localStorage.setItem(key, value);
 }
-
-/** Primary-button label, reused across state transitions. */
-const ENTER_LABEL = t.enter;
 
 /** Side length the uploaded avatar is centre-cropped + downscaled to.
  *  256 keeps photos crisp now that floor tokens render at ~240 physical px
@@ -121,6 +125,7 @@ const elAuthLogout = $<HTMLButtonElement>("auth-logout");
 const elJoinBtn = $<HTMLButtonElement>("join-btn");
 const elJoinError = $<HTMLParagraphElement>("join-error");
 const elJoinSettingsBtn = $<HTMLButtonElement>("join-settings-btn");
+const elLangSwitchJoin = $<HTMLDivElement>("lang-switch-join");
 const elServerSettings = $<HTMLDivElement>("server-settings");
 const elServerSettingsClose = $<HTMLButtonElement>("server-settings-close");
 const elSwatches = $<HTMLDivElement>("color-swatches");
@@ -171,6 +176,7 @@ const elAudioSettings = $<HTMLDivElement>("audio-settings");
 const elAudioSettingsClose = $<HTMLButtonElement>("audio-settings-close");
 const elMicSelectHost = $<HTMLElement>("mic-device-select");
 const elSpeakerSelectHost = $<HTMLElement>("speaker-device-select");
+const elLangSwitchSettings = $<HTMLDivElement>("lang-switch-settings");
 const elMicLevelBar = $<HTMLDivElement>("mic-level-bar");
 
 const elOnboard = $<HTMLDivElement>("onboard");
@@ -299,6 +305,11 @@ export interface UICallbacks {
    * Active → (false, false), Away → (true, false), DND → (false, true).
    */
   onSetStatus(away: boolean, dnd: boolean): void;
+  /**
+   * UI language changed via the in-app switcher. Re-render dynamic strings
+   * (roster, call banner, space tabs, …) that were translated earlier.
+   */
+  onLocaleChange(): void;
 }
 
 /** Call banner mode: live conversation vs ring states. */
@@ -346,6 +357,23 @@ export class UIManager {
   private inviteToken = "";
   private inviteAuthBase = "";
 
+  // Last values for dynamic chrome so a mid-session locale switch can re-paint
+  // without round-tripping through main.ts for UI-owned state.
+  private lastMuted = true;
+  private lastPeerCount = 1;
+  private lastCall: { mode: CallBannerMode; text: string } | null = null;
+  private lastScreenSharing = false;
+  private lastCameraOn = false;
+  private lastScreenFullscreen = false;
+  private lastScreenReopenVisible = false;
+  private lastInvites: InviteEntry[] | null = null;
+  private lastMembers: MemberEntry[] | null = null;
+  private lastReconnect: { attempt: number; max: number } | null = null;
+  private lastUpdateVersion: string | null = null;
+  private lastLoginBusy = false;
+  private lastOrgSetupBusy = false;
+  private lastInviteIssueBusy = false;
+
   private readonly inviteRoleSelect: CustomSelect;
   private readonly micSelect: CustomSelect;
   private readonly speakerSelect: CustomSelect;
@@ -364,15 +392,18 @@ export class UIManager {
     });
     this.micSelect = new CustomSelect(elMicSelectHost, {
       onChange: (deviceId) => this.callbacks.onMicDeviceChange(deviceId),
+      ariaLabel: t.fieldMicrophone,
     });
     this.speakerSelect = new CustomSelect(elSpeakerSelectHost, {
       onChange: (deviceId) => this.callbacks.onSpeakerDeviceChange(deviceId),
+      ariaLabel: t.fieldSpeaker,
     });
 
     this._buildSwatches();
     this._restoreFromStorage();
     this._bindForm();
     this._bindServerSettings();
+    this._bindLangSwitch();
     this._bindAuth();
     this._bindOrgSetup();
     this._bindInvitePanel();
@@ -407,7 +438,7 @@ export class UIManager {
     this.setMuteNudge(false);
     elJoinBtn.disabled = false;
     delete elJoinBtn.dataset.connecting;
-    elJoinBtn.textContent = ENTER_LABEL;
+    elJoinBtn.textContent = t.enter;
     if (error) {
       elJoinError.textContent = error;
       elJoinError.removeAttribute("hidden");
@@ -429,7 +460,7 @@ export class UIManager {
     elJoinError.setAttribute("hidden", "");
     elJoinBtn.disabled = false;
     delete elJoinBtn.dataset.connecting;
-    elJoinBtn.textContent = ENTER_LABEL;
+    elJoinBtn.textContent = t.enter;
     // Join via Enter can leave focus stranded on a now-hidden input. Shortcuts
     // already survive that (isTypingTarget ignores [hidden] subtrees); this
     // clears the stale focus itself, as a guard against WebView focus quirks.
@@ -439,6 +470,7 @@ export class UIManager {
 
   /** Show the reconnecting overlay during auto-reconnect backoff. */
   showReconnecting(attempt: number, max: number): void {
+    this.lastReconnect = { attempt, max };
     elJoin.setAttribute("hidden", "");
     elHud.setAttribute("hidden", "");
     elSidebar.setAttribute("hidden", "");
@@ -450,6 +482,7 @@ export class UIManager {
 
   /** Update the peer count pill. `total` includes self. */
   setPeerCount(total: number): void {
+    this.lastPeerCount = total;
     elCount.textContent = total === 1 ? t.justYou : t.nHere(total);
   }
 
@@ -458,6 +491,7 @@ export class UIManager {
    * aria-pressed semantics: pressed = live (unmuted).
    */
   setMuted(muted: boolean): void {
+    this.lastMuted = muted;
     elMic.setAttribute("aria-pressed", muted ? "false" : "true");
     elMicLabel.textContent = muted ? t.muted : t.live;
     elMic.title = muted ? t.micTitleMuted : t.micTitleLive;
@@ -528,6 +562,7 @@ export class UIManager {
 
   /** Disable the login buttons while the browser dance is in flight. */
   setLoginBusy(busy: boolean): void {
+    this.lastLoginBusy = busy;
     elLoginGoogle.disabled = busy;
     elLoginGithub.disabled = busy;
     elLoginGoogleLabel.textContent = busy ? t.waitingBrowser : t.signInGoogle;
@@ -559,6 +594,109 @@ export class UIManager {
     elServerSettingsClose.addEventListener("click", () => {
       elServerSettings.setAttribute("hidden", "");
     });
+  }
+
+  /** Wire EN | JA switchers on the join card and audio-settings panel. */
+  private _bindLangSwitch(): void {
+    this._syncLangSwitch();
+    const onClick = (e: Event) => {
+      const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-lang]");
+      if (!btn) return;
+      const next = btn.dataset.lang as Locale | undefined;
+      if (next !== "en" && next !== "ja") return;
+      if (!setLocale(next)) return;
+      this._onLocaleChanged();
+    };
+    elLangSwitchJoin.addEventListener("click", onClick);
+    elLangSwitchSettings.addEventListener("click", onClick);
+  }
+
+  /** Highlight the active language on both switchers. */
+  private _syncLangSwitch(): void {
+    for (const root of [elLangSwitchJoin, elLangSwitchSettings]) {
+      for (const btn of root.querySelectorAll<HTMLButtonElement>("[data-lang]")) {
+        const active = btn.dataset.lang === locale;
+        btn.classList.toggle("active", active);
+        if (active) btn.setAttribute("aria-current", "true");
+        else btn.removeAttribute("aria-current");
+      }
+    }
+  }
+
+  /**
+   * After `setLocale`: re-apply UI-owned dynamic chrome, then let main.ts
+   * rebuild session-dependent strings (roster, call banner, tabs, …).
+   */
+  private _onLocaleChanged(): void {
+    this._syncLangSwitch();
+
+    // Invite role select labels.
+    const role = this.inviteRoleSelect.value || "member";
+    this.inviteRoleSelect.setOptions(
+      [
+        { value: "member", label: t.roleMember },
+        { value: "admin", label: t.roleAdmin },
+      ],
+      role,
+    );
+
+    // Join / auth / org-setup button labels.
+    if (elJoinBtn.dataset.connecting === "true") {
+      elJoinBtn.textContent = t.cancel;
+    } else {
+      elJoinBtn.textContent = t.enter;
+    }
+    this.setLoginBusy(this.lastLoginBusy);
+    this.setOrgSetupBusy(this.lastOrgSetupBusy);
+    this.setInviteIssueBusy(this.lastInviteIssueBusy);
+
+    // HUD chrome that UI owns directly.
+    this.setMuted(this.lastMuted);
+    this.setPeerCount(this.lastPeerCount);
+    this.setSelfStatus(this.away, this.dnd);
+    this.setScreenSharing(this.lastScreenSharing);
+    this.setCameraOn(this.lastCameraOn);
+    this.setScreenFullscreen(this.lastScreenFullscreen);
+    this.setScreenReopenVisible(this.lastScreenReopenVisible);
+
+    // Call banner button labels (text itself is re-translated by main).
+    if (this.lastCall) {
+      const mode = this.lastCall.mode;
+      if (mode === "incoming") elHangup.textContent = t.pageDecline;
+      else if (mode === "outgoing") elHangup.textContent = t.pageCancel;
+      else elHangup.textContent = t.hangUp;
+    }
+
+    // Admin panels, if they have data already loaded.
+    if (this.inviteToken) {
+      elInviteCopyLink.textContent = t.copyInviteLink;
+      elInviteCopyCode.textContent = t.copyInviteCode;
+    }
+    if (this.lastInvites && !elInvitePanel.hasAttribute("hidden")) {
+      this.renderInviteList(this.lastInvites);
+    }
+    if (this.lastMembers && !elMembersPanel.hasAttribute("hidden")) {
+      this.renderMemberList(this.lastMembers);
+    }
+
+    if (this.lastReconnect && !elReconnect.hasAttribute("hidden")) {
+      const { attempt, max } = this.lastReconnect;
+      elReconnectMsg.textContent =
+        attempt <= 1 ? t.reconnecting : t.reconnectAttempt(attempt, max);
+    }
+
+    if (this.lastUpdateVersion && !elUpdateBanner.hasAttribute("hidden")) {
+      elUpdateText.textContent = t.updateAvailable(this.lastUpdateVersion);
+      if (!elUpdateInstall.disabled) {
+        elUpdateInstall.textContent = t.updateInstall;
+      } else {
+        elUpdateInstall.textContent = t.updateDownloading;
+      }
+    }
+
+    // Device selects keep their options; only the "System default" label needs a refresh.
+    // main reopens/refills when the panel is open via onLocaleChange if needed.
+    this.callbacks.onLocaleChange();
   }
 
   private _bindAuth(): void {
@@ -604,6 +742,7 @@ export class UIManager {
   }
 
   setOrgSetupBusy(busy: boolean): void {
+    this.lastOrgSetupBusy = busy;
     elOrgSetupBtn.disabled = busy;
     elOrgSetupBtn.textContent = busy ? t.creatingOrg : t.createOrg;
   }
@@ -668,6 +807,7 @@ export class UIManager {
   }
 
   setInviteIssueBusy(busy: boolean): void {
+    this.lastInviteIssueBusy = busy;
     elInviteIssueBtn.disabled = busy;
     elInviteIssueBtn.textContent = busy ? t.issuingInvite : t.issueInvite;
   }
@@ -689,6 +829,7 @@ export class UIManager {
 
   /** Rebuild the active-invite list. */
   renderInviteList(invites: InviteEntry[]): void {
+    this.lastInvites = invites;
     elInviteList.replaceChildren();
     if (invites.length === 0) {
       const li = document.createElement("li");
@@ -753,6 +894,7 @@ export class UIManager {
   /** Rebuild the member list. Removal is two-step (arm, then confirm) so a
    *  stray click can't kick someone; re-rendering resets any armed button. */
   renderMemberList(members: MemberEntry[]): void {
+    this.lastMembers = members;
     elMemberList.replaceChildren();
     for (const m of members) {
       const li = document.createElement("li");
@@ -1039,6 +1181,7 @@ export class UIManager {
    * - `incoming`: answer + decline
    */
   setCall(state: { mode: CallBannerMode; text: string } | null): void {
+    this.lastCall = state;
     if (!state) {
       elCallBanner.setAttribute("hidden", "");
       elCallBanner.removeAttribute("data-mode");
@@ -1063,6 +1206,7 @@ export class UIManager {
 
   /** Reflect whether the local user is currently sharing their screen. */
   setScreenSharing(sharing: boolean): void {
+    this.lastScreenSharing = sharing;
     elScreenShare.textContent = sharing ? t.stopSharing : t.shareScreen;
     elScreenShare.title = sharing ? t.stopSharingTitle : t.shareScreenTitle;
     elScreenShare.setAttribute("aria-pressed", sharing ? "true" : "false");
@@ -1070,6 +1214,7 @@ export class UIManager {
 
   /** Reflect whether the local user is currently sending their camera. */
   setCameraOn(on: boolean): void {
+    this.lastCameraOn = on;
     elCameraToggle.textContent = on ? t.cameraOff : t.cameraOn;
     elCameraToggle.title = on ? t.cameraOffTitle : t.cameraOnTitle;
     elCameraToggle.setAttribute("aria-pressed", on ? "true" : "false");
@@ -1098,6 +1243,7 @@ export class UIManager {
 
   /** Expand or restore the screen-share panel to fill the window. */
   setScreenFullscreen(fullscreen: boolean): void {
+    this.lastScreenFullscreen = fullscreen;
     elScreenPanel.classList.toggle("fullscreen", fullscreen);
     elScreenFullscreen.textContent = fullscreen ? "⤡" : "⤢";
     elScreenFullscreen.title = fullscreen ? t.exitFullscreen : t.enterFullscreen;
@@ -1106,6 +1252,7 @@ export class UIManager {
 
   /** Offer to reopen a dismissed remote screen-share panel. */
   setScreenReopenVisible(visible: boolean): void {
+    this.lastScreenReopenVisible = visible;
     if (visible) {
       elScreenReopen.title = t.viewScreenTitle;
       elScreenReopen.removeAttribute("hidden");
@@ -1146,6 +1293,7 @@ export class UIManager {
 
   /** Offer an available update. `onInstall` downloads, installs, relaunches. */
   showUpdateBanner(version: string, onInstall: () => void): void {
+    this.lastUpdateVersion = version;
     elUpdateText.textContent = t.updateAvailable(version);
     elUpdateInstall.disabled = false;
     elUpdateInstall.textContent = t.updateInstall;

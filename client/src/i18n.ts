@@ -1,9 +1,13 @@
 /**
  * i18n.ts — UI strings for Hiroba, in English and Japanese.
  *
- * The locale is picked once at boot from `navigator.language` (ja → Japanese,
- * anything else → English) so the whole UI speaks ONE language — previously the
- * roster spoke Japanese while the chrome spoke English.
+ * Locale resolution (first match wins):
+ *   1. `localStorage` key `hiroba_locale` (user choice from the in-app switcher)
+ *   2. `navigator.language` (ja → Japanese, anything else → English)
+ *
+ * The whole UI speaks ONE language. `setLocale()` updates the live catalog,
+ * rewrites static `data-i18n*` nodes, and persists the choice so the next boot
+ * matches. Dynamic strings re-read `t` / `locale` (ESM live bindings).
  *
  * Static DOM nodes opt in via `data-i18n` (textContent), `data-i18n-placeholder`,
  * `data-i18n-title`, and `data-i18n-arialabel` attributes resolved by
@@ -13,10 +17,22 @@
 
 export type Locale = "en" | "ja";
 
-export const locale: Locale =
-  typeof navigator !== "undefined" && /^ja\b/i.test(navigator.language ?? "")
+const LS_LOCALE = "hiroba_locale";
+
+function detectLocale(): Locale {
+  try {
+    const saved = localStorage.getItem(LS_LOCALE);
+    if (saved === "en" || saved === "ja") return saved;
+  } catch {
+    /* private mode / unavailable storage — fall through */
+  }
+  return typeof navigator !== "undefined" && /^ja\b/i.test(navigator.language ?? "")
     ? "ja"
     : "en";
+}
+
+/** Active UI locale. Reassigned by {@link setLocale}; importers see the live binding. */
+export let locale: Locale = detectLocale();
 
 const EN = {
   // Join card
@@ -133,6 +149,8 @@ const EN = {
   audioSettingsTitle: "Audio settings",
   fieldMicrophone: "Microphone",
   fieldSpeaker: "Speaker",
+  fieldLanguage: "Language",
+  langAriaLabel: "Language",
   micLevelAria: "Microphone input level",
   defaultDevice: "System default",
 
@@ -327,6 +345,8 @@ const JA: typeof EN = {
   audioSettingsTitle: "オーディオ設定",
   fieldMicrophone: "マイク",
   fieldSpeaker: "スピーカー",
+  fieldLanguage: "言語",
+  langAriaLabel: "言語",
   micLevelAria: "マイクの入力レベル",
   defaultDevice: "システムのデフォルト",
 
@@ -405,8 +425,27 @@ const JA: typeof EN = {
   pageMissed: (name: string) => `${name} からの着信に応答できませんでした。`,
 };
 
-/** The active message catalog. */
-export const t: typeof EN = locale === "ja" ? JA : EN;
+/** The active message catalog. Reassigned by {@link setLocale}. */
+export let t: typeof EN = locale === "ja" ? JA : EN;
+
+/**
+ * Switch the UI language, persist the choice, and rewrite static `data-i18n*`
+ * nodes. Returns `true` when the locale actually changed. Callers that hold
+ * dynamic strings (roster labels, call banner, …) should re-render afterward.
+ */
+export function setLocale(next: Locale): boolean {
+  if (next !== "en" && next !== "ja") return false;
+  if (next === locale) return false;
+  locale = next;
+  t = next === "ja" ? JA : EN;
+  try {
+    localStorage.setItem(LS_LOCALE, next);
+  } catch {
+    /* still switch in-memory even if persistence fails */
+  }
+  applyStaticI18n();
+  return true;
+}
 
 /**
  * Localized display name for a space. Built-in spaces (the server's stable
@@ -419,11 +458,13 @@ export function spaceLabel(id: string, name: string): string {
 }
 
 /**
- * Resolve `data-i18n*` attributes on static DOM nodes. Call once at boot,
- * before the first paint the user can read. Keys must name string entries in
- * the catalog; parameterized (function) entries are dynamic-only.
+ * Resolve `data-i18n*` attributes on static DOM nodes. Call at boot and after
+ * every {@link setLocale}. Keys must name string entries in the catalog;
+ * parameterized (function) entries are dynamic-only.
  */
 export function applyStaticI18n(): void {
+  // No-op outside a browser (unit tests import the catalog without a DOM).
+  if (typeof document === "undefined") return;
   document.documentElement.lang = locale;
   const dict = t as Record<string, unknown>;
   const text = (key: string | undefined): string | null => {

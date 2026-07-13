@@ -178,6 +178,7 @@ const ui = new UIManager(
     onCloseScreenShare: handleCloseScreenShare,
     onReopenScreenShare: handleReopenScreenShare,
     onSetStatus: handleSetStatus,
+    onLocaleChange: handleLocaleChange,
   },
   { tauri: isTauri() },
 );
@@ -1564,6 +1565,62 @@ function handleOpenAudioSettings(): void {
 function handleCloseAudioSettings(): void {
   cancelAnimationFrame(audioSettingsRaf);
   session?.audio.stopMicPreview();
+}
+
+/**
+ * In-app language switch: re-translate session-dependent chrome that was
+ * rendered with the previous locale (roster labels, call banner text, space
+ * tabs, screen-share titles, device "System default" label).
+ */
+function handleLocaleChange(): void {
+  if (!session) return;
+
+  rebuildRoster();
+  setPeerCount();
+  ui.setMuted(session.audio.isMuted);
+  ui.setSelfStatus(session.away, session.dnd);
+  ui.renderTabs(session.spaces, session.spaceId);
+  updateCallBanner();
+
+  // Screen-share / camera titles and button labels.
+  ui.setScreenSharing(session.audio.isScreenSharing);
+  ui.setCameraOn(session.audio.isCameraOn);
+  if (session.visibleScreen?.kind === "local") {
+    const stream = session.audio.screenShareStream ?? session.audio.cameraStream;
+    if (stream) {
+      ui.setScreenShareView(
+        stream,
+        session.audio.isCameraOn ? t.yourCamera : t.yourScreen,
+        true,
+      );
+    }
+  } else if (session.visibleScreen?.kind === "remote") {
+    const entry = session.remoteVideos.get(session.visibleScreen.peerId);
+    if (entry) {
+      ui.setScreenShareView(
+        entry.stream,
+        videoTitle(
+          entry.mode,
+          session.pages.get(session.visibleScreen.peerId) ?? session.visibleScreen.peerId,
+        ),
+        false,
+      );
+    }
+  }
+  syncScreenReopenButton();
+
+  // Audio-settings panel: refill so "System default" / field labels match.
+  if (!document.getElementById("audio-settings")?.hasAttribute("hidden")) {
+    void session.audio.listDevices().then(({ inputs, outputs }) => {
+      if (!session) return;
+      ui.openAudioSettings(
+        inputs.map((d) => ({ id: d.deviceId, label: d.label })),
+        outputs.map((d) => ({ id: d.deviceId, label: d.label })),
+        session.audio.micDevice ?? "",
+        session.audio.speakerDevice ?? "",
+      );
+    });
+  }
 }
 
 async function handleMicDeviceChange(deviceId: string): Promise<void> {

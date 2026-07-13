@@ -31,6 +31,17 @@
     <!-- Join overlay (guest entry); hidden once connected -->
     <div id="join" class="overlay">
       <form id="join-form" class="card" novalidate>
+        <!-- Language switcher (persisted; mirrors the marketing site). -->
+        <div
+          id="lang-switch-join"
+          class="lang-switch"
+          role="group"
+          data-i18n-arialabel="langAriaLabel"
+          aria-label="Language"
+        >
+          <button type="button" data-lang="en" lang="en">EN</button>
+          <button type="button" data-lang="ja" lang="ja">JA</button>
+        </div>
         <!-- Self-host connection details live behind this gear (rarely used;
              irrelevant on the hosted service). -->
         <button
@@ -473,6 +484,19 @@
           <span class="field-label" data-i18n="fieldSpeaker">Speaker</span>
           <div id="speaker-device-select"></div>
         </label>
+        <div class="field">
+          <span class="field-label" data-i18n="fieldLanguage">Language</span>
+          <div
+            id="lang-switch-settings"
+            class="lang-switch"
+            role="group"
+            data-i18n-arialabel="langAriaLabel"
+            aria-label="Language"
+          >
+            <button type="button" data-lang="en" lang="en">EN</button>
+            <button type="button" data-lang="ja" lang="ja">JA</button>
+          </div>
+        </div>
       </div>
     </div>
 
