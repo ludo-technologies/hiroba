@@ -409,6 +409,7 @@ body {
 
 .lang-switch {
   display: inline-flex;
+  align-self: flex-start;
   align-items: center;
   gap: 2px;
   padding: 2px;
