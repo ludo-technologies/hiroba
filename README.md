@@ -1,34 +1,51 @@
 <div align="center">
 
+[English](README.md) | [日本語](README.ja.md)
+
 # Hiroba
 
-**A presence-first, ultra-light 2D virtual office.**
+**An open-source, always-on presence app for remote teams.**
 
-*Built to be left running all day and forgotten — not a meeting tool.*
+See who's around. Walk over. Start talking.
 
+[![Latest release](https://img.shields.io/github/v/release/ludo-technologies/hiroba?label=release)](https://github.com/ludo-technologies/hiroba/releases/latest)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
+<img src="docs/hiroba-demo.gif" width="900" alt="An avatar walks over to a teammate and starts a voice conversation in Hiroba">
+
+[**Download Hiroba**](https://github.com/ludo-technologies/hiroba/releases/latest) · [Self-hosting guide](docs/SELF_HOSTING.md) · [Protocol](PROTOCOL.md)
 
 </div>
 
----
+## Why Hiroba
 
-Existing virtual-office tools grew into "meeting-tool replacements" — video,
-screen share, rooms, recording, integrations — and got **heavy**. Hiroba goes the
-other way. It keeps only the core of *being somewhere together*:
+Remote teams already have tools for scheduled meetings. What they lose is the
+small moment before a conversation: seeing that someone is around, walking over,
+and asking, "Got a sec?"
 
-1. **You're here** — your avatar is in a space (a lobby or a small team room).
-2. **You can see who's around** — an always-visible org roster shows who's where
-   and what they're doing (in this space / in a call / away / DND).
-3. **You can move**, and switch spaces with a tab.
-4. **Talk by being near** — proximity spatial voice in the lobby; a team room is
-   effectively one small group call. **Or call anyone with one click** — a
-   cross-space 1:1 that rings first; the other side answers or declines.
-5. **It's light enough to forget** — idle CPU ≈ 0%, memory in the tens of MB.
+Most virtual offices try to replace meeting software and grow heavy with video,
+recording, and integrations. Hiroba goes the other way:
 
-No always-on video, no recording, no SFU. Just an org floor of small spaces,
-points that move around, and voice that fades in as you get close. During a
-1:1 page call you can optionally share your screen to that peer only — not a
-meeting-room feature.
+- **Presence at a glance** — see who is active, away, busy, or already in a call.
+- **Conversation without ceremony** — walk over for spatial voice, or page
+  someone directly from the roster.
+- **Light by design** — a native Tauri client built to stay open all day, not an
+  Electron meeting suite.
+- **Open and self-hostable** — run the Rust server yourself with no seat limits
+  or feature gating, or use the managed hosted edition.
+
+Keep your existing meeting tool. Hiroba is for everything between the meetings.
+
+## How It Works
+
+1. Join your organization's floor and see where everyone is.
+2. Move through the lobby or switch to a small team space.
+3. Walk near someone to talk, or call any teammate with one click.
+4. Leave Hiroba running so the floor is there when your team needs it.
+
+Voice is WebRTC peer-to-peer. There is no always-on video, recording, or SFU.
+During a 1:1 page call, you can optionally share your screen directly with that
+peer.
 
 ## Architecture
 
@@ -59,7 +76,7 @@ in that space. The wire format is specified in [`PROTOCOL.md`](PROTOCOL.md).
   TypeScript + Canvas 2D frontend. Uses the OS WebView's built-in WebRTC, so the
   binary is far smaller and lighter than an Electron app.
 
-## Quick start (development)
+## Quick Start (Development)
 
 Prerequisites: **Rust** (stable), **Node** 18+, and the
 [Tauri v2 system dependencies](https://tauri.app/start/prerequisites/) for your OS.
@@ -85,7 +102,7 @@ spatial voice fade in, or switch both to the same team tab for a group call.
 Controls: **WASD / arrow keys** to move; the **tabs** (top) switch spaces; the
 **sidebar** lists the org — hit **Call** next to a member to page them.
 
-## Building release artifacts
+## Building Release Artifacts
 
 ```bash
 # Server: a single optimized binary at server/target/release/hiroba-server
@@ -100,7 +117,7 @@ VITE_HIROBA_AUTH_SERVER="https://auth.hiroba.example" \
 npm run tauri build
 ```
 
-## Self-hosting
+## Self-Hosting
 
 The server is a single binary with no required external services (no media
 server; optional SQLite via `HIROBA_DB`). See
@@ -110,7 +127,7 @@ firewall/NAT notes, and when you might need a TURN server.
 A managed hosted edition (OAuth sign-in, invites, billing) is offered separately
 and is not part of this repository.
 
-## Landing page
+## Landing Page
 
 The marketing site (landing + pricing) lives in [`site/`](site/) as a
 dependency-free static site. Preview it locally with `make site`.
