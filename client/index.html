@@ -31,17 +31,6 @@
     <!-- Join overlay (guest entry); hidden once connected -->
     <div id="join" class="overlay">
       <form id="join-form" class="card" novalidate>
-        <!-- Language switcher (persisted; mirrors the marketing site). -->
-        <div
-          id="lang-switch-join"
-          class="lang-switch"
-          role="group"
-          data-i18n-arialabel="langAriaLabel"
-          aria-label="Language"
-        >
-          <button type="button" data-lang="en" lang="en">EN</button>
-          <button type="button" data-lang="ja" lang="ja">JA</button>
-        </div>
         <!-- Self-host connection details live behind this gear (rarely used;
              irrelevant on the hosted service). -->
         <button
@@ -197,6 +186,19 @@
           <span id="server-settings-title" class="invite-title" data-i18n="serverSettings">Server settings</span>
           <button id="server-settings-close" type="button" class="ghost-btn" data-i18n="closePanel">Close</button>
         </header>
+        <div class="field">
+          <span class="field-label" data-i18n="fieldLanguage">Language</span>
+          <div
+            id="lang-switch-server-settings"
+            class="lang-switch"
+            role="group"
+            data-i18n-arialabel="langAriaLabel"
+            aria-label="Language"
+          >
+            <button type="button" data-lang="en" lang="en">EN</button>
+            <button type="button" data-lang="ja" lang="ja">JA</button>
+          </div>
+        </div>
         <label class="field">
           <span class="field-label" data-i18n="fieldServer">Server</span>
           <!-- value seeded from ui.ts (VITE_HIROBA_SERVER or loopback) -->

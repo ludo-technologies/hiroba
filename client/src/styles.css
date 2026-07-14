@@ -405,7 +405,7 @@ body {
   background: var(--paper);
 }
 
-/* --- Language switcher (join card + audio settings; EN | JA pill) --- */
+/* --- Language switcher (server settings + audio settings; EN | JA pill) --- */
 
 .lang-switch {
   display: inline-flex;
@@ -418,13 +418,6 @@ body {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.04em;
-}
-
-/* Join card: opposite the server-settings gear */
-#lang-switch-join {
-  position: absolute;
-  top: 14px;
-  left: 14px;
 }
 
 .lang-switch button {

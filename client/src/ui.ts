@@ -125,9 +125,9 @@ const elAuthLogout = $<HTMLButtonElement>("auth-logout");
 const elJoinBtn = $<HTMLButtonElement>("join-btn");
 const elJoinError = $<HTMLParagraphElement>("join-error");
 const elJoinSettingsBtn = $<HTMLButtonElement>("join-settings-btn");
-const elLangSwitchJoin = $<HTMLDivElement>("lang-switch-join");
 const elServerSettings = $<HTMLDivElement>("server-settings");
 const elServerSettingsClose = $<HTMLButtonElement>("server-settings-close");
+const elLangSwitchServerSettings = $<HTMLDivElement>("lang-switch-server-settings");
 const elSwatches = $<HTMLDivElement>("color-swatches");
 const elAvatar = $<HTMLButtonElement>("avatar-preview");
 const elAvatarInitial = $<HTMLSpanElement>("avatar-initial");
@@ -596,7 +596,7 @@ export class UIManager {
     });
   }
 
-  /** Wire EN | JA switchers on the join card and audio-settings panel. */
+  /** Wire EN | JA switchers on the server-settings dialog and audio-settings panel. */
   private _bindLangSwitch(): void {
     this._syncLangSwitch();
     const onClick = (e: Event) => {
@@ -607,13 +607,13 @@ export class UIManager {
       if (!setLocale(next)) return;
       this._onLocaleChanged();
     };
-    elLangSwitchJoin.addEventListener("click", onClick);
+    elLangSwitchServerSettings.addEventListener("click", onClick);
     elLangSwitchSettings.addEventListener("click", onClick);
   }
 
   /** Highlight the active language on both switchers. */
   private _syncLangSwitch(): void {
-    for (const root of [elLangSwitchJoin, elLangSwitchSettings]) {
+    for (const root of [elLangSwitchServerSettings, elLangSwitchSettings]) {
       for (const btn of root.querySelectorAll<HTMLButtonElement>("[data-lang]")) {
         const active = btn.dataset.lang === locale;
         btn.classList.toggle("active", active);
