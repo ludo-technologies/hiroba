@@ -190,13 +190,77 @@
   // Commons seats are the last 5 on the lobby plan (see buildLobbyFloor).
   const COMMONS_SEATS = { first: FLOORS.lobby.seats.length - 5, count: 5 };
 
+  /* ----- hardcoded illustrated avatars (flat icon, not stock photos) -----
+     Each member gets a tiny inline SVG "bust" (hair/skin/glasses vary per
+     person; shirt color ties back to their roster dot). Encoded as a data
+     URI so the demo stays dependency-free and network-free. */
+  const INK = '#2a1f16';
+  function hairPath(style, hair) {
+    switch (style) {
+      case 'long':
+        return `<path d="M19 23c0-9 6-15 13-15s13 6 13 15c0-3-2-5-5-5-2-4-5-6-8-6s-6 2-8 6c-3 0-5 2-5 5z" fill="${hair}"/>
+          <path d="M18 23c-1.5 6-1.5 15-0.5 22l5 0.6c-1.5-7-1.5-16 0-22.6z" fill="${hair}"/>
+          <path d="M46 23c1.5 6 1.5 15 0.5 22l-5 0.6c1.5-7 1.5-16 0-22.6z" fill="${hair}"/>`;
+      case 'bun':
+        return `<path d="M20 21c0-8 5-13 12-13s12 5 12 13c0-2-2-4-4-4-2-3-5-4-8-4s-6 1-8 4c-2 0-4 2-4 4z" fill="${hair}"/>
+          <circle cx="32" cy="7" r="4" fill="${hair}"/>`;
+      case 'buzz':
+        return `<path d="M20 22c0-8 5-12 12-12s12 4 12 12c-1-2-3-3-4-3-2-2-5-4-8-4s-6 2-8 4c-1 0-3 1-4 3z" fill="${hair}"/>`;
+      case 'fringe':
+        return `<path d="M19 23c0-9 6-15 13-15s13 6 13 15c-1.5-1.5-2-3-3.5-1.5-1-2-2-3.5-3.5-1.5-1-2-2-3.5-3.5-1.5-1-2-2-3.5-3.5-1.5-1-2-2-3.5-3.5-1.5-1.5-1.5-2 0-3.5 1.5z" fill="${hair}"/>`;
+      default: // short
+        return `<path d="M19 23c0-9 6-15 13-15s13 6 13 15c0-3-2-5-5-4-2-3-5-5-8-5s-6 2-8 5c-3-1-5 1-5 4z" fill="${hair}"/>`;
+    }
+  }
+  function avatarDataUri({ shirt, skin, hair, hairStyle, glasses }) {
+    const bg = lighten(shirt, 0.84);
+    const glassesSvg = glasses
+      ? `<g fill="none" stroke="${INK}" stroke-width="1.4" stroke-linecap="round">
+          <circle cx="26.5" cy="25" r="4"/>
+          <circle cx="37.5" cy="25" r="4"/>
+          <path d="M30.5 25h2"/>
+          <path d="M22.5 24l-3-1"/>
+          <path d="M41.5 24l3-1"/>
+        </g>`
+      : '';
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="32" fill="${bg}"/>
+      <path d="M9 66c1-18 10-27 23-27s22 6 23 27z" fill="${shirt}"/>
+      <rect x="27.5" y="33" width="9" height="8" rx="3.5" fill="${skin}"/>
+      <circle cx="32" cy="24" r="13" fill="${skin}"/>
+      ${hairPath(hairStyle, hair)}
+      <circle cx="27.2" cy="25" r="1.5" fill="${INK}"/>
+      <circle cx="36.8" cy="25" r="1.5" fill="${INK}"/>
+      <path d="M27.5 30.5c2 1.8 7 1.8 9 0" fill="none" stroke="${INK}" stroke-width="1.6" stroke-linecap="round"/>
+      ${glassesSvg}
+    </svg>`;
+    return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+  }
+
+  const avatarImages = new Map();
+  /** The decoded avatar image for a member, or null while it's still
+   * decoding (caller falls back to the initial letter; onload wakes a
+   * reduced-motion redraw so the photo swaps in once ready). */
+  function avatarImage(src) {
+    let img = avatarImages.get(src);
+    if (!img) {
+      img = new Image();
+      img.onload = () => {
+        if (reduced) draw(0);
+      };
+      img.src = src;
+      avatarImages.set(src, img);
+    }
+    return img.complete && img.naturalWidth > 0 ? img : null;
+  }
+
   const members = [
-    { id: 'self', color: '#d8552e', space: 'lobby', self: true },
-    { id: 'ren', color: '#5a8f6a', space: 'lobby' },
-    { id: 'yuu', color: '#34506b', space: 'dev' },
-    { id: 'kan', color: '#c0913b', space: 'dev', call: true },
-    { id: 'hina', color: '#8d6a9f', space: 'design', dnd: true, muted: true },
-    { id: 'miu', color: '#a99e8c', space: null, away: true },
+    { id: 'self', color: '#d8552e', space: 'lobby', self: true, skin: '#e8b48a', hair: '#3b2a1e', hairStyle: 'short', glasses: false },
+    { id: 'ren', color: '#5a8f6a', space: 'lobby', skin: '#c98a5c', hair: '#4a2f1d', hairStyle: 'long', glasses: false },
+    { id: 'yuu', color: '#34506b', space: 'dev', skin: '#f0c9a0', hair: '#1f1f1f', hairStyle: 'fringe', glasses: true },
+    { id: 'kan', color: '#c0913b', space: 'dev', call: true, skin: '#c98a5c', hair: '#2a2018', hairStyle: 'buzz', glasses: false },
+    { id: 'hina', color: '#8d6a9f', space: 'design', dnd: true, muted: true, skin: '#e8b48a', hair: '#5a3a24', hairStyle: 'bun', glasses: true },
+    { id: 'miu', color: '#a99e8c', space: null, away: true, skin: '#f0c9a0', hair: '#6b4a2e', hairStyle: 'short', glasses: false },
   ];
   members.forEach((m, i) => {
     m.seed = i * 1.7;
@@ -204,6 +268,7 @@
     m.fade = 0; // -1 leaving, +1 entering, 0 settled
     m.level = 0; // smoothed speaking level 0..1
     m.walking = false;
+    m.avatar = avatarDataUri({ shirt: m.color, skin: m.skin, hair: m.hair, hairStyle: m.hairStyle, glasses: m.glasses });
   });
   const memberName = (m) => {
     const key = `demoMember${m.id.charAt(0).toUpperCase()}${m.id.slice(1)}`;
@@ -664,13 +729,23 @@
     ctx.fillStyle = body;
     ctx.fill();
 
-    // initial letter
+    // face: illustrated avatar (circle-clipped), else the initial letter
     const name = memberName(m);
-    ctx.fillStyle = pickInk(m.color);
-    ctx.font = `600 ${Math.max(9, Math.round(r * 0.72))}px ${FONT_FAMILY}`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText((name[0] ?? '?').toUpperCase(), sx, sy + 0.5);
+    const photo = m.avatar ? avatarImage(m.avatar) : null;
+    if (photo) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(sx, sy, r, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.drawImage(photo, sx - r, sy - r, r * 2, r * 2);
+      ctx.restore();
+    } else {
+      ctx.fillStyle = pickInk(m.color);
+      ctx.font = `600 ${Math.max(9, Math.round(r * 0.72))}px ${FONT_FAMILY}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText((name[0] ?? '?').toUpperCase(), sx, sy + 0.5);
+    }
 
     ctx.beginPath();
     ctx.arc(sx, sy, r, 0, Math.PI * 2);
