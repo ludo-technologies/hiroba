@@ -135,12 +135,14 @@
     el.removeAttribute('rel');
   }
 
-  function wirePrimary(els, pick, osFamily, macArch, picks) {
+  function wirePrimary(els, pick, osFamily, macArch, picks, hasChoiceUi) {
     const ambiguous = isMacArchAmbiguous(osFamily, macArch, picks);
     const label = txt(primaryLabelKey(osFamily), 'Download the app');
     for (const el of els) {
       if (ambiguous) {
-        el.hidden = true;
+        // Arch unknown (e.g. Safari masks it): keep the CTA visible and send
+        // it to the in-page arch chooser; default href (releases page) otherwise.
+        if (hasChoiceUi) el.href = '#download';
         continue;
       }
       if (!pick) continue;
@@ -220,7 +222,7 @@
     // releases page (default href) is fine.
     const footerPick = macAmbiguous ? null : primary;
 
-    wirePrimary(primaryEls, primary, osFamily, macArch, picks);
+    wirePrimary(primaryEls, primary, osFamily, macArch, picks, Boolean(moreEl));
     wireFooter(footerEls, footerPick);
     wireMore(moreEl, picks, primary, osFamily, macArch);
   }
