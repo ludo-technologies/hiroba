@@ -1,11 +1,17 @@
 /**
  * updater.ts — Desktop auto-update (Tauri updater plugin).
  *
- * Checks the release feed (`latest.json` on GitHub Releases, endpoint baked in
- * via tauri.conf.json) shortly after launch and every few hours while the app
- * stays open — an office app routinely runs for days. When a newer signed
- * build exists, ui.ts shows a calm banner; one click downloads, installs, and
- * relaunches.
+ * Checks the release feed (endpoints baked in via tauri.conf.json) shortly
+ * after launch and every few hours while the app stays open — an office app
+ * routinely runs for days. When a newer signed build exists, ui.ts shows a
+ * calm banner; one click downloads, installs, and relaunches.
+ *
+ * The check keeps running on its interval even after the banner has been
+ * shown. It costs one small request, and it is what tells us the install is
+ * still alive — an app that stopped checking in is indistinguishable from one
+ * that was deleted. `offered` therefore suppresses the *banner*, not the
+ * request: a user who ignored the banner should not be nagged every four
+ * hours, but they should still be counted.
  *
  * Failures never interrupt the user: a failed check only logs (offline is
  * normal), a failed install re-arms the banner with a toast. Runs only under
@@ -24,7 +30,8 @@ const FIRST_CHECK_DELAY_MS = 5_000;
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
 /** Latched once a banner has been offered; the next launch offers again.
- *  Keeps a dismissed banner from re-appearing every interval. */
+ *  Keeps a dismissed banner from re-appearing every interval — the check
+ *  itself still runs, see the module comment. */
 let offered = false;
 
 /** Begin periodic update checks. Call once at startup; no-op outside Tauri. */
@@ -35,7 +42,6 @@ export function startUpdateChecks(ui: UIManager): void {
 }
 
 async function checkOnce(ui: UIManager): Promise<void> {
-  if (offered) return;
   let update;
   try {
     update = await check();
@@ -45,6 +51,15 @@ async function checkOnce(ui: UIManager): Promise<void> {
     return;
   }
   if (!update) return;
+
+  // Banner already offered this session. `check()` hands back a Rust-side
+  // Resource, so the one we are not going to use has to be released — without
+  // this, staying on an old build would leak a handle every interval.
+  if (offered) {
+    await update.close().catch(() => {});
+    return;
+  }
+
   offered = true;
   ui.showUpdateBanner(update.version, () => {
     void (async () => {
