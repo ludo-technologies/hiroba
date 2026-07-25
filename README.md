@@ -127,6 +127,30 @@ firewall/NAT notes, and when you might need a TURN server.
 A managed hosted edition (OAuth sign-in, invites, billing) is offered separately
 and is not part of this repository.
 
+## Update Checks
+
+Official builds check for updates shortly after launch and every four hours
+while the app stays open. The check is a plain `GET` to
+
+```
+https://update.hirobaoffice.com/v1/{{target}}/{{arch}}/{{current_version}}
+```
+
+which returns the same signed `latest.json` that GitHub Releases serves, and
+the update itself still downloads from GitHub. We log one row per day per
+device from those requests: platform, architecture, installed version, and the
+country Cloudflare derives from the IP. The device is recorded as a hash of IP
+and user agent salted with the current date, so rows cannot be linked across
+days, and they are deleted after 90 days.
+
+There is no other telemetry: nothing about your org, floor, teammates, calls,
+or usage of the app is collected, and the server ships no analytics SDK.
+
+To turn the check off, remove `plugins.updater.endpoints` from
+`client/src-tauri/tauri.conf.json` and build from source — see
+[docs/SELF_HOSTING.md](docs/SELF_HOSTING.md#auto-update). Self-hosted
+deployments that build their own client never contact us at all.
+
 ## Landing Page
 
 The marketing site (landing + pricing) lives in [`site/`](site/) as a

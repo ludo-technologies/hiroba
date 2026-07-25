@@ -145,10 +145,17 @@ npm run tauri build
 A user's own *Advanced* override (saved in the app) still wins over the baked-in
 default.
 
+<a id="auto-update"></a>
+
 **Auto-update**: the app ships with the Tauri updater enabled, and the config
-in `client/src-tauri/tauri.conf.json` points at the upstream Hiroba GitHub
-releases with the upstream signing pubkey. If you distribute your own build,
-either
+in `client/src-tauri/tauri.conf.json` points at the upstream Hiroba release
+feed with the upstream signing pubkey. Two endpoints are listed and tried in
+order: `update.hirobaoffice.com`, which serves the feed and counts daily unique
+devices (see [Update Checks](../README.md#update-checks) for exactly what is
+recorded), and the GitHub Releases URL as a fallback if the first is
+unreachable. Bundles download from GitHub either way.
+
+If you distribute your own build, either
 
 - **replace** `plugins.updater.pubkey` / `endpoints` with your own (generate a
   keypair with `npm run tauri signer generate`, host your own `latest.json`,
