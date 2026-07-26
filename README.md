@@ -151,17 +151,12 @@ To turn the check off, remove `plugins.updater.endpoints` from
 [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md#auto-update). Self-hosted
 deployments that build their own client never contact us at all.
 
-## Landing Page
-
-The marketing site (landing + pricing) lives in [`site/`](site/) as a
-dependency-free static site. Preview it locally with `make site`.
-
 ## License
 
 [Apache-2.0](LICENSE). Includes a patent grant.
 
-**Brand assets are not covered by Apache-2.0.** The "Hiroba" name, logo, app
-icons (`app-icon.png`, `app-icon-macos.png`), site favicon, and brand assets
-under `site/` are excluded from the Apache-2.0 license grant. They may not be
-used to brand a fork or a derived service without permission. Everything else
-— code, docs, protocol — is Apache-2.0.
+**Brand assets are not covered by Apache-2.0.** The "Hiroba" name, logo, and
+app icons (`app-icon.png`, `app-icon-macos.png`) are excluded from the
+Apache-2.0 license grant. They may not be used to brand a fork or a derived
+service without permission. Everything else — code, docs, protocol — is
+Apache-2.0.

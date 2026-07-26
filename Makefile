@@ -5,9 +5,6 @@
 #   make server      # run only the WebSocket server (foreground)
 #   make client      # run only the desktop app (assumes a server is already up)
 #   make bundle      # produce the release .app / .dmg
-#   make site        # build + serve the landing site at http://127.0.0.1:8000
-#   make site-build  # build site/ → site-dist/ (asset ?v=<git sha>)
-#   make site-deploy # build + wrangler pages deploy
 #   make smoke       # run the protocol smoke test against a running server
 #   make auth-smoke  # run the auth/multi-tenant smoke (starts a JWT-mode server)
 #   make test        # unit tests: server (cargo), client (npm)
@@ -22,7 +19,7 @@ SERVER_MANIFEST := server/Cargo.toml
 SERVER_BIN := server/target/release/hiroba-server
 HIROBA_ADDR ?= 127.0.0.1:8787
 
-.PHONY: dev server client build-server bundle site site-build site-deploy smoke auth-smoke test
+.PHONY: dev server client build-server bundle smoke auth-smoke test
 
 dev: build-server
 	@echo "▶ starting hiroba-server on $(HIROBA_ADDR) (background)…"
@@ -44,18 +41,6 @@ client:
 
 bundle:
 	@cd client && npm run tauri build
-
-# Landing site: static site under site/, built to site-dist/ for deploy.
-SITE_PORT ?= 8000
-site-build:
-	@node scripts/build-site.mjs
-
-site: site-build
-	@echo "▶ serving site-dist/ at http://127.0.0.1:$(SITE_PORT)"
-	@python3 -m http.server -d site-dist $(SITE_PORT)
-
-site-deploy: site-build
-	@wrangler pages deploy
 
 smoke:
 	@HIROBA_WS=ws://$(HIROBA_ADDR)/ws node server/tests/smoke.mjs

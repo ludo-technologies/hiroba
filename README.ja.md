@@ -116,12 +116,8 @@ https://update.hirobaoffice.com/v1/{{target}}/{{arch}}/{{current_version}}
 
 確認を無効にするには、`client/src-tauri/tauri.conf.json`から`plugins.updater.endpoints`を削除してソースからビルドしてください（[docs/SELF_HOSTING.md](docs/SELF_HOSTING.md#auto-update)参照）。クライアントを自前でビルドするセルフホスト環境は、そもそも我々に一切接続しません。
 
-## ランディングページ
-
-ランディングページと料金ページからなるマーケティングサイトは、依存関係のない静的サイトとして[`site/`](site/)にあります。`make site`でローカルプレビューを起動できます。
-
 ## ライセンス
 
 [Apache-2.0](LICENSE)。特許権の許諾を含みます。
 
-**ブランド資産はApache-2.0の対象外です。** 「Hiroba」の名称、ロゴ、アプリアイコン（`app-icon.png`、`app-icon-macos.png`）、サイトのfavicon、`site/`以下のブランド資産は、Apache-2.0によるライセンス許諾に含まれません。許可なくフォークや派生サービスのブランドとして使用することはできません。それ以外のコード、ドキュメント、プロトコルはApache-2.0です。
+**ブランド資産はApache-2.0の対象外です。** 「Hiroba」の名称、ロゴ、アプリアイコン（`app-icon.png`、`app-icon-macos.png`）は、Apache-2.0によるライセンス許諾に含まれません。許可なくフォークや派生サービスのブランドとして使用することはできません。それ以外のコード、ドキュメント、プロトコルはApache-2.0です。
