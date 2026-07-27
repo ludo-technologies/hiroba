@@ -13,7 +13,7 @@ See who's around. Walk over. Start talking.
 
 <img src="docs/hiroba-demo.gif" width="900" alt="An avatar walks over to a teammate and starts a voice conversation in Hiroba">
 
-[**Download Hiroba**](https://github.com/ludo-technologies/hiroba/releases/latest) · [Self-hosting guide](docs/SELF_HOSTING.md) · [Protocol](PROTOCOL.md)
+[**Download Hiroba**](https://github.com/ludo-technologies/hiroba/releases/latest) · [Website](https://hirobaoffice.com/) · [Blog](https://hirobaoffice.com/blog/) · [Self-hosting guide](docs/SELF_HOSTING.md) · [Protocol](PROTOCOL.md)
 
 </div>
 

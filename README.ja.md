@@ -13,7 +13,7 @@
 
 <img src="docs/hiroba-demo.gif" width="900" alt="Hirobaでアバターが同僚に近づき、音声会話を始める様子">
 
-[**Hirobaをダウンロード**](https://github.com/ludo-technologies/hiroba/releases/latest) · [セルフホストガイド](docs/SELF_HOSTING.md) · [プロトコル仕様](PROTOCOL.md)
+[**Hirobaをダウンロード**](https://github.com/ludo-technologies/hiroba/releases/latest) · [公式サイト](https://hirobaoffice.com/) · [ブログ](https://hirobaoffice.com/blog/) · [セルフホストガイド](docs/SELF_HOSTING.md) · [プロトコル仕様](PROTOCOL.md)
 
 </div>
 
