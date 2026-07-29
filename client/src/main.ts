@@ -1505,13 +1505,16 @@ function syncVideoViews(): void {
   syncScreenReopenButton();
 }
 
+// Unconditional: the engine no-ops when nothing is live, and it needs the call
+// even then to cancel a capture still sitting in the OS picker (which is
+// exactly the case an `isScreenSharing` guard here would hide).
 function stopScreenShare(): void {
-  if (!session || !session.audio.isScreenSharing) return;
+  if (!session) return;
   session.audio.stopScreenShare(); // fires handleLocalVideo(null), which re-syncs
 }
 
 function stopCamera(): void {
-  if (!session || !session.audio.isCameraOn) return;
+  if (!session) return;
   session.audio.stopCamera(); // fires handleLocalVideo(null), which re-syncs
 }
 

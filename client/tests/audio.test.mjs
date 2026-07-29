@@ -106,6 +106,35 @@ class FakeMediaStream {
   getAudioTracks() {
     return this._tracks;
   }
+  getVideoTracks() {
+    return this._tracks.filter((t) => t.kind === "video");
+  }
+}
+
+/** A video track that records whether anything stopped it. */
+function fakeVideoTrack() {
+  return {
+    kind: "video",
+    readyState: "live",
+    stopped: false,
+    stop() {
+      this.stopped = true;
+      this.readyState = "ended";
+    },
+    addEventListener() {},
+  };
+}
+
+/** getDisplayMedia/getUserMedia that resolves only when the test says so —
+ *  stands in for the OS picker or permission prompt sitting open. */
+function deferredCapture() {
+  const track = fakeVideoTrack();
+  const stream = new FakeMediaStream([track]);
+  let release;
+  const pending = new Promise((resolve) => {
+    release = () => resolve(stream);
+  });
+  return { track, stream, request: () => pending, release };
 }
 class FakePC {
   constructor() {
@@ -144,6 +173,9 @@ function installMocks() {
   globalThis.AudioContext = FakeAudioContext;
   globalThis.Audio = FakeAudio;
   globalThis.MediaStream = FakeMediaStream;
+  // The first-frame probe creates a <video>; without requestVideoFrameCallback
+  // the engine skips the check, which is what we want in these tests.
+  globalThis.document = { createElement: () => ({}) };
   // navigator is a read-only built-in in modern Node; override it explicitly.
   Object.defineProperty(globalThis, "navigator", {
     value: { mediaDevices: { getUserMedia: FakeMic.getUserMedia } },
@@ -362,6 +394,111 @@ test("a signal-created peer keeps proximity audio after a page is added and ende
   eng.endPage("9");
   assert.equal(eng.peers.has("9"), true, "peer survives page end (still proximity)");
   assert.equal(eng.peers.get("9")?.proximity, true, "proximity membership remains");
+});
+
+test("a screen share that lands after the session is destroyed stops itself", async () => {
+  installMocks();
+  const capture = deferredCapture();
+  navigator.mediaDevices.getDisplayMedia = capture.request;
+
+  const eng = new AudioEngine();
+  eng.init(SPACE, () => {}, () => {});
+
+  // The picker is open…
+  const sharing = eng.startScreenShare();
+  // …and the socket drops, tearing the session down while it is still open.
+  eng.destroy();
+  capture.release();
+  await sharing;
+
+  // destroy() could not stop a stream it never saw, so the capture must stop
+  // itself — otherwise the OS keeps recording the screen for a dead engine.
+  assert.equal(capture.track.stopped, true, "the orphaned capture was stopped");
+  assert.equal(eng.isScreenSharing, false, "the destroyed engine did not arm itself");
+  assert.equal(eng.screenShareStream, null, "no stream was retained");
+});
+
+test("a screen share that lands after hang-up stops itself", async () => {
+  installMocks();
+  const capture = deferredCapture();
+  navigator.mediaDevices.getDisplayMedia = capture.request;
+
+  const eng = new AudioEngine();
+  eng.init(SPACE, () => {}, () => {});
+  await eng.connect("9", true, "page");
+
+  const sharing = eng.startScreenShare();
+  eng.stopScreenShare(); // the call ended while the picker was open
+  capture.release();
+  await sharing;
+
+  assert.equal(capture.track.stopped, true, "the orphaned capture was stopped");
+  assert.equal(eng.isScreenSharing, false, "sharing did not start after hang-up");
+});
+
+test("a camera that lands after the session is destroyed stops itself", async () => {
+  installMocks();
+  const capture = deferredCapture();
+  navigator.mediaDevices.getUserMedia = capture.request;
+
+  const eng = new AudioEngine();
+  eng.init(SPACE, () => {}, () => {});
+
+  const starting = eng.startCamera();
+  eng.destroy();
+  capture.release();
+  await starting;
+
+  assert.equal(capture.track.stopped, true, "the orphaned camera was stopped");
+  assert.equal(eng.isCameraOn, false, "the destroyed engine did not arm itself");
+});
+
+test("an uninterrupted screen share still starts normally", async () => {
+  installMocks();
+  const capture = deferredCapture();
+  navigator.mediaDevices.getDisplayMedia = capture.request;
+
+  const local = [];
+  const eng = new AudioEngine();
+  eng.init(SPACE, () => {}, () => {}, undefined, () => {}, (stream, mode) => local.push(mode));
+
+  const sharing = eng.startScreenShare();
+  capture.release();
+  await sharing;
+
+  assert.equal(capture.track.stopped, false, "the capture is live");
+  assert.equal(eng.isScreenSharing, true, "sharing is active");
+  assert.equal(eng.screenShareStream, capture.stream, "the stream is the local preview");
+  assert.deepEqual(local, ["screen"], "the UI was told sharing started");
+});
+
+test('a peer\'s "video stopped" clears their panel instead of freezing the last frame', async () => {
+  installMocks();
+  const seen = [];
+  const eng = new AudioEngine();
+  eng.init(SPACE, () => {}, () => {}, undefined, (peerId, stream, mode) => seen.push({ peerId, stream, mode }));
+
+  await eng.connect("9", true, "page");
+  const pc = FakePC.instances.at(-1);
+  const track = fakeVideoTrack();
+  const stream = new FakeMediaStream([track]);
+  pc.fire("track", { streams: [stream], track });
+  await eng.handleSignal("9", { kind: "video-mode", mode: "screen" });
+  assert.deepEqual(seen.at(-1), { peerId: "9", stream, mode: "screen" }, "panel shows their screen");
+
+  // The peer stops sharing. `removeTrack()` on their side leaves our receiver
+  // muted, not ended, so this signal is the only notice we get.
+  await eng.handleSignal("9", { kind: "video-mode", mode: null });
+  assert.deepEqual(
+    seen.at(-1),
+    { peerId: "9", stream: null, mode: null },
+    "the viewer is told to drop the panel, not to keep a dead stream",
+  );
+
+  // Starting again re-shows it even if the transceiver is recycled silently
+  // (no second `track` event).
+  await eng.handleSignal("9", { kind: "video-mode", mode: "camera" });
+  assert.deepEqual(seen.at(-1), { peerId: "9", stream, mode: "camera" }, "restart re-shows the video");
 });
 
 test("toggleMute acquires the mic and enables the track (the barge-in path)", async () => {

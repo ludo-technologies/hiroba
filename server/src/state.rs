@@ -933,9 +933,7 @@ impl Org {
         }
 
         if let Some(a) = guard.members.get(from) {
-            let _ = a.tx.try_send(ServerMsg::PageRinging {
-                to: to.to_string(),
-            });
+            let _ = a.tx.try_send(ServerMsg::PageRinging { to: to.to_string() });
         }
         if let Some(b) = guard.members.get(to) {
             let _ = b.tx.try_send(ServerMsg::PageOffer {
@@ -982,11 +980,11 @@ impl Org {
             c.ringing_in.remove(accepter);
         }
 
-        let (caller_num, accepter_num) = match (guard.members.get(caller), guard.members.get(accepter))
-        {
-            (Some(c), Some(a)) => (c.num_id, a.num_id),
-            _ => return,
-        };
+        let (caller_num, accepter_num) =
+            match (guard.members.get(caller), guard.members.get(accepter)) {
+                (Some(c), Some(a)) => (c.num_id, a.num_id),
+                _ => return,
+            };
 
         if let Some(c) = guard.members.get_mut(caller) {
             c.paging.insert(accepter.to_string());
@@ -1135,8 +1133,8 @@ impl Org {
         let (Some(from), Some(to)) = (guard.members.get(from_id), guard.members.get(to_id)) else {
             return;
         };
-        let allowed = from.paging.contains(to_id)
-            || (from.space_id == to.space_id && !from.dnd && !to.dnd);
+        let allowed =
+            from.paging.contains(to_id) || (from.space_id == to.space_id && !from.dnd && !to.dnd);
         if !allowed {
             return;
         }
@@ -1150,12 +1148,30 @@ impl Org {
     // Read-only snapshots
     // -----------------------------------------------------------------------
 
-    /// Per-space snapshot of all positions + writer handles under a SINGLE lock
-    /// acquisition, so the `state` broadcast and proximity computation observe
-    /// the exact same member set (no join/leave race between two locks).
-    /// Only spaces with at least one member are returned (idle CPU stays low).
-    pub async fn tick_snapshot(&self) -> Vec<SpaceTick> {
+    /// Run one tick over this tenant: build the per-space view of every
+    /// position and writer handle, and hand it to `f` **while the org lock is
+    /// still held**. Returns whatever `f` returns.
+    ///
+    /// A single lock acquisition means the `state` broadcast and the proximity
+    /// computation observe the exact same member set (no join/leave race
+    /// between two locks). Keeping the lock across `f` extends that guarantee
+    /// to the *sends* those computations imply: `enter_space()` and `leave()`
+    /// broadcast an authoritative proximity teardown under this same lock, so a
+    /// snapshot-derived `connect` can no longer overtake it and re-link a peer
+    /// that has already moved to another space — a link the tick loop would
+    /// never tear down again, since the mover is gone from the old space's
+    /// hysteresis state by then.
+    ///
+    /// `f` must therefore stay synchronous and non-blocking: it walks the
+    /// snapshot and `try_send`s, nothing more.
+    pub async fn with_tick<R>(&self, f: impl FnOnce(&[SpaceTick]) -> R) -> R {
         let guard = self.inner.lock().await;
+        f(&Self::build_ticks(&guard))
+    }
+
+    /// The tick view itself. Only spaces with at least one member are returned
+    /// (idle CPU stays low).
+    fn build_ticks(guard: &OrgInner) -> Vec<SpaceTick> {
         let mut ticks = Vec::new();
         for space_id in &guard.space_order {
             let Some(space) = guard.spaces.get(space_id) else {
@@ -1188,6 +1204,13 @@ impl Org {
             });
         }
         ticks
+    }
+
+    /// Test-only snapshot: the tick view without the send phase.
+    #[cfg(test)]
+    pub async fn tick_snapshot(&self) -> Vec<SpaceTick> {
+        let guard = self.inner.lock().await;
+        Self::build_ticks(&guard)
     }
 }
 

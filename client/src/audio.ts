@@ -192,6 +192,17 @@ export class AudioEngine {
   private videoTrack: MediaStreamTrack | null = null;
   private videoMode: "screen" | "camera" | null = null;
 
+  /** Epoch for in-flight local video acquisition (same discipline as
+   *  `micEpoch`), plus what that acquisition is trying to start. Acquiring is
+   *  slow and user-paced — the screen picker or a camera permission prompt can
+   *  stay open for minutes — so the call, or the whole session, can end before
+   *  it resolves. Anything that ends local video bumps the epoch, and a capture
+   *  that lands on a stale one stops itself instead of arming an engine nobody
+   *  can reach. Without this, `destroy()` cannot stop a stream that is not
+   *  assigned yet, and the OS keeps recording the screen after the user left. */
+  private videoEpoch = 0;
+  private pendingVideoMode: "screen" | "camera" | null = null;
+
   /**
    * ICE servers used for every RTCPeerConnection. Resolved from config.ts by
    * main.ts (STUN for self-host, STUN+TURN for hosted, NFR-07). Defaults to
@@ -465,7 +476,16 @@ export class AudioEngine {
         // events alone can't tell them apart. May arrive before or after the
         // track itself — re-notify if the stream is already attached.
         entry.remoteVideoMode = data.mode;
-        if (entry.remoteVideoStream) {
+        if (data.mode === null) {
+          // The peer stopped sharing. This signal is the only reliable notice
+          // we get: their `removeTrack()` leaves our receiver's track *muted*,
+          // not "ended" (that fires on transceiver stop / close), so waiting
+          // for the track event would pin their frozen last frame — or a black
+          // rectangle — in the viewer for the rest of the call. The cached
+          // stream/track stay put: a restart may recycle the transceiver
+          // without a fresh `track` event, and the next label re-shows them.
+          if (entry.remoteVideoStream) this.onRemoteVideo?.(fromId, null, null);
+        } else if (entry.remoteVideoStream) {
           this.onRemoteVideo?.(fromId, entry.remoteVideoStream, data.mode);
         }
       }
@@ -769,23 +789,57 @@ export class AudioEngine {
    */
   async startScreenShare(): Promise<void> {
     if (this.videoMode === "screen") return;
-    const stream = await navigator.mediaDevices.getDisplayMedia({
-      video: true,
-      audio: false,
-    });
-    const [track] = stream.getVideoTracks();
-    if (!track) {
-      stream.getTracks().forEach((t) => t.stop());
-      throw new Error("no video track from getDisplayMedia");
-    }
+    const epoch = this._beginVideoAcquire("screen");
     try {
-      await this._awaitFirstFrame(stream);
-    } catch (err) {
-      stream.getTracks().forEach((t) => t.stop());
-      throw err;
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: false,
+      });
+      if (this._acquireIsStale(epoch, stream)) return;
+      const [track] = stream.getVideoTracks();
+      if (!track) {
+        stream.getTracks().forEach((t) => t.stop());
+        throw new Error("no video track from getDisplayMedia");
+      }
+      try {
+        await this._awaitFirstFrame(stream);
+      } catch (err) {
+        stream.getTracks().forEach((t) => t.stop());
+        throw err;
+      }
+      if (this._acquireIsStale(epoch, stream)) return;
+      this._startVideo("screen", stream, track);
+      track.addEventListener("ended", () => this.stopScreenShare(), { once: true });
+    } finally {
+      if (this.videoEpoch === epoch) this.pendingVideoMode = null;
     }
-    this._startVideo("screen", stream, track);
-    track.addEventListener("ended", () => this.stopScreenShare(), { once: true });
+  }
+
+  /** Open an acquisition window for `mode`; any earlier one goes stale. */
+  private _beginVideoAcquire(mode: "screen" | "camera"): number {
+    this.pendingVideoMode = mode;
+    return ++this.videoEpoch;
+  }
+
+  /**
+   * Whether the acquisition that started at `epoch` has been superseded — the
+   * call ended, the session was torn down, or the user started other video
+   * while the picker/prompt was open. Stops `stream` on the way out: nothing
+   * else holds a reference to it, so this is the only chance to release the
+   * camera light or the OS screen-recording indicator.
+   */
+  private _acquireIsStale(epoch: number, stream: MediaStream): boolean {
+    if (this.videoEpoch === epoch) return false;
+    stream.getTracks().forEach((t) => t.stop());
+    return true;
+  }
+
+  /** Invalidate an in-flight acquisition of `mode` (or of any mode, if null). */
+  private _cancelVideoAcquire(mode: "screen" | "camera" | null): void {
+    if (this.pendingVideoMode === null) return;
+    if (mode !== null && this.pendingVideoMode !== mode) return;
+    this.pendingVideoMode = null;
+    this.videoEpoch++;
   }
 
   /**
@@ -819,8 +873,12 @@ export class AudioEngine {
     });
   }
 
-  /** Stop local screen sharing and renegotiate every live peer connection. */
+  /** Stop local screen sharing and renegotiate every live peer connection.
+   *  Also cancels a share that is still in the picker — the caller (hang-up,
+   *  last page ending) means "no screen share", and by then the engine may
+   *  have no way to reach the capture once it lands. */
   stopScreenShare(): void {
+    this._cancelVideoAcquire("screen");
     if (this.videoMode !== "screen") return;
     this._stopVideo();
   }
@@ -833,21 +891,29 @@ export class AudioEngine {
    */
   async startCamera(): Promise<void> {
     if (this.videoMode === "camera") return;
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: true,
-      audio: false,
-    });
-    const [track] = stream.getVideoTracks();
-    if (!track) {
-      stream.getTracks().forEach((t) => t.stop());
-      throw new Error("no video track from getUserMedia");
+    const epoch = this._beginVideoAcquire("camera");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: false,
+      });
+      if (this._acquireIsStale(epoch, stream)) return;
+      const [track] = stream.getVideoTracks();
+      if (!track) {
+        stream.getTracks().forEach((t) => t.stop());
+        throw new Error("no video track from getUserMedia");
+      }
+      this._startVideo("camera", stream, track);
+      track.addEventListener("ended", () => this.stopCamera(), { once: true });
+    } finally {
+      if (this.videoEpoch === epoch) this.pendingVideoMode = null;
     }
-    this._startVideo("camera", stream, track);
-    track.addEventListener("ended", () => this.stopCamera(), { once: true });
   }
 
-  /** Stop the local camera and renegotiate every live peer connection. */
+  /** Stop the local camera and renegotiate every live peer connection.
+   *  Cancels an in-flight acquisition too — see {@link stopScreenShare}. */
   stopCamera(): void {
+    this._cancelVideoAcquire("camera");
     if (this.videoMode !== "camera") return;
     this._stopVideo();
   }
@@ -939,6 +1005,10 @@ export class AudioEngine {
       this.localStream = null;
     }
     this.localTrack = null;
+    // Cancel before stopping: a capture still in the picker is not in
+    // `videoStream` yet, so `_stopVideo` cannot reach it — it must stop itself
+    // when it lands, or the OS keeps recording after the user has left.
+    this._cancelVideoAcquire(null);
     this._stopVideo();
 
     if (this.audioCtx && this.audioCtx.state !== "closed") {

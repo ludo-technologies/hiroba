@@ -144,6 +144,51 @@ pub fn update_proximity(
     deltas
 }
 
+/// Undo `peer_id`'s `delta` — the exact inverse of what `update_proximity`
+/// just recorded for that peer.
+///
+/// Called when the `proximity` message carrying the delta could not be queued
+/// (the peer's outbound channel is full). The connected sets are the tick
+/// loop's only memory: a delta it believes was delivered is never recomputed,
+/// so a dropped *disconnect* would leave a live P2P link that nothing ever
+/// tears down (turning DND on would not silence it), and a dropped *connect*
+/// would leave a peer permanently unlinked to someone standing next to them.
+/// Rolling back makes the next tick recompute — and therefore resend — the
+/// same delta.
+///
+/// The pair is restored on both sides, so the peer that *did* receive the
+/// delta gets it again next tick; `connect` and `disconnect` are both
+/// idempotent on the client (PROTOCOL.md §proximity).
+pub fn rollback_delta(
+    peer_id: &str,
+    delta: &ProximityDelta,
+    connected_sets: &mut HashMap<String, HashSet<String>>,
+) {
+    for c in &delta.connect {
+        if let Some(set) = connected_sets.get_mut(peer_id) {
+            set.remove(&c.id);
+        }
+        if let Some(set) = connected_sets.get_mut(&c.id) {
+            set.remove(peer_id);
+        }
+    }
+    for other in &delta.disconnect {
+        // Only restore pairs whose peers are both still tracked — a peer that
+        // left the space in the meantime must stay gone.
+        if !connected_sets.contains_key(peer_id) || !connected_sets.contains_key(other) {
+            continue;
+        }
+        connected_sets
+            .get_mut(peer_id)
+            .unwrap()
+            .insert(other.clone());
+        connected_sets
+            .get_mut(other)
+            .unwrap()
+            .insert(peer_id.to_string());
+    }
+}
+
 /// Remove a leaving peer from all connected sets and return which other peers
 /// need a disconnect delta for it.  Called when a peer leaves the room.
 pub fn remove_peer(
@@ -414,6 +459,85 @@ mod tests {
         let deltas = update_proximity(&close, &mut sets, near, far);
         assert_eq!(deltas["1"].connect.len(), 1);
         assert_eq!(deltas["2"].connect.len(), 1);
+    }
+
+    /// A `proximity` message that could not be queued must not leave the server
+    /// believing the client acted on it: rolling the delta back makes the next
+    /// tick emit the same disconnect again. Without this, a DND toggle whose
+    /// disconnect was dropped would leave live P2P voice up forever.
+    #[test]
+    fn test_rollback_replays_a_dropped_disconnect() {
+        let near = 300.0_f64;
+        let far = 360.0_f64;
+        let mut sets: HashMap<String, HashSet<String>> = HashMap::new();
+
+        let close = vec![peer(1, 0.0, 0.0), peer(2, 10.0, 0.0)];
+        update_proximity(&close, &mut sets, near, far);
+
+        // Peer 2 turns DND on → both sides get a disconnect…
+        let dnd_on = vec![peer(1, 0.0, 0.0), dnd_peer(2, 10.0, 0.0)];
+        let deltas = update_proximity(&dnd_on, &mut sets, near, far);
+        assert_eq!(deltas["1"].disconnect, vec!["2".to_string()]);
+
+        // …but peer 1's channel is full, so its message is dropped.
+        rollback_delta("1", &deltas["1"], &mut sets);
+        assert!(
+            sets["1"].contains("2") && sets["2"].contains("1"),
+            "the pair is restored so the next tick sees it as still linked"
+        );
+
+        // Next tick: the disconnect is regenerated for both sides. Peer 2 gets a
+        // duplicate (it received the first one), which is idempotent client-side.
+        let deltas = update_proximity(&dnd_on, &mut sets, near, far);
+        assert_eq!(
+            deltas["1"].disconnect,
+            vec!["2".to_string()],
+            "the dropped disconnect is resent"
+        );
+        assert_eq!(deltas["2"].disconnect, vec!["1".to_string()]);
+    }
+
+    /// The same guarantee in the other direction: a dropped `connect` must be
+    /// re-emitted, or the peer stays silent next to someone standing beside them.
+    #[test]
+    fn test_rollback_replays_a_dropped_connect() {
+        let near = 300.0_f64;
+        let far = 360.0_f64;
+        let mut sets: HashMap<String, HashSet<String>> = HashMap::new();
+
+        let close = vec![peer(1, 0.0, 0.0), peer(2, 10.0, 0.0)];
+        let deltas = update_proximity(&close, &mut sets, near, far);
+        assert_eq!(deltas["1"].connect.len(), 1);
+
+        rollback_delta("1", &deltas["1"], &mut sets);
+        assert!(!sets["1"].contains("2") && !sets["2"].contains("1"));
+
+        let deltas = update_proximity(&close, &mut sets, near, far);
+        assert_eq!(
+            deltas["1"].connect.len(),
+            1,
+            "the dropped connect is retried on the next tick"
+        );
+    }
+
+    /// Rolling back a disconnect for a peer that has since left the space must
+    /// not resurrect it — `remove_peer` dropped its set on purpose.
+    #[test]
+    fn test_rollback_does_not_resurrect_a_departed_peer() {
+        let near = 300.0_f64;
+        let far = 360.0_f64;
+        let mut sets: HashMap<String, HashSet<String>> = HashMap::new();
+
+        let close = vec![peer(1, 0.0, 0.0), peer(2, 10.0, 0.0)];
+        update_proximity(&close, &mut sets, near, far);
+
+        let apart = vec![peer(1, 0.0, 0.0), peer(2, far + 1.0, 0.0)];
+        let deltas = update_proximity(&apart, &mut sets, near, far);
+        remove_peer("2", &mut sets); // peer 2 leaves the space this tick
+
+        rollback_delta("1", &deltas["1"], &mut sets);
+        assert!(!sets.contains_key("2"), "the departed peer stays gone");
+        assert!(!sets["1"].contains("2"), "and is not re-linked to peer 1");
     }
 
     /// remove_peer correctly cleans up connected sets.
