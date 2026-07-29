@@ -212,6 +212,8 @@ const elScreenTitle = $<HTMLSpanElement>("screen-title");
 const elScreenClose = $<HTMLButtonElement>("screen-close");
 const elScreenFullscreen = $<HTMLButtonElement>("screen-fullscreen");
 const elScreenVideo = $<HTMLVideoElement>("screen-video");
+const elSelfView = $<HTMLButtonElement>("self-view");
+const elSelfVideo = $<HTMLVideoElement>("self-video");
 const elToasts = $<HTMLDivElement>("toasts");
 const elUpdateBanner = $<HTMLDivElement>("update-banner");
 const elUpdateText = $<HTMLSpanElement>("update-text");
@@ -313,6 +315,8 @@ export interface UICallbacks {
   onCameraToggle(): void;
   /** Hide/stop the currently visible screen-share panel. */
   onCloseScreenShare(): void;
+  /** Swap the picture-in-picture self-view with the main video panel. */
+  onSelfViewClick(): void;
   /** Re-show a remote screen share after the panel was dismissed. */
   onReopenScreenShare(): void;
   /**
@@ -1344,25 +1348,48 @@ export class UIManager {
     elCameraToggle.setAttribute("aria-pressed", on ? "true" : "false");
   }
 
-  /** Show the given screen-share stream, or hide the panel when null. */
-  setScreenShareView(stream: MediaStream | null, title: string, local = false): void {
+  /** Show the given video stream in the main panel, or hide the panel when
+   *  null. The element stays permanently muted: remote video streams carry no
+   *  audio (voice goes through the Web Audio gain path) and the local preview
+   *  must not feed back, so muting also keeps autoplay policy from ever
+   *  blocking playback. */
+  setScreenShareView(stream: MediaStream | null, title: string): void {
     if (!stream) {
       elScreenVideo.pause();
       elScreenVideo.srcObject = null;
       elScreenPanel.setAttribute("hidden", "");
       this.setScreenFullscreen(false);
+      this.setSelfView(null);
       return;
     }
     elScreenTitle.textContent = title;
-    elScreenVideo.srcObject = stream;
-    // Local preview stays muted to avoid feedback; remote streams may carry
-    // audio if tab capture is enabled later.
-    elScreenVideo.muted = local;
+    if (elScreenVideo.srcObject !== stream) {
+      elScreenVideo.srcObject = stream;
+      void elScreenVideo.play().catch(() => {
+        /* User gesture/autoplay policy can block; controls are intentionally not shown. */
+      });
+    }
     elScreenPanel.removeAttribute("hidden");
     this.setScreenReopenVisible(false);
-    void elScreenVideo.play().catch(() => {
-      /* User gesture/autoplay policy can block; controls are intentionally not shown. */
-    });
+  }
+
+  /** Show a stream in the corner picture-in-picture (self preview, or the
+   *  remote video while the local one is promoted), or hide it when null.
+   *  Always muted — it must never play remote audio. */
+  setSelfView(stream: MediaStream | null): void {
+    if (!stream) {
+      elSelfVideo.pause();
+      elSelfVideo.srcObject = null;
+      elSelfView.setAttribute("hidden", "");
+      return;
+    }
+    if (elSelfVideo.srcObject !== stream) {
+      elSelfVideo.srcObject = stream;
+      void elSelfVideo.play().catch(() => {
+        /* Autoplay policy; muted playback is normally always allowed. */
+      });
+    }
+    elSelfView.removeAttribute("hidden");
   }
 
   /** Expand or restore the screen-share panel to fill the window. */
@@ -1462,6 +1489,7 @@ export class UIManager {
     elScreenVideo.addEventListener("dblclick", () => {
       this.setScreenFullscreen(!elScreenPanel.classList.contains("fullscreen"));
     });
+    elSelfView.addEventListener("click", () => this.callbacks.onSelfViewClick());
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && elScreenPanel.classList.contains("fullscreen")) {
         this.setScreenFullscreen(false);

@@ -94,10 +94,14 @@ interface Session {
   /** Remote video (screen share or camera) streams keyed by peer id. Mode is
    *  null for the brief window before the peer's "video-mode" label arrives. */
   remoteVideos: Map<string, { stream: MediaStream; mode: "screen" | "camera" | null }>;
-  /** Which video stream is currently shown in the viewer. */
+  /** Which video stream currently holds the main panel (derived by
+   *  {@link syncVideoViews}; the other active stream goes to the self-view). */
   visibleScreen: { kind: "local" } | { kind: "remote"; peerId: string } | null;
   /** True when the user dismissed the remote video panel (minimize). */
   screenDismissed: boolean;
+  /** True when the user clicked the self-view to show their own video large
+   *  even though a remote stream exists (remote is the default). */
+  localPromoted: boolean;
 
   /** User-controllable status flags (effective status is server-computed). */
   away: boolean;
@@ -185,6 +189,7 @@ const ui = new UIManager(
     onCameraToggle: handleCameraToggle,
     onCloseScreenShare: handleCloseScreenShare,
     onReopenScreenShare: handleReopenScreenShare,
+    onSelfViewClick: handleSelfViewClick,
     onSetStatus: handleSetStatus,
     onLocaleChange: handleLocaleChange,
   },
@@ -878,6 +883,7 @@ function initSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[]
     remoteVideos: new Map(),
     visibleScreen: null,
     screenDismissed: false,
+    localPromoted: false,
     away: false,
     dnd: false,
     pageAutoUnmuted: false,
@@ -1285,9 +1291,7 @@ function bindServerMessages(net: HirobaNet): void {
     session.pages.delete(from);
     if (wasIncoming && e.detail.reason === "timeout") ui.showToast(t.pageMissed(name));
     session.remoteVideos.delete(from);
-    if (session.visibleScreen?.kind === "remote" && session.visibleScreen.peerId === from) {
-      showNextScreenShare();
-    }
+    syncVideoViews();
     if (session.pages.size === 0) {
       stopScreenShare();
       stopCamera();
@@ -1363,6 +1367,7 @@ function updateCallBanner(): void {
   ui.setScreenReopenVisible(false);
   session.visibleScreen = null;
   session.screenDismissed = false;
+  session.localPromoted = false;
 
   if (focus?.mode === "incoming") {
     ui.setCall({ mode: "incoming", text: t.pageIncoming(focus.name) });
@@ -1410,18 +1415,17 @@ async function requestWindowAttention(active: boolean): Promise<void> {
   }
 }
 
-/** Pick the best remote video to show (page peers only; single-call prefers that peer). */
+/** Pick the best remote video to show (page peers only; a screen share beats
+ *  a camera, then earliest-started wins). */
 function preferredRemoteVideo(): { peerId: string; stream: MediaStream; mode: "screen" | "camera" | null } | null {
   if (!session) return null;
-  if (session.pages.size === 1) {
-    const peerId = [...session.pages.keys()][0];
-    const entry = session.remoteVideos.get(peerId);
-    if (entry) return { peerId, ...entry };
-  }
+  let first: { peerId: string; stream: MediaStream; mode: "screen" | "camera" | null } | null = null;
   for (const [peerId, entry] of session.remoteVideos) {
-    if (session.pages.has(peerId)) return { peerId, ...entry };
+    if (!session.pages.has(peerId)) continue;
+    if (entry.mode === "screen") return { peerId, ...entry };
+    first ??= { peerId, ...entry };
   }
-  return null;
+  return first;
 }
 
 function syncScreenReopenButton(): void {
@@ -1445,82 +1449,68 @@ function handleRemoteVideo(peerId: string, stream: MediaStream | null, mode: "sc
 
   if (stream) {
     session.remoteVideos.set(peerId, { stream, mode });
-    if (session.screenDismissed) {
-      syncScreenReopenButton();
-      return;
-    }
-    // Also re-runs (harmlessly) when this peer's video is already showing and
-    // only the mode label changed — refreshes the panel title in place.
-    if (!session.visibleScreen || session.visibleScreen.kind !== "local") {
-      session.visibleScreen = { kind: "remote", peerId };
-      ui.setScreenShareView(stream, videoTitle(mode, session.pages.get(peerId) ?? peerId), false);
-    }
-    return;
-  }
-
-  session.remoteVideos.delete(peerId);
-  if (session.visibleScreen?.kind === "remote" && session.visibleScreen.peerId === peerId) {
-    showNextScreenShare();
   } else {
-    syncScreenReopenButton();
+    session.remoteVideos.delete(peerId);
   }
+  syncVideoViews();
 }
 
 function handleLocalVideo(stream: MediaStream | null, mode: "screen" | "camera" | null): void {
   if (!session) return;
   ui.setScreenSharing(mode === "screen");
   ui.setCameraOn(mode === "camera");
-  if (stream && mode) {
-    session.screenDismissed = false;
-    session.visibleScreen = { kind: "local" };
-    ui.setScreenShareView(stream, mode === "camera" ? t.yourCamera : t.yourScreen, true);
-  } else if (session.visibleScreen?.kind === "local") {
-    showNextScreenShare();
-  }
+  // Starting local video is an explicit gesture — bring a dismissed panel back.
+  if (stream && mode) session.screenDismissed = false;
+  syncVideoViews();
 }
 
-function showNextScreenShare(): void {
+/**
+ * Recompute both video surfaces from current state — the single place that
+ * decides what goes where. The main panel shows the remote stream by default
+ * (screen share beats camera); local video takes it only when nothing remote
+ * exists or the user promoted it by clicking the self-view. Whichever active
+ * stream is not in the main panel goes to the corner self-view.
+ */
+function syncVideoViews(): void {
   if (!session) return;
+  const local = session.audio.screenShareStream ?? session.audio.cameraStream;
+  const remote = preferredRemoteVideo();
+
+  if (!local || !remote) session.localPromoted = false;
+  // Dismissal minimizes the remote view; once nothing remote remains there is
+  // nothing left dismissed, and the local preview may reclaim the panel.
+  if (!remote) session.screenDismissed = false;
+
   if (session.screenDismissed) {
     session.visibleScreen = null;
-    ui.setScreenShareView(null, "");
+    ui.setScreenShareView(null, ""); // also hides the self-view
     syncScreenReopenButton();
     return;
   }
-  const localStream = session.audio.screenShareStream ?? session.audio.cameraStream;
-  if (localStream) {
-    session.visibleScreen = { kind: "local" };
-    ui.setScreenShareView(localStream, session.audio.isCameraOn ? t.yourCamera : t.yourScreen, true);
-    return;
-  }
 
-  const next = preferredRemoteVideo();
-  if (next) {
-    session.visibleScreen = { kind: "remote", peerId: next.peerId };
-    ui.setScreenShareView(
-      next.stream,
-      videoTitle(next.mode, session.pages.get(next.peerId) ?? next.peerId),
-      false,
-    );
+  if (remote && !session.localPromoted) {
+    session.visibleScreen = { kind: "remote", peerId: remote.peerId };
+    ui.setScreenShareView(remote.stream, videoTitle(remote.mode, session.pages.get(remote.peerId) ?? remote.peerId));
+    ui.setSelfView(local);
+  } else if (local) {
+    session.visibleScreen = { kind: "local" };
+    ui.setScreenShareView(local, session.audio.isCameraOn ? t.yourCamera : t.yourScreen);
+    ui.setSelfView(remote?.stream ?? null);
   } else {
     session.visibleScreen = null;
     ui.setScreenShareView(null, "");
-    syncScreenReopenButton();
   }
+  syncScreenReopenButton();
 }
 
 function stopScreenShare(): void {
   if (!session || !session.audio.isScreenSharing) return;
-  session.audio.stopScreenShare();
-  ui.setScreenSharing(false);
-  if (session.visibleScreen?.kind === "local") showNextScreenShare();
+  session.audio.stopScreenShare(); // fires handleLocalVideo(null), which re-syncs
 }
 
 function stopCamera(): void {
   if (!session || !session.audio.isCameraOn) return;
-  session.audio.stopCamera();
-  ui.setCameraOn(false);
-  if (session.visibleScreen?.kind === "local") showNextScreenShare();
+  session.audio.stopCamera(); // fires handleLocalVideo(null), which re-syncs
 }
 
 /**
@@ -1637,29 +1627,7 @@ function handleLocaleChange(): void {
   // Screen-share / camera titles and button labels.
   ui.setScreenSharing(session.audio.isScreenSharing);
   ui.setCameraOn(session.audio.isCameraOn);
-  if (session.visibleScreen?.kind === "local") {
-    const stream = session.audio.screenShareStream ?? session.audio.cameraStream;
-    if (stream) {
-      ui.setScreenShareView(
-        stream,
-        session.audio.isCameraOn ? t.yourCamera : t.yourScreen,
-        true,
-      );
-    }
-  } else if (session.visibleScreen?.kind === "remote") {
-    const entry = session.remoteVideos.get(session.visibleScreen.peerId);
-    if (entry) {
-      ui.setScreenShareView(
-        entry.stream,
-        videoTitle(
-          entry.mode,
-          session.pages.get(session.visibleScreen.peerId) ?? session.visibleScreen.peerId,
-        ),
-        false,
-      );
-    }
-  }
-  syncScreenReopenButton();
+  syncVideoViews();
 
   // Audio-settings panel: refill so "System default" / field labels match.
   if (!document.getElementById("audio-settings")?.hasAttribute("hidden")) {
@@ -1805,19 +1773,29 @@ async function handleCameraToggle(): Promise<void> {
 function handleCloseScreenShare(): void {
   if (!session) return;
   if (session.visibleScreen?.kind === "local") {
-    stopScreenShare();
+    // Closing our own video means stop sending it.
+    if (session.audio.isScreenSharing) stopScreenShare();
+    else stopCamera();
     return;
   }
   session.screenDismissed = true;
-  session.visibleScreen = null;
-  ui.setScreenShareView(null, "");
-  syncScreenReopenButton();
+  session.localPromoted = false;
+  syncVideoViews();
 }
 
 function handleReopenScreenShare(): void {
   if (!session) return;
   session.screenDismissed = false;
-  showNextScreenShare();
+  syncVideoViews();
+}
+
+/** Clicking the self-view swaps it with the main panel (e.g. "show my own
+ *  screen share large"). Remote stays the default whenever a swap partner
+ *  disappears — syncVideoViews clears the flag then. */
+function handleSelfViewClick(): void {
+  if (!session) return;
+  session.localPromoted = !session.localPromoted;
+  syncVideoViews();
 }
 
 function handleSetStatus(away: boolean, dnd: boolean): void {

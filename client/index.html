@@ -450,8 +450,10 @@
       <button id="hangup" type="button" data-i18n="hangUp">Hang up</button>
     </div>
 
-    <!-- Screen-share viewer: local preview while sharing, or remote video when
-         the paged peer shares. Hidden outside calls / when no screen is live. -->
+    <!-- Video viewer: the remote stream (screen share > camera) in the main
+         panel, own video in the corner self-view; local fills the main panel
+         only when nothing remote is live. Hidden outside calls / when no
+         video is live. -->
     <div id="screen-panel" class="screen-panel" hidden>
       <header class="screen-head">
         <span id="screen-title">Screen</span>
@@ -461,6 +463,12 @@
         </div>
       </header>
       <video id="screen-video" autoplay playsinline muted></video>
+      <!-- Picture-in-picture: the "other" stream (self preview while a remote
+           video holds the main panel, or vice versa). Click to swap. -->
+      <button id="self-view" class="self-view" type="button" hidden
+              data-i18n-title="selfViewTitle" data-i18n-arialabel="selfViewTitle">
+        <video id="self-video" autoplay playsinline muted></video>
+      </button>
     </div>
 
     <!-- Update banner: a newer signed release exists; one click installs + relaunches -->

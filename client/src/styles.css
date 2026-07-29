@@ -1506,6 +1506,39 @@ body {
   background: #0f0c09;
 }
 
+/* Picture-in-picture self-view in the panel corner; click swaps it with the
+   main view. Sized relative to the panel so it scales in fullscreen. */
+.self-view {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  width: clamp(96px, 24%, 220px);
+  aspect-ratio: 16 / 10;
+  padding: 0;
+  overflow: hidden;
+  background: #0f0c09;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: calc(var(--radius-btn) / 2);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  z-index: 1;
+}
+
+.self-view[hidden] {
+  display: none;
+}
+
+.self-view:hover {
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+.self-view video {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
 /* Update banner — same pill as the call banner, accent-toned. Sits bottom
    right so it never covers the call banner or toasts. Above the join/reconnect
    overlay (z 100): updating must stay reachable from the sign-in screen. */
