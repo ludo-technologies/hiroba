@@ -168,6 +168,12 @@ class Client {
   await sleep(500);
 
   // ── 4) Space switch + isolation ─────────────────────────────────────────
+  // Link the pair first, so the switch exercises the live-link teardown path.
+  A.clear(); B.clear();
+  A.send({ t: "move", x: 500, y: 500 });
+  B.send({ t: "move", x: 510, y: 505 });
+  await A.wait((m) => m.t === "proximity" && m.connect?.some((c) => c.id === idB));
+
   A.clear(); B.clear();
   B.send({ t: "enter_space", spaceId: team.id });
   const snapB = await B.wait((m) => m.t === "space_snapshot");
@@ -176,6 +182,8 @@ class Client {
   ok(Array.isArray(snapB?.peers) && snapB.peers.length === 0, "team space is empty for B");
   const leftBonA = await A.wait((m) => m.t === "space_left" && m.id === idB);
   ok(!!leftBonA, "A receives space_left for B (B left the lobby)");
+  const switchDisc = await A.wait((m) => m.t === "proximity" && m.disconnect?.includes(idB));
+  ok(!!switchDisc, "A receives a server-authoritative proximity disconnect when B switches space");
   const presMove = await A.wait((m) => m.t === "presence" && m.member?.id === idB && m.member?.spaceId === team.id);
   ok(!!presMove, "A still sees B in the org roster, now in the team space");
 
@@ -186,6 +194,12 @@ class Client {
   await sleep(500);
   ok(!A.drain("state").some((m) => m.peers?.some((p) => p.id === idB)), "A never sees B's position across spaces");
   ok(A.drain("proximity").length === 0, "no cross-space proximity between A and B");
+
+  // Signaling must not cross spaces either (no page link between A and B).
+  B.clear();
+  A.send({ t: "signal", to: idB, data: { kind: "offer", sdp: "CROSS_SPACE_SDP" } });
+  await sleep(300);
+  ok(!B.drain("signal").some((m) => m.data?.sdp === "CROSS_SPACE_SDP"), "signal never crosses spaces without a page link");
 
   // ── 5) create_space → catalog broadcast ─────────────────────────────────
   A.clear(); B.clear();
@@ -242,6 +256,13 @@ class Client {
   ok(pcA.initiator !== pcB.initiator, "page has exactly one initiator (tie-break)");
   const callPres = await B.wait((m) => m.t === "presence" && m.member?.id === idA && m.member?.status === "in_call");
   ok(!!callPres, "paged peer's status becomes in_call after accept");
+
+  // A page link is the one sanctioned cross-space audio path: its signaling
+  // relays even though A and B are in different spaces (PROTOCOL.md §page).
+  B.clear();
+  A.send({ t: "signal", to: idB, data: { kind: "offer", sdp: "PAGE_SDP" } });
+  const pageSig = await B.wait((m) => m.t === "signal" && m.data?.sdp === "PAGE_SDP");
+  ok(!!pageSig, "signal relays across spaces over an established page link (by design)");
 
   // page_end on live link → other side notified, in_call cleared.
   A.clear(); B.clear();

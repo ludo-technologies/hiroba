@@ -331,9 +331,10 @@ pub fn spawn_tick_loop(registry: OrgRegistry) {
 
                     // --- per-space stale cleanup ---------------------------------
                     // Members who left this space between ticks won't appear in
-                    // `positions`; drop them from this space's connected set. Peers
-                    // get audio teardown from `space_left`, so no proximity
-                    // disconnect is needed here (mirrors v1).
+                    // `positions`; drop them from this space's connected set. The
+                    // remaining peers already got a server-authoritative
+                    // `proximity` disconnect from `enter_space()` / `leave()`
+                    // (alongside `space_left`), so this is set hygiene only.
                     let live_ids: HashSet<&str> =
                         positions.iter().map(|p| p.string_id.as_str()).collect();
                     let stale: Vec<String> = sets

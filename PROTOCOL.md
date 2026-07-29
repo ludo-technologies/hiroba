@@ -139,8 +139,13 @@ the org with `presence`. The client lands in the lobby by default.
 Server moves the client out of its current space and into `spaceId`: it tears
 down that client's in-space proximity links, sends a fresh space snapshot
 (`welcome`-shaped subset, see `space_snapshot`), and broadcasts a `presence`
-update (new `spaceId`) to the org. Rejected with `error` if the space is full or
-unknown.
+update (new `spaceId`) to the org. Peers left behind in the old space receive
+**both** `space_left` and a `proximity` disconnect for the mover (see
+§`proximity` — "Isolation guarantee"). Rejected with `error` if the space is
+full or unknown.
+
+A live **page** link deliberately survives the switch — an explicit 1:1 call is
+not hung up by moving rooms (see §`page`).
 
 ### `create_space` — create a new team space (FR-14)
 ```json
@@ -194,6 +199,15 @@ server places a **ring** (no media yet):
 The callee must **accept** (`page_accept`) or **decline** (`page_end`). If they
 do neither within ~25s the server auto-declines (`page_rejected` with
 `reason: "timeout"` to the caller; `page_end` to the callee).
+
+**A live page survives space switches — by design.** A page is an explicit,
+mutually accepted 1:1 call; moving rooms does not hang it up (stepping into a
+quiet room to keep talking is a supported flow). It ends only on `page_end`,
+disconnect, or ring timeout. Because this is the one path where voice crosses
+rooms, clients MUST make a live call unmistakable in the UI (the "in call"
+state with one-click hang-up), including after either side changes space.
+Decided in issue #2 — option (c): keep the call alive, surface it loudly,
+rather than auto-ending on `enter_space`.
 
 ### `page_accept` — accept an incoming page offer
 ```json
@@ -298,6 +312,9 @@ client/product choice; the wire simply reports disconnect.)
 ```
 This concerns the 2D view only. The peer may still be in the org roster (they
 switched to another space) — that is reflected separately by `presence`.
+Audio teardown does **not** ride on this message: the server delivers a
+`proximity` disconnect for the departing peer alongside it (see §`proximity` —
+"Isolation guarantee").
 
 ### `state` — batched position snapshot for your current space (~tickHz)
 ```json
@@ -327,6 +344,17 @@ peer with the **numerically smaller id** is the initiator (avoids glare).
 A member with `dnd` set never appears in `connect`, and setting `dnd` while
 linked emits `disconnect` for those links to both sides on the next tick
 (§Presence & status).
+
+**Isolation guarantee (server-authoritative teardown).** Proximity voice never
+crosses spaces: `signal` is not relayed between members of different spaces
+(unless they hold an accepted page link), positions and proximity are computed
+strictly per space, and when a peer leaves a space (`enter_space` or
+disconnect) the server emits a `proximity` disconnect for that peer to
+everyone left behind — in addition to `space_left`. Clients MUST treat this
+`disconnect` as the authoritative order to close the P2P link, and MUST accept
+it idempotently (a `disconnect` for a peer with no open link is a no-op). The
+disconnect may name peers beyond the recipient's current proximity set; that
+is intentional, since only the client knows which links are actually open.
 
 ### `page_offer` — incoming page (to the callee)
 ```json

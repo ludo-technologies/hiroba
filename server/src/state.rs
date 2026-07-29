@@ -600,7 +600,10 @@ impl Org {
             return; // already gone
         };
 
-        // Remove from its space + notify that space.
+        // Remove from its space + notify that space. The explicit proximity
+        // disconnect makes audio teardown server-authoritative: peers must not
+        // depend on interpreting `space_left` to close a live P2P link
+        // (idempotent on clients with no link to `id`).
         if let Some(space) = guard.spaces.get_mut(&member.space_id) {
             space.member_ids.remove(id);
         }
@@ -608,6 +611,14 @@ impl Org {
             &member.space_id,
             id,
             ServerMsg::SpaceLeft { id: id.to_string() },
+        );
+        guard.broadcast_space_except(
+            &member.space_id,
+            id,
+            ServerMsg::Proximity {
+                connect: Vec::new(),
+                disconnect: vec![id.to_string()],
+            },
         );
 
         // End any established page links: tell the partner, clear in_call.
@@ -761,7 +772,10 @@ impl Org {
             });
         }
 
-        // Leave the old space (notify its members).
+        // Leave the old space (notify its members). The explicit proximity
+        // disconnect makes audio teardown server-authoritative: peers must not
+        // depend on interpreting `space_left` to close a live P2P link
+        // (idempotent on clients with no link to `id`).
         if let Some(old) = guard.spaces.get_mut(&current_space_id) {
             old.member_ids.remove(id);
         }
@@ -769,6 +783,14 @@ impl Org {
             &current_space_id,
             id,
             ServerMsg::SpaceLeft { id: id.to_string() },
+        );
+        guard.broadcast_space_except(
+            &current_space_id,
+            id,
+            ServerMsg::Proximity {
+                connect: Vec::new(),
+                disconnect: vec![id.to_string()],
+            },
         );
 
         // Spawn into the new space.
