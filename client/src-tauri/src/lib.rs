@@ -35,6 +35,50 @@ fn open_external(url: String) -> Result<(), String> {
     open::that_detached(&url).map_err(|e| format!("cannot open browser: {e}"))
 }
 
+/// Whether the app may capture the whole display. On macOS this is the TCC
+/// "Screen & System Audio Recording" grant: without it ScreenCaptureKit does
+/// not fail — it silently hands getDisplayMedia black frames — so the webview
+/// preflights here before opening the picker. A first-ever call triggers the
+/// one-time OS prompt, but macOS only applies a fresh grant after the app
+/// relaunches, so `false` means "send the user to System Settings", not
+/// "retry".
+#[tauri::command]
+fn screen_capture_permission() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        #[link(name = "CoreGraphics", kind = "framework")]
+        extern "C" {
+            fn CGPreflightScreenCaptureAccess() -> bool;
+            fn CGRequestScreenCaptureAccess() -> bool;
+        }
+        unsafe {
+            if CGPreflightScreenCaptureAccess() {
+                return true;
+            }
+            CGRequestScreenCaptureAccess()
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    true
+}
+
+/// Deep-link into System Settings → Privacy & Security → Screen Recording so
+/// the user can flip the switch for Hiroba. `open_external` is deliberately
+/// http(s)-only, so the settings scheme gets its own hardcoded command rather
+/// than a loosened check. No-op off macOS.
+#[tauri::command]
+fn open_screen_recording_settings() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        open::that_detached(
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+        )
+        .map_err(|e| format!("cannot open System Settings: {e}"))
+    }
+    #[cfg(not(target_os = "macos"))]
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default();
@@ -111,6 +155,8 @@ pub fn run() {
             oauth::secret_load,
             oauth::secret_delete,
             open_external,
+            screen_capture_permission,
+            open_screen_recording_settings,
         ])
         .build(tauri::generate_context!())
         .expect("error while running Hiroba")

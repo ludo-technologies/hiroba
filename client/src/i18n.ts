@@ -224,6 +224,11 @@ const EN = {
   yourScreen: "Your screen",
   sharedScreen: (name: string) => `${name}'s screen`,
   errScreenShare: "Couldn't start screen sharing. Check browser/OS permissions.",
+  screenPermTitle: "Allow screen recording",
+  screenPermBody:
+    "macOS blocks whole-screen sharing until you allow it: open System Settings → Privacy & Security → Screen & System Audio Recording, turn on Hiroba, then relaunch the app. macOS applies the change only after a restart.",
+  screenPermOpen: "Open System Settings",
+  screenPermRelaunch: "Relaunch Hiroba",
   viewScreen: "View screen",
   viewScreenTitle: "Show the shared screen again",
   cameraOn: "Turn on camera",
@@ -439,6 +444,11 @@ const JA: typeof EN = {
   yourScreen: "自分の画面",
   sharedScreen: (name: string) => `${name} の画面`,
   errScreenShare: "画面共有を開始できませんでした。ブラウザ/OSの権限設定を確認してください。",
+  screenPermTitle: "画面収録を許可してください",
+  screenPermBody:
+    "macOSでは許可がないと画面全体を共有できません。「システム設定 → プライバシーとセキュリティ → 画面収録とシステムオーディオ録音」でHirobaをオンにして、アプリを再起動してください。変更は再起動後に反映されます。",
+  screenPermOpen: "システム設定を開く",
+  screenPermRelaunch: "Hirobaを再起動",
   viewScreen: "画面を見る",
   viewScreenTitle: "共有画面を再表示",
   cameraOn: "カメラ",

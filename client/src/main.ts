@@ -17,7 +17,9 @@
  * Invariant: while in the "space" state, `session` is non-null.
  */
 
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, UserAttentionType } from "@tauri-apps/api/window";
+import { relaunch } from "@tauri-apps/plugin-process";
 import { HirobaNet } from "./net.js";
 import { Renderer, type FrameLevels } from "./render.js";
 import { InputHandler, isTypingTarget } from "./input.js";
@@ -1742,6 +1744,25 @@ async function handleScreenShareToggle(): Promise<void> {
   if (session.audio.isScreenSharing) {
     stopScreenShare();
     return;
+  }
+
+  // macOS gates whole-display capture behind the Screen Recording permission,
+  // and a missing grant doesn't error — it yields black frames. Preflight in
+  // Rust (which also triggers the one-time OS prompt) and explain instead of
+  // shipping a black rectangle. Non-macOS builds report granted.
+  if (isTauri()) {
+    try {
+      if (!(await invoke<boolean>("screen_capture_permission"))) {
+        ui.setScreenSharing(false);
+        ui.showScreenPermissionHelp(
+          () => void invoke("open_screen_recording_settings").catch(() => {}),
+          () => void relaunch(),
+        );
+        return;
+      }
+    } catch {
+      // Older shell without the command — fall through and try the capture.
+    }
   }
 
   try {

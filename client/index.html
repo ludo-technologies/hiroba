@@ -436,6 +436,28 @@
       </div>
     </div>
 
+    <!-- macOS Screen Recording permission explainer: without the TCC grant a
+         whole-display capture silently yields black frames, so a toast is not
+         enough — deep-link to System Settings and offer the relaunch macOS
+         requires before a fresh grant takes effect. -->
+    <div id="screen-perm" class="overlay" hidden>
+      <div class="card invite-card" role="dialog" aria-modal="true" aria-labelledby="screen-perm-title">
+        <header class="invite-head">
+          <span id="screen-perm-title" class="invite-title" data-i18n="screenPermTitle">Allow screen recording</span>
+          <button id="screen-perm-close" type="button" class="ghost-btn" data-i18n="closePanel">Close</button>
+        </header>
+
+        <p class="org-setup-desc" data-i18n="screenPermBody">
+          macOS blocks whole-screen sharing until you allow it.
+        </p>
+
+        <div class="invite-result-actions">
+          <button id="screen-perm-open" type="button" data-i18n="screenPermOpen">Open System Settings</button>
+          <button id="screen-perm-relaunch" type="button" class="ghost-btn" data-i18n="screenPermRelaunch">Relaunch Hiroba</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Space tabs: switch the active space (FR-05); rebuilt from the catalog -->
     <nav id="tabs" class="tabs" hidden aria-label="Spaces" data-i18n-arialabel="ariaSpaces"></nav>
 

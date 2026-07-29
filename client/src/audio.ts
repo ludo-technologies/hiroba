@@ -778,8 +778,45 @@ export class AudioEngine {
       stream.getTracks().forEach((t) => t.stop());
       throw new Error("no video track from getDisplayMedia");
     }
+    try {
+      await this._awaitFirstFrame(stream);
+    } catch (err) {
+      stream.getTracks().forEach((t) => t.stop());
+      throw err;
+    }
     this._startVideo("screen", stream, track);
     track.addEventListener("ended", () => this.stopScreenShare(), { once: true });
+  }
+
+  /**
+   * Resolve once `stream` presents its first video frame; reject on timeout.
+   * A capture can be "live" yet frameless (e.g. an OS permission revoked
+   * behind the picker's back) — without this check the peer receives an empty
+   * rectangle and nothing anywhere reports an error. Engines without
+   * requestVideoFrameCallback skip the check.
+   */
+  private _awaitFirstFrame(stream: MediaStream, timeoutMs = 4000): Promise<void> {
+    const probe = document.createElement("video");
+    if (typeof probe.requestVideoFrameCallback !== "function") return Promise.resolve();
+    probe.muted = true;
+    probe.playsInline = true;
+    probe.srcObject = stream;
+    return new Promise((resolve, reject) => {
+      const done = (err?: Error) => {
+        window.clearTimeout(timer);
+        probe.pause();
+        probe.srcObject = null;
+        err ? reject(err) : resolve();
+      };
+      const timer = window.setTimeout(
+        () => done(new Error("screen capture produced no frames")),
+        timeoutMs,
+      );
+      probe.requestVideoFrameCallback(() => done());
+      void probe.play().catch(() => {
+        /* Muted inline playback shouldn't be blocked; the timeout covers it if so. */
+      });
+    });
   }
 
   /** Stop local screen sharing and renegotiate every live peer connection. */

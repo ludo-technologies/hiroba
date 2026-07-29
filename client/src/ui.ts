@@ -166,6 +166,10 @@ const elInviteCopyCode = $<HTMLButtonElement>("invite-copy-code");
 const elInviteList = $<HTMLUListElement>("invite-list");
 const elInvitePanelError = $<HTMLParagraphElement>("invite-panel-error");
 
+const elScreenPerm = $<HTMLDivElement>("screen-perm");
+const elScreenPermClose = $<HTMLButtonElement>("screen-perm-close");
+const elScreenPermOpen = $<HTMLButtonElement>("screen-perm-open");
+const elScreenPermRelaunch = $<HTMLButtonElement>("screen-perm-relaunch");
 const elMembersPanel = $<HTMLDivElement>("members-panel");
 const elMembersPanelBtn = $<HTMLButtonElement>("members-panel-btn");
 const elMembersPanelClose = $<HTMLButtonElement>("members-panel-close");
@@ -1346,6 +1350,18 @@ export class UIManager {
     elCameraToggle.textContent = on ? t.cameraOff : t.cameraOn;
     elCameraToggle.title = on ? t.cameraOffTitle : t.cameraOnTitle;
     elCameraToggle.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+
+  /** Explain the missing macOS Screen Recording permission. The OS hands the
+   *  capture black frames instead of an error, so this replaces the generic
+   *  failure toast with the actual fix: enable Hiroba in System Settings and
+   *  relaunch (macOS applies a fresh grant only after a restart). */
+  showScreenPermissionHelp(onOpenSettings: () => void, onRelaunch: () => void): void {
+    // Plain assignment (not addEventListener) so a re-show never stacks handlers.
+    elScreenPermOpen.onclick = onOpenSettings;
+    elScreenPermRelaunch.onclick = onRelaunch;
+    elScreenPermClose.onclick = () => elScreenPerm.setAttribute("hidden", "");
+    elScreenPerm.removeAttribute("hidden");
   }
 
   /** Show the given video stream in the main panel, or hide the panel when
