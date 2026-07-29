@@ -1705,6 +1705,69 @@ body {
   flex: none;
 }
 
+/* "or" rule between the provider buttons and the e-mail form. */
+.auth-or {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11.5px;
+  color: var(--ink-mute);
+}
+
+.auth-or::before,
+.auth-or::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--edge);
+}
+
+/* Address step and code step share a layout; only one is ever visible. */
+.email-step {
+  display: grid;
+  gap: 8px;
+}
+
+.email-step[hidden] {
+  display: none;
+}
+
+.email-step input {
+  padding: 11px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--edge-2);
+  border-radius: var(--radius-btn);
+}
+
+.email-step input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* The code is short and typed under time pressure: give it room. */
+#login-code {
+  text-align: center;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.32em;
+  /* letter-spacing pads the right of the last glyph; nudge it back so the
+     digits look centered. */
+  text-indent: 0.32em;
+}
+
+.code-links {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.code-links .ghost-btn {
+  font-size: 11.5px;
+}
+
 /* Signed-in chip: who you are + which org the token pins you to. */
 .auth-session {
   display: flex;

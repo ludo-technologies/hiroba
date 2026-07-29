@@ -1,15 +1,20 @@
 /**
- * auth.ts — client side of the interactive OAuth login (AUTH_PLAN §2/§6).
+ * auth.ts — client side of the interactive login (AUTH_PLAN §2/§2.1/§6).
  *
- * The heavy lifting (PKCE, loopback listener, system browser, code→JWT
- * exchange) happens in the Tauri shell (`src-tauri/src/oauth.rs`); this module
- * is the thin webview-side wrapper plus session-token persistence:
+ * Two ways in, both ending at the same Hiroba JWT:
  *
- *   - Under Tauri, the Hiroba JWT lives in the **OS keychain** via the
- *     `secret_*` commands — localStorage never holds a credential.
- *   - In a plain browser (vite dev / web build) there is no loopback receiver,
- *     so interactive login is unavailable; the manual token field in the join
- *     form remains the fallback there.
+ *   - **OAuth** (Google / GitHub): the heavy lifting — PKCE, loopback listener,
+ *     system browser, code→JWT exchange — happens in the Tauri shell
+ *     (`src-tauri/src/oauth.rs`); this module is the thin webview-side wrapper.
+ *   - **E-mail code**: two plain fetches ({@link emailStart}, {@link emailVerify}).
+ *     No browser round-trip and no shell involvement, so the user never leaves
+ *     the app.
+ *
+ * Plus session-token persistence: under Tauri the JWT lives in the **OS
+ * keychain** via the `secret_*` commands — localStorage never holds a
+ * credential. In a plain browser (vite dev / web build) there is neither a
+ * loopback receiver nor a keychain, so the login block is hidden entirely and
+ * the manual token field in the join form remains the fallback there.
  */
 
 // ---------------------------------------------------------------------------
@@ -127,6 +132,119 @@ export async function oauthLogin(
     kind: "session",
     session: { token: result.token, claims, refreshToken: result.refresh_token },
   };
+}
+
+// ---------------------------------------------------------------------------
+// E-mail one-time-code login
+// ---------------------------------------------------------------------------
+
+/** Thrown when the backend refuses another code for a while (HTTP 429). */
+export class CodeThrottledError extends Error {
+  constructor(readonly retryAfterSecs: number) {
+    super(`another code may be requested in ${retryAfterSecs}s`);
+    this.name = "CodeThrottledError";
+  }
+}
+
+/** Thrown when the backend rejects the code itself (HTTP 401) — as opposed to
+ *  the request never arriving, which must not be reported as a bad code. */
+export class CodeRejectedError extends Error {
+  constructor() {
+    super("code invalid or expired");
+    this.name = "CodeRejectedError";
+  }
+}
+
+/** Thrown when the *invite* is what the backend refused (HTTP 409). The code
+ *  itself was fine — and, because the backend checks the invite first, still
+ *  unspent — so sending the user hunting for a new code would be wrong. */
+export class InviteRejectedError extends Error {
+  constructor() {
+    super("invite invalid, used, or expired");
+    this.name = "InviteRejectedError";
+  }
+}
+
+/** Digits in a login code — mirrors the backend's CODE_DIGITS. */
+export const CODE_LENGTH = 6;
+
+/** Fallback wait when a 429 arrives without a usable Retry-After header. */
+const DEFAULT_RETRY_AFTER_SECS = 60;
+
+function authEndpoint(authBase: string, path: string): string {
+  return `${authBase.replace(/\/+$/, "")}${path}`;
+}
+
+/**
+ * Ask the backend to mail a login code. Resolves with the code itself only in
+ * a dev backend (`HIROBA_AUTH_DEV=1`), which skips delivery — production
+ * responses carry nothing but an acknowledgement.
+ */
+export async function emailStart(
+  authBase: string,
+  email: string,
+  locale: string,
+): Promise<{ devCode?: string }> {
+  const resp = await fetch(authEndpoint(authBase, "/email/start"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, locale }),
+  });
+  if (resp.status === 429) {
+    const header = Number(resp.headers.get("Retry-After"));
+    throw new CodeThrottledError(
+      Number.isFinite(header) && header > 0 ? Math.ceil(header) : DEFAULT_RETRY_AFTER_SECS,
+    );
+  }
+  if (!resp.ok) throw new Error(await resp.text());
+  const data: { dev_code?: string } = await resp.json();
+  return { devCode: data.dev_code };
+}
+
+/**
+ * Trade a mailed code for a session. Mirrors {@link oauthLogin}'s result: a
+ * first-time user without an invite gets the org-setup handoff instead.
+ */
+export async function emailVerify(
+  authBase: string,
+  email: string,
+  code: string,
+  invite?: string,
+): Promise<OAuthResult> {
+  const resp = await fetch(authEndpoint(authBase, "/email/verify"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, code, invite: invite || null }),
+  });
+  if (resp.status === 401) throw new CodeRejectedError();
+  if (resp.status === 409) throw new InviteRejectedError();
+  if (!resp.ok) throw new Error(await resp.text());
+  const data: {
+    token?: string;
+    refresh_token?: string;
+    pending?: string;
+    provisional_token?: string;
+  } = await resp.json();
+  if (data.pending === "org_setup") {
+    if (!data.provisional_token) {
+      throw new Error("auth backend returned a malformed pending response");
+    }
+    return { kind: "pending_org", provisionalToken: data.provisional_token };
+  }
+  const claims = data.token ? decodeClaims(data.token) : null;
+  if (!data.token || !data.refresh_token || !claims) {
+    throw new Error("auth backend returned a malformed token");
+  }
+  return {
+    kind: "session",
+    session: { token: data.token, claims, refreshToken: data.refresh_token },
+  };
+}
+
+/** Keep only the digits a code is made of, so pasted text ("code: 012 345")
+ *  still lands in the field. */
+export function sanitizeCode(raw: string): string {
+  return raw.replace(/\D/g, "").slice(0, CODE_LENGTH);
 }
 
 /**

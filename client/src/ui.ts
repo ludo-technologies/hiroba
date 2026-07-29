@@ -23,7 +23,7 @@ import {
   t,
   type Locale,
 } from "./i18n.js";
-import { extractInviteCode } from "./auth.js";
+import { CODE_LENGTH, extractInviteCode, sanitizeCode } from "./auth.js";
 import { CustomSelect, type SelectOption } from "./select.js";
 
 // ---------------------------------------------------------------------------
@@ -119,6 +119,17 @@ const elLoginGithub = $<HTMLButtonElement>("login-github");
 // so the inline provider logos survive.
 const elLoginGoogleLabel = elLoginGoogle.querySelector<HTMLSpanElement>(".oauth-label")!;
 const elLoginGithubLabel = elLoginGithub.querySelector<HTMLSpanElement>(".oauth-label")!;
+const elEmailStep = $<HTMLDivElement>("email-step");
+const elLoginEmail = $<HTMLInputElement>("login-email");
+const elLoginEmailSend = $<HTMLButtonElement>("login-email-send");
+const elLoginEmailSendLabel = elLoginEmailSend.querySelector<HTMLSpanElement>(".oauth-label")!;
+const elCodeStep = $<HTMLDivElement>("code-step");
+const elCodeSentMsg = $<HTMLParagraphElement>("code-sent-msg");
+const elLoginCode = $<HTMLInputElement>("login-code");
+const elLoginCodeVerify = $<HTMLButtonElement>("login-code-verify");
+const elLoginCodeVerifyLabel = elLoginCodeVerify.querySelector<HTMLSpanElement>(".oauth-label")!;
+const elLoginCodeResend = $<HTMLButtonElement>("login-code-resend");
+const elLoginCodeBack = $<HTMLButtonElement>("login-code-back");
 const elAuthSession = $<HTMLDivElement>("auth-session");
 const elAuthUser = $<HTMLSpanElement>("auth-user");
 const elAuthLogout = $<HTMLButtonElement>("auth-logout");
@@ -252,6 +263,10 @@ export interface UICallbacks {
   onCancelConnect(): void;
   /** Start an interactive OAuth login via the Tauri shell (FR-13). */
   onLogin(provider: "google" | "github", authUrl: string, invite: string): void;
+  /** Ask the auth backend to mail a one-time login code. */
+  onEmailStart(email: string, authUrl: string): void;
+  /** Trade a mailed code for a session. */
+  onEmailVerify(code: string, authUrl: string, invite: string): void;
   /** Drop the stored session and return to the signed-out state. */
   onLogout(): void;
   /** Found the org for a pending first sign-in (org-setup step). */
@@ -371,6 +386,10 @@ export class UIManager {
   private lastReconnect: { attempt: number; max: number } | null = null;
   private lastUpdateVersion: string | null = null;
   private lastLoginBusy = false;
+  private lastEmailBusy = false;
+  private lastCodeBusy = false;
+  /** Address a code was mailed to, while the code step is on screen. */
+  private codeSentTo: string | null = null;
   private lastOrgSetupBusy = false;
   private lastInviteIssueBusy = false;
 
@@ -557,6 +576,8 @@ export class UIManager {
     } else {
       elAuthSession.setAttribute("hidden", "");
       elAuthActions.removeAttribute("hidden");
+      // Signing out mid-code-entry would otherwise leave a stale code step.
+      this.showEmailStep();
     }
   }
 
@@ -567,6 +588,46 @@ export class UIManager {
     elLoginGithub.disabled = busy;
     elLoginGoogleLabel.textContent = busy ? t.waitingBrowser : t.signInGoogle;
     elLoginGithubLabel.textContent = busy ? t.waitingBrowser : t.signInGithub;
+  }
+
+  /** Disable the address step while a code is being mailed. */
+  setEmailBusy(busy: boolean): void {
+    this.lastEmailBusy = busy;
+    elLoginEmail.disabled = busy;
+    elLoginEmailSend.disabled = busy;
+    elLoginCodeResend.disabled = busy;
+    elLoginEmailSendLabel.textContent = busy ? t.sendingCode : t.sendCode;
+  }
+
+  /** Disable the code step while the code is being redeemed. */
+  setCodeBusy(busy: boolean): void {
+    this.lastCodeBusy = busy;
+    elLoginCode.disabled = busy;
+    elLoginCodeVerify.disabled = busy;
+    elLoginCodeVerifyLabel.textContent = busy ? t.verifyingCode : t.verifyCode;
+  }
+
+  /** Swap the address step for the code step once a code is on its way. */
+  showCodeStep(email: string): void {
+    this.codeSentTo = email;
+    elCodeSentMsg.textContent = t.codeSentTo(email);
+    elEmailStep.setAttribute("hidden", "");
+    elCodeStep.removeAttribute("hidden");
+    elLoginCode.value = "";
+    elLoginCode.focus();
+  }
+
+  /** Back to the address step (wrong address, sign-out, or a fresh start). */
+  showEmailStep(): void {
+    this.codeSentTo = null;
+    elCodeStep.setAttribute("hidden", "");
+    elEmailStep.removeAttribute("hidden");
+    elLoginCode.value = "";
+  }
+
+  /** The address a code was last mailed to, for a resend. */
+  getCodeEmail(): string | null {
+    return this.codeSentTo;
   }
 
   /** Fill the display name from the login profile unless the user typed one. */
@@ -647,6 +708,9 @@ export class UIManager {
       elJoinBtn.textContent = t.enter;
     }
     this.setLoginBusy(this.lastLoginBusy);
+    this.setEmailBusy(this.lastEmailBusy);
+    this.setCodeBusy(this.lastCodeBusy);
+    if (this.codeSentTo) elCodeSentMsg.textContent = t.codeSentTo(this.codeSentTo);
     this.setOrgSetupBusy(this.lastOrgSetupBusy);
     this.setInviteIssueBusy(this.lastInviteIssueBusy);
 
@@ -700,21 +764,81 @@ export class UIManager {
   }
 
   private _bindAuth(): void {
-    const start = (provider: "google" | "github") => {
-      const authUrl = elJoinAuth.value.trim();
-      if (!authUrl) {
+    // Every sign-in path needs the auth server; resolve it once, complaining
+    // in the same way, and hand back null when it isn't set.
+    const authUrl = (): string | null => {
+      const url = elJoinAuth.value.trim();
+      if (!url) {
         this.showError(t.errAuthUrl);
         this.showServerSettings(elJoinAuth);
-        return;
+        return null;
       }
-      persistUrlDeviation(LS_AUTH, authUrl, DEFAULT_AUTH_SERVER);
+      persistUrlDeviation(LS_AUTH, url, DEFAULT_AUTH_SERVER);
       elJoinError.setAttribute("hidden", "");
+      return url;
+    };
+
+    const start = (provider: "google" | "github") => {
+      const url = authUrl();
+      if (!url) return;
       // The field accepts a bare code or a shared /invite/<token> link.
-      this.callbacks.onLogin(provider, authUrl, extractInviteCode(elJoinInvite.value));
+      this.callbacks.onLogin(provider, url, extractInviteCode(elJoinInvite.value));
     };
     elLoginGoogle.addEventListener("click", () => start("google"));
     elLoginGithub.addEventListener("click", () => start("github"));
     elAuthLogout.addEventListener("click", () => this.callbacks.onLogout());
+
+    // ── E-mail one-time code ───────────────────────────────────────────────
+    const sendCode = (email: string) => {
+      const url = authUrl();
+      if (!url) return;
+      if (!email) {
+        this.showError(t.errEmail);
+        elLoginEmail.focus();
+        return;
+      }
+      this.callbacks.onEmailStart(email, url);
+    };
+    elLoginEmailSend.addEventListener("click", () => sendCode(elLoginEmail.value.trim()));
+    elLoginEmail.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      // The address input sits inside the join <form>; Enter here means
+      // "send me a code", not "submit the form".
+      e.preventDefault();
+      sendCode(elLoginEmail.value.trim());
+    });
+    elLoginCodeResend.addEventListener("click", () => sendCode(this.codeSentTo ?? ""));
+    elLoginCodeBack.addEventListener("click", () => {
+      this.showEmailStep();
+      elLoginEmail.focus();
+    });
+
+    const verify = () => {
+      const url = authUrl();
+      if (!url) return;
+      const code = sanitizeCode(elLoginCode.value);
+      if (code.length !== CODE_LENGTH) {
+        this.showError(t.errCode);
+        elLoginCode.focus();
+        return;
+      }
+      this.callbacks.onEmailVerify(code, url, extractInviteCode(elJoinInvite.value));
+    };
+    elLoginCodeVerify.addEventListener("click", verify);
+    // Typing/pasting only ever leaves digits in the field, and a full-length
+    // code submits itself — the extra click adds nothing. The length cap lives
+    // here rather than in a `maxlength`: the browser applies that *before* this
+    // handler, so pasting "code: 012 345" would be truncated to its first six
+    // characters and sanitize down to nothing.
+    elLoginCode.addEventListener("input", () => {
+      elLoginCode.value = sanitizeCode(elLoginCode.value);
+      if (elLoginCode.value.length === CODE_LENGTH) verify();
+    });
+    elLoginCode.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      verify();
+    });
   }
 
   /** The auth server base URL as currently configured (Advanced field). */

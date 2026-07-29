@@ -36,7 +36,12 @@ import { resolveIceServers } from "./config.js";
 import { locale, spaceLabel, t } from "./i18n.js";
 import {
   clearSession,
+  CodeRejectedError,
+  CodeThrottledError,
   decodeClaims,
+  emailStart,
+  emailVerify,
+  InviteRejectedError,
   isLive,
   isTauri,
   loadSession,
@@ -44,6 +49,7 @@ import {
   openExternal,
   saveSession,
   type AuthSession,
+  type OAuthResult,
 } from "./auth.js";
 import type {
   Peer,
@@ -152,6 +158,8 @@ const ui = new UIManager(
     onJoin: handleJoin,
     onCancelConnect: handleCancelConnect,
     onLogin: handleLogin,
+    onEmailStart: handleEmailStart,
+    onEmailVerify: handleEmailVerify,
     onLogout: handleLogout,
     onCreateOrg: handleCreateOrg,
     onCancelOrgSetup: handleCancelOrgSetup,
@@ -346,23 +354,67 @@ async function handleLogin(
 ): Promise<void> {
   ui.setLoginBusy(true);
   try {
-    const result = await oauthLogin(authUrl, provider, invite || undefined);
-    if (result.kind === "pending_org") {
-      // First sign-in, no invite: the user names their org before a session
-      // exists. The provisional token only authorizes POST /orgs.
-      pendingProvisionalToken = result.provisionalToken;
-      ui.showOrgSetup();
-      return;
-    }
-    await saveSession(result.session);
-    authSession = result.session;
-    if (invite) ui.clearInvite();
-    reflectAuthSession();
+    await adoptLogin(await oauthLogin(authUrl, provider, invite || undefined), invite);
   } catch (err) {
     ui.showError(err instanceof Error ? err.message : t.errSignIn);
   } finally {
     ui.setLoginBusy(false);
   }
+}
+
+/** Mail a one-time code and move the form to the code step. */
+async function handleEmailStart(email: string, authUrl: string): Promise<void> {
+  ui.setEmailBusy(true);
+  try {
+    const { devCode } = await emailStart(authUrl, email, locale);
+    ui.showCodeStep(email);
+    // A dev auth backend (HIROBA_AUTH_DEV=1) mails nothing and hands the code
+    // back instead, so a local sign-in needs no mailbox.
+    if (devCode) console.info(`[dev] login code for ${email}: ${devCode}`);
+  } catch (err) {
+    ui.showError(
+      err instanceof CodeThrottledError ? t.errCodeThrottled(err.retryAfterSecs) : t.errSendCode,
+    );
+  } finally {
+    ui.setEmailBusy(false);
+  }
+}
+
+/** Trade the typed code for a session — from here it is the OAuth path. */
+async function handleEmailVerify(code: string, authUrl: string, invite: string): Promise<void> {
+  const email = ui.getCodeEmail();
+  if (!email) return;
+  ui.setCodeBusy(true);
+  try {
+    await adoptLogin(await emailVerify(authUrl, email, code, invite || undefined), invite);
+    ui.showEmailStep();
+  } catch (err) {
+    // The backend never says *why* a code failed (wrong, expired, or spent),
+    // and neither do we. But a refused invite and a request that never landed
+    // are different problems, and calling either one a wrong code would send
+    // the user hunting for a new one they don't need.
+    if (err instanceof CodeRejectedError) ui.showError(t.errCode);
+    else if (err instanceof InviteRejectedError) ui.showError(t.errInvite);
+    else ui.showError(t.errConnect);
+  } finally {
+    ui.setCodeBusy(false);
+  }
+}
+
+/** Adopt whatever a login produced: a session to store, or the org-setup step
+ *  a first-time uninvited user has to pass through first. */
+async function adoptLogin(result: OAuthResult, invite: string): Promise<void> {
+  if (result.kind === "pending_org") {
+    // First sign-in, no invite: the user names their org before a session
+    // exists. The provisional token only authorizes POST /orgs.
+    pendingProvisionalToken = result.provisionalToken;
+    ui.showOrgSetup();
+    return;
+  }
+  await saveSession(result.session);
+  authSession = result.session;
+  if (invite) ui.clearInvite();
+  reflectAuthSession();
 }
 
 function handleLogout(): void {

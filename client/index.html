@@ -78,6 +78,50 @@
               </svg>
               <span class="oauth-label" data-i18n="signInGithub">Sign in with GitHub</span>
             </button>
+            <!-- E-mail one-time code: no provider account, no browser trip.
+                 The address step swaps for the code step once one is sent. -->
+            <div class="auth-or"><span data-i18n="authOr">or</span></div>
+            <div id="email-step" class="email-step">
+              <input
+                id="login-email"
+                type="email"
+                inputmode="email"
+                placeholder="you@example.com"
+                data-i18n-placeholder="emailPlaceholder"
+                data-i18n-arialabel="fieldEmail"
+                aria-label="Email address"
+                spellcheck="false"
+                autocapitalize="off"
+                autocomplete="email"
+              />
+              <button id="login-email-send" type="button" class="oauth-btn">
+                <span class="oauth-label" data-i18n="sendCode">Email me a code</span>
+              </button>
+            </div>
+            <div id="code-step" class="email-step" hidden>
+              <p id="code-sent-msg" class="auth-hint"></p>
+              <input
+                id="login-code"
+                type="text"
+                inputmode="numeric"
+                autocomplete="one-time-code"
+                placeholder="123456"
+                data-i18n-arialabel="fieldCode"
+                aria-label="Login code"
+                spellcheck="false"
+              />
+              <button id="login-code-verify" type="button" class="oauth-btn">
+                <span class="oauth-label" data-i18n="verifyCode">Sign in</span>
+              </button>
+              <div class="code-links">
+                <button id="login-code-resend" type="button" class="ghost-btn" data-i18n="resendCode">
+                  Send another code
+                </button>
+                <button id="login-code-back" type="button" class="ghost-btn" data-i18n="changeEmail">
+                  Use a different address
+                </button>
+              </div>
+            </div>
           </div>
           <div id="auth-session" class="auth-session" hidden>
             <span class="auth-dot" aria-hidden="true"></span>
