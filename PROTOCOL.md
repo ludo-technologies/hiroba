@@ -177,7 +177,9 @@ Clients SHOULD set `away: true` when they dim themselves on idle (NFR-01).
 ```
 `data` is opaque and relayed verbatim. The server fills in `from` and delivers a
 server→client `signal` to peer `to`. Used for **both** in-space proximity links
-and page links. If `to` is not connected, the message is dropped silently.
+and page links. Dropped silently when `to` is not connected, when the peers
+are in different spaces without a page link, or when either peer is `dnd`
+without a page link (§Presence & status).
 
 ### `page` — start a cross-space 1:1 page (FR-10)
 ```json
@@ -322,6 +324,9 @@ Sent only when the recipient's in-space proximity set changes. For each
 otherwise it waits for one. **Tie-break (server-enforced):** in any near pair the
 peer with the **numerically smaller id** is the initiator (avoids glare).
 `disconnect` lists peer ids whose link MUST be torn down. Computed per space.
+A member with `dnd` set never appears in `connect`, and setting `dnd` while
+linked emits `disconnect` for those links to both sides on the next tick
+(§Presence & status).
 
 ### `page_offer` — incoming page (to the callee)
 ```json
@@ -390,8 +395,18 @@ in_call  >  dnd  >  away  >  active
 
 - `in_call` — set while the member has an **accepted** page link (server-managed).
   Pending rings do not set `in_call`.
-- `dnd` / `away` — user-controllable via `set_status`. `dnd` blocks incoming
-  pages at offer time; `away` is a soft idle indicator the client sets on inactivity.
+- `dnd` / `away` — user-controllable via `set_status`. `dnd` makes the member
+  **unreachable** (full isolation, both directions):
+  - incoming pages are rejected at offer time (`page_rejected{reason:"dnd"}`);
+  - the proximity engine never pairs a DND member — walking within
+    `nearRadius` produces no `proximity` connect on either side, and turning
+    DND on while linked tears the live links down (both sides receive a
+    `proximity` disconnect on the next tick). Turning DND off re-links
+    automatically on the next tick while still in range;
+  - `signal` frames to **or from** a DND member are dropped unless the pair
+    has an accepted page link.
+
+  `away` is a soft idle indicator the client sets on inactivity.
 - `active` — present in a space, available.
 
 Any change to status, `spaceId`, or `muted` triggers a `presence` broadcast.

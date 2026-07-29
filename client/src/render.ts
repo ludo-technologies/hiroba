@@ -885,7 +885,10 @@ export class Renderer {
     // Spawn/leave drive a combined appearance factor (alpha + scale).
     const appear = isSelf ? 1 : peer.leaving ? peer.leave : easeOutBack(peer.spawn);
     let alpha = isSelf ? 1 : clamp01(peer.leaving ? peer.leave : peer.spawn);
-    if (peer.status === "away") alpha *= 0.62;
+    // Away and DND both dim: away as a soft idle cue, DND so the member reads
+    // as unreachable on the canvas (walking over will not open a link) — the
+    // ring/badge alone didn't communicate that.
+    if (peer.status === "away" || peer.status === "dnd") alpha *= 0.62;
     // World-unit radius projected through the room scale, so the token keeps
     // its proportion to the floor at any window size. Seated pose shrinks a
     // notch so people rest *on* stools instead of covering them.

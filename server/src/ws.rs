@@ -306,6 +306,7 @@ pub fn spawn_tick_loop(registry: OrgRegistry) {
                             string_id: m.info.id.clone(),
                             x: m.info.x,
                             y: m.info.y,
+                            dnd: m.dnd,
                         })
                         .collect();
 

@@ -130,6 +130,43 @@ class Client {
   const disc = await A.wait((m) => m.t === "proximity" && m.disconnect?.includes(idB), 3000);
   ok(!!disc, "A receives proximity disconnect after moving apart");
 
+  // ── 3.5) DND gates proximity voice (issue #1) ───────────────────────────
+  // B goes DND while far from A; A walks up → no link on either side.
+  A.clear(); B.clear();
+  B.send({ t: "set_status", dnd: true });
+  await A.wait((m) => m.t === "presence" && m.member?.id === idB && m.member?.status === "dnd");
+  A.clear(); B.clear();
+  A.send({ t: "move", x: 500, y: 500 });
+  B.send({ t: "move", x: 510, y: 505 });
+  await sleep(600);
+  ok(!A.drain("proximity").some((m) => m.connect?.length), "walking up to a DND member: no connect for the approacher");
+  ok(!B.drain("proximity").some((m) => m.connect?.length), "walking up to a DND member: no connect for the DND member");
+
+  // Signals to a DND member are dropped (no page link between A and B).
+  B.clear();
+  A.send({ t: "signal", to: idB, data: { kind: "offer", sdp: "BLOCKED_SDP" } });
+  await sleep(300);
+  ok(!B.drain("signal").some((m) => m.data?.sdp === "BLOCKED_SDP"), "signal to a DND member is dropped");
+
+  // Clearing DND while still in range → the pair links automatically.
+  A.clear(); B.clear();
+  B.send({ t: "set_status", dnd: false });
+  const relinkA = await A.wait((m) => m.t === "proximity" && m.connect?.some((c) => c.id === idB));
+  ok(!!relinkA, "clearing DND re-links automatically while still in range");
+
+  // Enabling DND while linked tears the live link down on both sides.
+  A.clear(); B.clear();
+  B.send({ t: "set_status", dnd: true });
+  const dndDiscA = await A.wait((m) => m.t === "proximity" && m.disconnect?.includes(idB));
+  const dndDiscB = await B.wait((m) => m.t === "proximity" && m.disconnect?.includes(idA));
+  ok(!!dndDiscA && !!dndDiscB, "enabling DND while linked disconnects both sides");
+
+  // Restore: DND off, move apart again for the following sections.
+  B.send({ t: "set_status", dnd: false });
+  A.send({ t: "move", x: 50, y: 50 });
+  B.send({ t: "move", x: width - 50, y: height - 50 });
+  await sleep(500);
+
   // ── 4) Space switch + isolation ─────────────────────────────────────────
   A.clear(); B.clear();
   B.send({ t: "enter_space", spaceId: team.id });

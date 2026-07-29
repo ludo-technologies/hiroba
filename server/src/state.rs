@@ -101,7 +101,10 @@ pub struct Member {
     pub muted: bool,
     /// User-controllable idle flag (NFR-01 dim-on-idle).
     pub away: bool,
-    /// User-controllable do-not-disturb flag (blocks incoming pages, FR-11).
+    /// User-controllable do-not-disturb flag (FR-11). Blocks incoming pages
+    /// AND proximity voice: the tick loop's proximity engine skips any pair
+    /// with a DND side (tearing down live links), and `route_signal` drops
+    /// non-page signals to/from a DND member.
     pub dnd: bool,
     /// Peers this member currently has an established page (1:1) link with.
     /// Non-empty ⇒ effective status is `in_call`.
@@ -164,6 +167,9 @@ impl Member {
 pub struct TickMember {
     pub info: PeerInfo,
     pub num_id: u64,
+    /// Raw DND flag — the proximity engine skips (and tears down) any pair
+    /// with a DND side.
+    pub dnd: bool,
     pub tx: mpsc::Sender<ServerMsg>,
 }
 
@@ -685,6 +691,13 @@ impl Org {
     }
 
     /// Apply a partial status update (away / dnd) and broadcast `presence`.
+    ///
+    /// Turning `dnd` on also tears down the member's live proximity links —
+    /// not here, but on the next tick (≤ ~83 ms): the hysteresis/connected
+    /// sets live in the tick task, and `update_proximity` force-disconnects
+    /// any pair with a DND side, so the teardown is emitted from the one
+    /// place that owns link state. `route_signal` blocks new signaling
+    /// immediately.
     pub async fn set_status(&self, id: &str, away: Option<bool>, dnd: Option<bool>) {
         let mut guard = self.inner.lock().await;
         match guard.members.get_mut(id) {
@@ -1088,17 +1101,20 @@ impl Org {
     ///
     /// A signal is only relayed when the two peers have a legitimate link:
     /// either an active **page** (`from` lists `to` in `paging`) or they share
-    /// the **same space** (proximity audio is in-space). This prevents a client
-    /// from injecting offers/candidates across spaces or to a peer it has no
-    /// link with — which would otherwise bypass space isolation and the DND
-    /// page gate. Silently drops if disallowed or `to` is not connected
-    /// (PROTOCOL.md §signal).
+    /// the **same space** with neither side DND (proximity audio is in-space,
+    /// and DND makes a member unreachable for proximity — FR-11). This
+    /// prevents a client from injecting offers/candidates across spaces, to a
+    /// peer it has no link with, or straight at a DND member the proximity
+    /// engine refused to pair — which would otherwise bypass space isolation
+    /// and the DND gates. Silently drops if disallowed or `to` is not
+    /// connected (PROTOCOL.md §signal).
     pub async fn route_signal(&self, from_id: &str, to_id: &str, data: serde_json::Value) {
         let guard = self.inner.lock().await;
         let (Some(from), Some(to)) = (guard.members.get(from_id), guard.members.get(to_id)) else {
             return;
         };
-        let allowed = from.paging.contains(to_id) || from.space_id == to.space_id;
+        let allowed = from.paging.contains(to_id)
+            || (from.space_id == to.space_id && !from.dnd && !to.dnd);
         if !allowed {
             return;
         }
@@ -1138,6 +1154,7 @@ impl Org {
                         ..m.as_peer_info()
                     },
                     num_id: m.num_id,
+                    dnd: m.dnd,
                     tx: m.tx.clone(),
                 })
                 .collect();

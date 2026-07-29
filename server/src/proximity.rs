@@ -2,8 +2,8 @@
 ///
 /// The server tracks a "connected" set per peer and applies hysteresis so that
 /// a pair which hovers right at the boundary does not flap:
-///   - Connect:    distance drops BELOW nearRadius
-///   - Disconnect: distance rises ABOVE farRadius
+///   - Connect:    distance drops BELOW nearRadius (and neither side is DND)
+///   - Disconnect: distance rises ABOVE farRadius, or either side turns DND on
 ///
 /// `update_proximity` returns, for each peer, the delta (new connections and
 /// dropped connections) since the last call.  The caller applies the delta by
@@ -31,6 +31,9 @@ pub struct PeerPos {
     pub string_id: String,
     pub x: f64,
     pub y: f64,
+    /// Do-not-disturb: a DND peer is unreachable — it never enters a new link,
+    /// and any live link it holds is torn down (full isolation, FR-11).
+    pub dnd: bool,
 }
 
 /// Delta for one peer: which peers just became near, which just became far.
@@ -76,10 +79,13 @@ pub fn update_proximity(
             let b = &positions[j];
 
             let dist = distance(a.x, a.y, b.x, b.y);
+            // DND on either side makes the pair untouchable: no new link, and
+            // an existing link is force-disconnected regardless of distance.
+            let blocked = a.dnd || b.dnd;
 
             let currently_connected = connected_sets[&a.string_id].contains(&b.string_id);
 
-            if !currently_connected && dist <= near_radius {
+            if !currently_connected && !blocked && dist <= near_radius {
                 // New connection: register in both directions.
                 connected_sets
                     .get_mut(&a.string_id)
@@ -109,7 +115,7 @@ pub fn update_proximity(
                         id: a.string_id.clone(),
                         initiator: !a_initiates,
                     });
-            } else if currently_connected && dist > far_radius {
+            } else if currently_connected && (blocked || dist > far_radius) {
                 // Disconnection.
                 connected_sets
                     .get_mut(&a.string_id)
@@ -178,6 +184,14 @@ mod tests {
             string_id: num_id.to_string(),
             x,
             y,
+            dnd: false,
+        }
+    }
+
+    fn dnd_peer(num_id: u64, x: f64, y: f64) -> PeerPos {
+        PeerPos {
+            dnd: true,
+            ..peer(num_id, x, y)
         }
     }
 
@@ -352,6 +366,54 @@ mod tests {
         }
         assert!(sets["1"].contains("2") && sets["1"].contains("3"));
         assert!(sets["2"].contains("1") && sets["2"].contains("3"));
+    }
+
+    /// A DND peer never enters a new link, in either direction (FR-11 full
+    /// isolation: walking up to a DND member must not open a mic link).
+    #[test]
+    fn test_dnd_blocks_new_connect() {
+        let near = 300.0_f64;
+        let far = 360.0_f64;
+        let mut sets: HashMap<String, HashSet<String>> = HashMap::new();
+
+        let positions = vec![peer(1, 0.0, 0.0), dnd_peer(2, 10.0, 0.0)];
+        let deltas = update_proximity(&positions, &mut sets, near, far);
+
+        assert!(
+            deltas["1"].connect.is_empty() && deltas["2"].connect.is_empty(),
+            "no connect on either side when one peer is DND"
+        );
+        assert!(!sets["1"].contains("2") && !sets["2"].contains("1"));
+    }
+
+    /// Turning DND on while linked tears the link down even though the pair is
+    /// still well inside farRadius; turning it off re-links on the next tick.
+    #[test]
+    fn test_dnd_tears_down_and_reconnects() {
+        let near = 300.0_f64;
+        let far = 360.0_f64;
+        let mut sets: HashMap<String, HashSet<String>> = HashMap::new();
+
+        // Connect while both available.
+        let close = vec![peer(1, 0.0, 0.0), peer(2, 10.0, 0.0)];
+        update_proximity(&close, &mut sets, near, far);
+        assert!(sets["1"].contains("2"));
+
+        // Peer 2 turns DND on without moving → both sides get a disconnect.
+        let dnd_on = vec![peer(1, 0.0, 0.0), dnd_peer(2, 10.0, 0.0)];
+        let deltas = update_proximity(&dnd_on, &mut sets, near, far);
+        assert_eq!(deltas["1"].disconnect, vec!["2".to_string()]);
+        assert_eq!(deltas["2"].disconnect, vec!["1".to_string()]);
+        assert!(!sets["1"].contains("2") && !sets["2"].contains("1"));
+
+        // Still DND: no reconnect flapping.
+        let deltas = update_proximity(&dnd_on, &mut sets, near, far);
+        assert!(deltas["1"].is_empty() && deltas["2"].is_empty());
+
+        // DND off while still in range → normal connect resumes.
+        let deltas = update_proximity(&close, &mut sets, near, far);
+        assert_eq!(deltas["1"].connect.len(), 1);
+        assert_eq!(deltas["2"].connect.len(), 1);
     }
 
     /// remove_peer correctly cleans up connected sets.

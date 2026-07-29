@@ -181,9 +181,10 @@ const EN = {
   awayTitle:
     "Away — soft idle signal. Also set automatically after 5 minutes idle; any activity returns you to Active.",
   dnd: "DND",
-  dndTitle: "Do not disturb — blocks all incoming calls (takes priority over Away)",
-  dndEnabled: "Do not disturb on — incoming calls are blocked",
-  dndDisabled: "Do not disturb off — you can receive calls again",
+  dndTitle:
+    "Do not disturb — blocks incoming calls and nearby voice; walking up to you won't connect (takes priority over Away)",
+  dndEnabled: "Do not disturb on — calls and nearby voice are blocked",
+  dndDisabled: "Do not disturb off — calls and nearby voice work again",
   idleAwayToast: (min: number) =>
     `Away after ${min} min idle — move or click to return to Active`,
   youName: (name: string) => `${name} (you)`,
@@ -394,9 +395,10 @@ const JA: typeof EN = {
   awayTitle:
     "離席 — ソフトな離席表示。5分操作なしでも自動で離席になります。操作すると在席に戻ります。",
   dnd: "取込中",
-  dndTitle: "取り込み中 — 着信通話をすべて遮断（離席より優先）",
-  dndEnabled: "取り込み中オン — 着信は届きません",
-  dndDisabled: "取り込み中オフ — 着信を受けられます",
+  dndTitle:
+    "取り込み中 — 着信も近くの人との会話も遮断。近づかれても通話はつながりません（離席より優先）",
+  dndEnabled: "取り込み中オン — 着信も近くの会話もつながりません",
+  dndDisabled: "取り込み中オフ — 着信と近くの会話を受けられます",
   idleAwayToast: (min: number) =>
     `${min}分間操作がなかったため離席になりました — 操作すると在席に戻ります`,
   youName: (name: string) => `${name}(自分)`,
