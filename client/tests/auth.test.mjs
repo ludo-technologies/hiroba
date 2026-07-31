@@ -17,8 +17,10 @@ import {
   emailStart,
   emailVerify,
   extractInviteCode,
+  loadSession,
   parseInviteDeepLink,
   sanitizeCode,
+  saveSession,
 } from "../.test-build/auth.js";
 
 /** Swap in a stub `fetch` for one call, recording what it received. */
@@ -158,4 +160,162 @@ test("emailVerify rejects a refused code and a malformed session", async () => {
     () => emailVerify("https://auth.example.com", "aoi@example.com", "012345").catch((e) => e),
   );
   assert.match(malformed.message, /malformed token/);
+});
+
+// ---------------------------------------------------------------------------
+// Session restore (keychain + renewal)
+//
+// The failure these guard against is the expensive one: a stored session the
+// app quietly gives up on, so the user is asked to sign in again on a machine
+// that never actually lost anything.
+// ---------------------------------------------------------------------------
+
+/** A session JWT expiring `secs` from now (negative = already expired). */
+const jwt = (secs) =>
+  `h.${Buffer.from(
+    JSON.stringify({ sub: "email:aoi@example.com", exp: Math.floor(Date.now() / 1000) + secs }),
+  ).toString("base64url")}.s`;
+
+/** Stand in for the Tauri shell: a keychain in a Map, plus whatever `secret_*`
+ *  failure the test wants to provoke. Returns the calls for assertions. */
+function withTauri({ store = new Map(), failLoad = false, failSave = false } = {}) {
+  const calls = [];
+  globalThis.window = {
+    __TAURI__: {
+      core: {
+        async invoke(cmd, args) {
+          calls.push(cmd);
+          if (cmd === "secret_load") {
+            if (failLoad) throw new Error("keychain locked");
+            return store.get(args.key) ?? null;
+          }
+          if (cmd === "secret_save") {
+            if (failSave) throw new Error("keychain refused the write");
+            store.set(args.key, args.value);
+            return null;
+          }
+          if (cmd === "secret_delete") {
+            store.delete(args.key);
+            return null;
+          }
+          throw new Error(`unexpected command ${cmd}`);
+        },
+      },
+    },
+  };
+  return { store, calls, restore: () => delete globalThis.window };
+}
+
+const storedSession = (token, refresh = "r1") =>
+  new Map([
+    ["session-token", token],
+    ["refresh-token", refresh],
+  ]);
+
+test("loadSession returns a live session without touching the network", async () => {
+  const tauri = withTauri({ store: storedSession(jwt(3600)) });
+  try {
+    const { result, calls } = await withFetch(
+      () => assert.fail("a live session must not be renewed"),
+      () => loadSession("https://auth.example.com"),
+    );
+    assert.equal(calls.length, 0);
+    assert.equal(result.session.refreshToken, "r1");
+    assert.equal(result.problem, undefined);
+  } finally {
+    tauri.restore();
+  }
+});
+
+test("loadSession renews an expired session and stores the rotated tokens", async () => {
+  const tauri = withTauri({ store: storedSession(jwt(-60)) });
+  try {
+    const fresh = jwt(43200);
+    const { result, calls } = await withFetch(
+      () => jsonResponse(200, { token: fresh, refresh_token: "r2" }),
+      () => loadSession("https://auth.example.com/"),
+    );
+    assert.equal(calls[0].url, "https://auth.example.com/refresh");
+    assert.deepEqual(calls[0].body, { refresh_token: "r1" });
+    assert.equal(result.session.token, fresh);
+    assert.equal(result.problem, undefined);
+    // The old refresh token is spent server-side, so the rotated pair must land
+    // in the keychain or the next launch has nothing to restore.
+    assert.equal(tauri.store.get("session-token"), fresh);
+    assert.equal(tauri.store.get("refresh-token"), "r2");
+  } finally {
+    tauri.restore();
+  }
+});
+
+test("loadSession keeps the stored session when the auth server is unreachable", async () => {
+  const stale = jwt(-60);
+  const tauri = withTauri({ store: storedSession(stale) });
+  try {
+    for (const answer of [
+      () => Promise.reject(new Error("offline")),
+      () => new Response("bad gateway", { status: 502 }),
+      () => jsonResponse(200, { token: "not-a-jwt" }),
+    ]) {
+      const { result } = await withFetch(answer, () => loadSession("https://auth.example.com"));
+      // Signed in, just not renewable right now — never a sign-in prompt.
+      assert.equal(result.session.token, stale);
+      assert.equal(result.problem, "network");
+      assert.equal(tauri.store.get("refresh-token"), "r1", "an unspent token must survive");
+    }
+  } finally {
+    tauri.restore();
+  }
+});
+
+test("loadSession drops the session only when the server disowns it", async () => {
+  const tauri = withTauri({ store: storedSession(jwt(-60)) });
+  try {
+    const { result } = await withFetch(
+      () => new Response("invalid refresh token", { status: 401 }),
+      () => loadSession("https://auth.example.com"),
+    );
+    assert.equal(result.session, null);
+    assert.equal(result.problem, undefined);
+    assert.equal(tauri.store.size, 0, "a disowned session must be cleared");
+  } finally {
+    tauri.restore();
+  }
+});
+
+test("loadSession reports a keychain it cannot read instead of looking signed out", async () => {
+  const tauri = withTauri({ failLoad: true });
+  try {
+    const { result } = await loadSession("https://auth.example.com").then((r) => ({ result: r }));
+    assert.deepEqual(result, { session: null, problem: "keychain" });
+  } finally {
+    tauri.restore();
+  }
+});
+
+test("loadSession flags a renewal it could not persist", async () => {
+  const tauri = withTauri({ store: storedSession(jwt(-60)), failSave: true });
+  try {
+    const { result } = await withFetch(
+      () => jsonResponse(200, { token: jwt(43200), refresh_token: "r2" }),
+      () => loadSession("https://auth.example.com"),
+    );
+    // Usable now, but the next launch won't find it — the caller has to say so.
+    assert.ok(result.session);
+    assert.equal(result.problem, "keychain");
+  } finally {
+    tauri.restore();
+  }
+});
+
+test("saveSession reports failure instead of throwing away a completed sign-in", async () => {
+  const tauri = withTauri({ failSave: true });
+  const session = { token: jwt(3600), claims: { exp: 0 }, refreshToken: "r1" };
+  try {
+    assert.equal(await saveSession(session), "failed");
+  } finally {
+    tauri.restore();
+  }
+  // No shell at all (plain-browser build): nothing to persist, nothing to warn about.
+  assert.equal(await saveSession(session), "skipped");
 });

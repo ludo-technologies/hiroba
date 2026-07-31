@@ -62,6 +62,12 @@
         <!-- OAuth login (FR-13 / AUTH_PLAN). Hidden in plain-browser builds,
              where the manual token field below stays the fallback. -->
         <div id="auth-block" class="auth-block">
+          <!-- Placeholder held until the keychain restore settles, so a signed-in
+               user never opens the app on a sign-in form (AUTH_PLAN §2.1). -->
+          <div id="auth-restoring" class="auth-session auth-restoring" hidden>
+            <span class="auth-dot pending" aria-hidden="true"></span>
+            <span class="auth-user" data-i18n="restoringSession">Restoring your session…</span>
+          </div>
           <div id="auth-actions" class="auth-actions">
             <button id="login-google" type="button" class="oauth-btn">
               <svg class="oauth-icon" viewBox="0 0 18 18" aria-hidden="true">

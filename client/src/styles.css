@@ -1826,6 +1826,33 @@ body {
   flex: none;
 }
 
+/* Restoring: same row, but nothing is confirmed yet — a muted, breathing dot. */
+.auth-dot.pending {
+  background: var(--ink-mute);
+  animation: auth-pending-pulse 1.2s ease-in-out infinite;
+}
+
+.auth-restoring .auth-user {
+  font-weight: 500;
+  color: var(--ink-mute);
+}
+
+@keyframes auth-pending-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-dot.pending {
+    animation: none;
+  }
+}
+
 .auth-user {
   flex: 1;
   min-width: 0;

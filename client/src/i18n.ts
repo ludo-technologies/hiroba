@@ -41,6 +41,7 @@ const EN = {
   signInGithub: "Sign in with GitHub",
   signOut: "Sign out",
   waitingBrowser: "Waiting for browser…",
+  restoringSession: "Restoring your session…",
 
   // E-mail one-time code sign-in
   authOr: "or",
@@ -108,6 +109,12 @@ const EN = {
   errForbidden: "You don't have permission to perform this action.",
   errRejoin: "Lost connection to the server. Please rejoin.",
   errSessionExpired: "Your session expired — please sign in again.",
+  errAuthOffline:
+    "Couldn't reach the auth server to renew your session. You stay signed in — check your connection and try again.",
+  errKeychain:
+    "Couldn't read your saved sign-in from the keychain. Unlock the login keychain (or allow Hiroba access) and restart, or sign in again.",
+  errSessionNotSaved:
+    "Signed in, but this device couldn't save the session to the keychain — the next launch will ask again.",
   errMicDenied: "Microphone access denied. Check browser/OS permissions.",
   errSignIn: "Sign-in failed. Please try again.",
   errEmail: "Please enter a valid email address.",
@@ -262,6 +269,7 @@ const JA: typeof EN = {
   signInGithub: "GitHub でサインイン",
   signOut: "サインアウト",
   waitingBrowser: "ブラウザで認証中…",
+  restoringSession: "セッションを復元中…",
 
   // E-mail one-time code sign-in
   authOr: "または",
@@ -329,6 +337,12 @@ const JA: typeof EN = {
   errForbidden: "この操作を行う権限がありません。",
   errRejoin: "サーバーとの接続が切れました。もう一度入室してください。",
   errSessionExpired: "セッションの有効期限が切れました。もう一度サインインしてください。",
+  errAuthOffline:
+    "認証サーバーに接続できず、セッションを更新できませんでした。サインインは維持されています。ネットワークを確認してもう一度お試しください。",
+  errKeychain:
+    "保存済みのサインイン情報をキーチェーンから読み込めませんでした。ログインキーチェーンのロックを解除する(またはHirobaのアクセスを許可する)か、もう一度サインインしてください。",
+  errSessionNotSaved:
+    "サインインしましたが、この端末ではキーチェーンにセッションを保存できませんでした。次回の起動時にまた求められます。",
   errMicDenied: "マイクを使用できません。ブラウザ/OSの権限設定を確認してください。",
   errSignIn: "サインインに失敗しました。もう一度お試しください。",
   errEmail: "有効なメールアドレスを入力してください。",

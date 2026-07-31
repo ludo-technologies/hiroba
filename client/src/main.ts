@@ -52,6 +52,7 @@ import {
   saveSession,
   type AuthSession,
   type OAuthResult,
+  type RestoreResult,
 } from "./auth.js";
 import type {
   Peer,
@@ -333,10 +334,61 @@ window.addEventListener("pagehide", () => {
  *  section (self-host edge cases) still takes precedence if typed. */
 let authSession: AuthSession | null = null;
 
-void (async () => {
-  authSession = await loadSession(ui.getAuthUrl());
-  if (authSession) reflectAuthSession();
-})();
+/** Backoff for a restore the auth server was merely unreachable for. A launch
+ *  with no network must not end up looking like a signed-out one, so the stored
+ *  session stays on screen while the renewal is retried in the background. The
+ *  last delay repeats for as long as the app is open. */
+const RESTORE_RETRY_DELAYS_MS = [2_000, 5_000, 15_000, 30_000, 60_000];
+let restoreAttempt = 0;
+let restoreTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Adopt whatever the keychain still holds. Only a session the auth server has
+ * actually disowned (or one that was never there) puts the sign-in form back on
+ * screen — a keychain we can't read or a server we can't reach says so instead,
+ * because "sign in again" is the one instruction that doesn't fix either.
+ */
+async function restoreAuthSession(): Promise<void> {
+  // A live session in hand beats anything on disk — and a retry that fired
+  // after an interactive sign-in must not undo it.
+  if (authSession && isLive(authSession.claims)) return cancelRestoreRetry();
+  // loadSession is written not to throw; should it ever manage to, the sign-in
+  // form still has to come back — a stuck placeholder leaves no way in at all.
+  const { session, problem } = await loadSession(ui.getAuthUrl()).catch(
+    (): RestoreResult => ({ session: null }),
+  );
+  authSession = session;
+  reflectAuthSession();
+  if (problem === "keychain") ui.showError(session ? t.errSessionNotSaved : t.errKeychain);
+  if (session && !isLive(session.claims)) scheduleRestoreRetry();
+  else cancelRestoreRetry();
+}
+
+function scheduleRestoreRetry(): void {
+  if (restoreTimer) return;
+  const delay =
+    RESTORE_RETRY_DELAYS_MS[Math.min(restoreAttempt, RESTORE_RETRY_DELAYS_MS.length - 1)];
+  restoreAttempt += 1;
+  restoreTimer = setTimeout(() => {
+    restoreTimer = null;
+    void restoreAuthSession();
+  }, delay);
+}
+
+function cancelRestoreRetry(): void {
+  if (restoreTimer) clearTimeout(restoreTimer);
+  restoreTimer = null;
+  restoreAttempt = 0;
+}
+
+void restoreAuthSession();
+
+// Coming back online is the one signal worth more than the backoff clock.
+window.addEventListener("online", () => {
+  if (authSession && isLive(authSession.claims)) return;
+  cancelRestoreRetry();
+  void restoreAuthSession();
+});
 
 /** Provisional token held while the org-setup step is on screen (a first
  *  sign-in without an invite; `POST /orgs` upgrades it to a full session). */
@@ -418,13 +470,17 @@ async function adoptLogin(result: OAuthResult, invite: string): Promise<void> {
     ui.showOrgSetup();
     return;
   }
-  await saveSession(result.session);
+  cancelRestoreRetry();
   authSession = result.session;
   if (invite) ui.clearInvite();
   reflectAuthSession();
+  // Persisting is what makes the *next* launch free; failing at it must not
+  // cost the user the sign-in they just completed. Tell them, keep the session.
+  if ((await saveSession(result.session)) === "failed") ui.showError(t.errSessionNotSaved);
 }
 
 function handleLogout(): void {
+  cancelRestoreRetry();
   authSession = null;
   void clearSession();
   reflectAuthSession();
@@ -464,10 +520,11 @@ async function handleCreateOrg(name: string): Promise<void> {
       claims,
       refreshToken: data.refresh_token,
     };
-    await saveSession(session);
+    cancelRestoreRetry();
     authSession = session;
     ui.hideOrgSetup();
     reflectAuthSession();
+    if ((await saveSession(session)) === "failed") ui.showError(t.errSessionNotSaved);
   } catch (err) {
     ui.showError(err instanceof Error ? err.message : t.errOrgCreate);
   } finally {
@@ -630,11 +687,15 @@ async function handleOpenBilling(): Promise<void> {
 async function effectiveToken(manual: string): Promise<string> {
   if (manual) return manual;
   if (!authSession || !isLive(authSession.claims)) {
-    authSession = await loadSession(ui.getAuthUrl());
+    const { session, problem } = await loadSession(ui.getAuthUrl());
+    authSession = session;
     reflectAuthSession();
-    if (!authSession) ui.showError(t.errSessionExpired);
+    // Three different dead ends, three different things to do about them: sign
+    // in again, unlock the keychain, or wait for the network.
+    if (!session) ui.showError(problem === "keychain" ? t.errKeychain : t.errSessionExpired);
+    else if (!isLive(session.claims)) ui.showError(t.errAuthOffline);
   }
-  return authSession?.token ?? "";
+  return authSession && isLive(authSession.claims) ? authSession.token : "";
 }
 
 // ---------------------------------------------------------------------------

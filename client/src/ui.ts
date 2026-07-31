@@ -113,6 +113,7 @@ const elJoinAuth = $<HTMLInputElement>("join-auth");
 const elJoinInvite = $<HTMLInputElement>("join-invite");
 const elAuthBlock = $<HTMLDivElement>("auth-block");
 const elAuthActions = $<HTMLDivElement>("auth-actions");
+const elAuthRestoring = $<HTMLDivElement>("auth-restoring");
 const elLoginGoogle = $<HTMLButtonElement>("login-google");
 const elLoginGithub = $<HTMLButtonElement>("login-github");
 // Label spans inside the buttons — busy text swaps these, not textContent,
@@ -441,7 +442,10 @@ export class UIManager {
     this._bindSidebar();
     this._refreshAvatar();
     // No loopback receiver in a plain browser → no interactive login there.
-    if (!this.tauri) elAuthBlock.setAttribute("hidden", "");
+    // Under Tauri a stored session may still be on its way in, so the sign-in
+    // buttons wait rather than greet a signed-in user with a login form.
+    if (this.tauri) this.setAuthRestoring(true);
+    else elAuthBlock.setAttribute("hidden", "");
   }
 
   // -------------------------------------------------------------------------
@@ -572,8 +576,26 @@ export class UIManager {
   // Auth (interactive OAuth login, FR-13)
   // -------------------------------------------------------------------------
 
+  /**
+   * Hold the sign-in block back while the stored session is being restored.
+   * The keychain read — plus, on the first launch of the day, a token-renewal
+   * round-trip to the auth server — is asynchronous, and without this every
+   * launch opens on "sign in with e-mail", which reads as being signed out.
+   * {@link setAuthSession} is the settle point, whichever way it goes.
+   */
+  setAuthRestoring(active: boolean): void {
+    if (!active) {
+      elAuthRestoring.setAttribute("hidden", "");
+      return;
+    }
+    elAuthRestoring.removeAttribute("hidden");
+    elAuthActions.setAttribute("hidden", "");
+    elAuthSession.setAttribute("hidden", "");
+  }
+
   /** Reflect the signed-in state: chip with name/org, or the login buttons. */
   setAuthSession(session: AuthDisplay | null): void {
+    this.setAuthRestoring(false);
     if (session) {
       elAuthUser.textContent =
         session.role === "admin"

@@ -286,10 +286,35 @@ export function parseInviteDeepLink(url: string): string | null {
 
 const KEYCHAIN_KEY = "session-token";
 const REFRESH_KEYCHAIN_KEY = "refresh-token";
-let loadingSession: Promise<AuthSession | null> | null = null;
+let loadingSession: Promise<RestoreResult> | null = null;
+
+/**
+ * Why a restore couldn't hand back a *usable* session. Both mean "try again
+ * later", not "sign in again":
+ *
+ *   - `keychain` — the OS store refused us (denied ACL, locked keychain), or
+ *     refused to take a renewed session. What is stored may be perfectly good;
+ *     we simply couldn't read/write it.
+ *   - `network` — a stored session is present but its 12h JWT has expired, and
+ *     the auth server wasn't reachable to renew it. The caller still gets the
+ *     stale session: the user *is* signed in, just not right now.
+ *
+ * A genuinely signed-out user carries no problem at all — only then is the
+ * sign-in form the honest thing to show.
+ */
+export type RestoreProblem = "keychain" | "network";
+
+export interface RestoreResult {
+  /** The stored session, renewed if it needed renewing. Null only when there
+   *  is nothing to restore (or the keychain wouldn't say). May be stale —
+   *  check {@link isLive} — when `problem` is `network`. */
+  session: AuthSession | null;
+  /** Advisory: `session` is still whatever we could salvage. */
+  problem?: RestoreProblem;
+}
 
 /** Restore a saved session, refreshing its short-lived JWT when necessary. */
-export function loadSession(authUrl: string): Promise<AuthSession | null> {
+export function loadSession(authUrl: string): Promise<RestoreResult> {
   if (loadingSession) return loadingSession;
   loadingSession = restoreSession(authUrl).finally(() => {
     loadingSession = null;
@@ -297,52 +322,91 @@ export function loadSession(authUrl: string): Promise<AuthSession | null> {
   return loadingSession;
 }
 
-async function restoreSession(authUrl: string): Promise<AuthSession | null> {
-  if (!isTauri()) return null;
+async function restoreSession(authUrl: string): Promise<RestoreResult> {
+  if (!isTauri()) return { session: null };
+
+  let token: string | null;
+  let refreshToken: string | null;
   try {
-    const [token, refreshToken] = await Promise.all([
+    [token, refreshToken] = await Promise.all([
       invoke<string | null>("secret_load", { key: KEYCHAIN_KEY }),
       invoke<string | null>("secret_load", { key: REFRESH_KEYCHAIN_KEY }),
     ]);
-    if (!token || !refreshToken) return null;
-    const claims = decodeClaims(token);
-    if (!claims) {
-      await clearSession();
-      return null;
-    }
-    if (isLive(claims)) return { token, claims, refreshToken };
+  } catch (err) {
+    console.warn("hiroba: could not read the session from the keychain", err);
+    return { session: null, problem: "keychain" };
+  }
+  if (!token || !refreshToken) return { session: null };
+  const claims = decodeClaims(token);
+  if (!claims) {
+    await clearSession();
+    return { session: null };
+  }
+  const stored: AuthSession = { token, claims, refreshToken };
+  if (isLive(claims)) return { session: stored };
 
-    const resp = await fetch(`${authUrl.replace(/\/$/, "")}/refresh`, {
+  // Past here the JWT needs renewing. Only an outright 401 means the session is
+  // gone; every other outcome is a bad moment for the network or the server,
+  // and dropping the user for one would cost them a sign-in they don't owe.
+  let resp: Response;
+  try {
+    resp = await fetch(`${authUrl.replace(/\/$/, "")}/refresh`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refresh_token: refreshToken }),
     });
-    if (resp.status === 401) {
-      await clearSession();
-      return null;
-    }
-    if (!resp.ok) return null;
-    const data: { token?: string; refresh_token?: string } = await resp.json();
-    const refreshedClaims = data.token ? decodeClaims(data.token) : null;
-    if (!data.token || !data.refresh_token || !refreshedClaims) return null;
-    const session: AuthSession = {
-      token: data.token,
-      claims: refreshedClaims,
-      refreshToken: data.refresh_token,
-    };
-    await saveSession(session);
-    return session;
-  } catch {
-    return null;
+  } catch (err) {
+    console.warn("hiroba: auth server unreachable while renewing the session", err);
+    return { session: stored, problem: "network" };
   }
+  if (resp.status === 401) {
+    await clearSession();
+    return { session: null };
+  }
+  if (!resp.ok) {
+    console.warn(`hiroba: session renewal refused with HTTP ${resp.status}`);
+    return { session: stored, problem: "network" };
+  }
+  let data: { token?: string; refresh_token?: string };
+  try {
+    data = await resp.json();
+  } catch {
+    return { session: stored, problem: "network" };
+  }
+  const refreshedClaims = data.token ? decodeClaims(data.token) : null;
+  if (!data.token || !data.refresh_token || !refreshedClaims) {
+    return { session: stored, problem: "network" };
+  }
+  const session: AuthSession = {
+    token: data.token,
+    claims: refreshedClaims,
+    refreshToken: data.refresh_token,
+  };
+  // The refresh token we just spent is single-use, so a save that fails leaves
+  // nothing restorable for the next launch — the caller should say so rather
+  // than let the user discover it tomorrow.
+  const saved = await saveSession(session);
+  return saved === "failed" ? { session, problem: "keychain" } : { session };
 }
 
-export async function saveSession(session: AuthSession): Promise<void> {
-  if (!isTauri()) return;
-  await Promise.all([
-    invoke("secret_save", { key: KEYCHAIN_KEY, value: session.token }),
-    invoke("secret_save", { key: REFRESH_KEYCHAIN_KEY, value: session.refreshToken }),
-  ]);
+/** `skipped` = a plain-browser build, which persists nothing by design. */
+export type SaveOutcome = "saved" | "skipped" | "failed";
+
+/** Persist a session to the OS keychain. Never throws: a device that can't
+ *  store credentials should cost the user their *next* launch, not this
+ *  sign-in. */
+export async function saveSession(session: AuthSession): Promise<SaveOutcome> {
+  if (!isTauri()) return "skipped";
+  try {
+    await Promise.all([
+      invoke("secret_save", { key: KEYCHAIN_KEY, value: session.token }),
+      invoke("secret_save", { key: REFRESH_KEYCHAIN_KEY, value: session.refreshToken }),
+    ]);
+    return "saved";
+  } catch (err) {
+    console.warn("hiroba: could not save the session to the keychain", err);
+    return "failed";
+  }
 }
 
 export async function clearSession(): Promise<void> {
