@@ -289,6 +289,28 @@ const REFRESH_KEYCHAIN_KEY = "refresh-token";
 let loadingSession: Promise<RestoreResult> | null = null;
 
 /**
+ * Keychain mutations run one at a time, in call order. Signing out while a save
+ * is in flight otherwise races it, and the loser decides what the next launch
+ * finds: a sign-out the user asked for explicitly must be the write that lasts.
+ */
+let keychainQueue: Promise<unknown> = Promise.resolve();
+
+function enqueue<T>(op: () => Promise<T>): Promise<T> {
+  // Both arms, so one failed op doesn't wedge the queue behind it.
+  const run = keychainQueue.then(op, op);
+  keychainQueue = run.catch(() => undefined);
+  return run;
+}
+
+/**
+ * Bumped, synchronously, by every sign-out. A renewal in flight at that moment
+ * is answering for a session the user has since discarded: writing its rotated
+ * tokens back would un-sign-them-out, and the delete has already been queued —
+ * so a restore that spans a sign-out must come back empty-handed instead.
+ */
+let sessionEpoch = 0;
+
+/**
  * Why a restore couldn't hand back a *usable* session. Both mean "try again
  * later", not "sign in again":
  *
@@ -324,6 +346,9 @@ export function loadSession(authUrl: string): Promise<RestoreResult> {
 
 async function restoreSession(authUrl: string): Promise<RestoreResult> {
   if (!isTauri()) return { session: null };
+  const epoch = sessionEpoch;
+  /** True once a sign-out has overtaken this restore. */
+  const abandoned = () => epoch !== sessionEpoch;
 
   let token: string | null;
   let refreshToken: string | null;
@@ -336,7 +361,7 @@ async function restoreSession(authUrl: string): Promise<RestoreResult> {
     console.warn("hiroba: could not read the session from the keychain", err);
     return { session: null, problem: "keychain" };
   }
-  if (!token || !refreshToken) return { session: null };
+  if (abandoned() || !token || !refreshToken) return { session: null };
   const claims = decodeClaims(token);
   if (!claims) {
     await clearSession();
@@ -377,6 +402,10 @@ async function restoreSession(authUrl: string): Promise<RestoreResult> {
   if (!data.token || !data.refresh_token || !refreshedClaims) {
     return { session: stored, problem: "network" };
   }
+  // Signed out while the renewal was in flight: these tokens belong to a
+  // session that no longer exists. Storing them would resurrect it on the next
+  // launch, and handing them back would put the signed-in chip on screen again.
+  if (abandoned()) return { session: null };
   const session: AuthSession = {
     token: data.token,
     claims: refreshedClaims,
@@ -398,10 +427,12 @@ export type SaveOutcome = "saved" | "skipped" | "failed";
 export async function saveSession(session: AuthSession): Promise<SaveOutcome> {
   if (!isTauri()) return "skipped";
   try {
-    await Promise.all([
-      invoke("secret_save", { key: KEYCHAIN_KEY, value: session.token }),
-      invoke("secret_save", { key: REFRESH_KEYCHAIN_KEY, value: session.refreshToken }),
-    ]);
+    await enqueue(() =>
+      Promise.all([
+        invoke("secret_save", { key: KEYCHAIN_KEY, value: session.token }),
+        invoke("secret_save", { key: REFRESH_KEYCHAIN_KEY, value: session.refreshToken }),
+      ]),
+    );
     return "saved";
   } catch (err) {
     console.warn("hiroba: could not save the session to the keychain", err);
@@ -409,13 +440,20 @@ export async function saveSession(session: AuthSession): Promise<SaveOutcome> {
   }
 }
 
+/** Forget the stored session. Queued behind any save already running, so an
+ *  explicit sign-out is never the write that loses the race. */
 export async function clearSession(): Promise<void> {
+  // Before the first await: an in-flight renewal has to see this immediately,
+  // or it will happily write its answer in after the delete.
+  sessionEpoch += 1;
   if (!isTauri()) return;
   try {
-    await Promise.all([
-      invoke("secret_delete", { key: KEYCHAIN_KEY }),
-      invoke("secret_delete", { key: REFRESH_KEYCHAIN_KEY }),
-    ]);
+    await enqueue(() =>
+      Promise.all([
+        invoke("secret_delete", { key: KEYCHAIN_KEY }),
+        invoke("secret_delete", { key: REFRESH_KEYCHAIN_KEY }),
+      ]),
+    );
   } catch {
     /* nothing to clear */
   }

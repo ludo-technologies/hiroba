@@ -14,6 +14,7 @@ import {
   CodeRejectedError,
   CodeThrottledError,
   InviteRejectedError,
+  clearSession,
   emailStart,
   emailVerify,
   extractInviteCode,
@@ -178,7 +179,7 @@ const jwt = (secs) =>
 
 /** Stand in for the Tauri shell: a keychain in a Map, plus whatever `secret_*`
  *  failure the test wants to provoke. Returns the calls for assertions. */
-function withTauri({ store = new Map(), failLoad = false, failSave = false } = {}) {
+function withTauri({ store = new Map(), failLoad = false, failSave = false, gate } = {}) {
   const calls = [];
   globalThis.window = {
     __TAURI__: {
@@ -191,6 +192,8 @@ function withTauri({ store = new Map(), failLoad = false, failSave = false } = {
           }
           if (cmd === "secret_save") {
             if (failSave) throw new Error("keychain refused the write");
+            // A slow keychain, so a sign-out can be raced against a save.
+            if (gate) await gate;
             store.set(args.key, args.value);
             return null;
           }
@@ -303,6 +306,44 @@ test("loadSession flags a renewal it could not persist", async () => {
     // Usable now, but the next launch won't find it — the caller has to say so.
     assert.ok(result.session);
     assert.equal(result.problem, "keychain");
+  } finally {
+    tauri.restore();
+  }
+});
+
+test("a sign-out mid-renewal is not undone by the answer that lands after it", async () => {
+  const tauri = withTauri({ store: storedSession(jwt(-60)) });
+  const real = globalThis.fetch;
+  let release;
+  const answered = new Promise((r) => (release = r));
+  globalThis.fetch = () => answered;
+  try {
+    const restoring = loadSession("https://auth.example.com");
+    // The user signs out while the renewal is still in flight.
+    await clearSession();
+    release(jsonResponse(200, { token: jwt(43200), refresh_token: "rotated" }));
+    const result = await restoring;
+    // Neither on screen nor on disk: a renewal can't resurrect a session the
+    // user has just discarded.
+    assert.equal(result.session, null);
+    assert.equal(tauri.store.size, 0);
+  } finally {
+    globalThis.fetch = real;
+    tauri.restore();
+  }
+});
+
+test("a sign-out queued behind an in-flight save still wins", async () => {
+  let release;
+  const gate = new Promise((r) => (release = r));
+  const tauri = withTauri({ gate });
+  try {
+    const saving = saveSession({ token: jwt(3600), claims: { exp: 0 }, refreshToken: "r1" });
+    const clearing = clearSession(); // user hits Sign out mid-write
+    release();
+    await Promise.all([saving, clearing]);
+    // The delete runs after the save it was queued behind, not against it.
+    assert.equal(tauri.store.size, 0, "an explicit sign-out must be what persists");
   } finally {
     tauri.restore();
   }

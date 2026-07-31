@@ -357,6 +357,10 @@ async function restoreAuthSession(): Promise<void> {
   const { session, problem } = await loadSession(ui.getAuthUrl()).catch(
     (): RestoreResult => ({ session: null }),
   );
+  // Anything the user did while that was in flight outranks its answer: a fresh
+  // sign-in must not be overwritten by a restore that started before it. (A
+  // sign-out is handled a layer down — loadSession comes back empty for one.)
+  if (authSession && isLive(authSession.claims)) return cancelRestoreRetry();
   authSession = session;
   reflectAuthSession();
   if (problem === "keychain") ui.showError(session ? t.errSessionNotSaved : t.errKeychain);
