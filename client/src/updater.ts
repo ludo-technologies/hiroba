@@ -9,16 +9,22 @@
  * The check keeps running on its interval even after the banner has been
  * shown. It costs one small request, and it is what tells us the install is
  * still alive — an app that stopped checking in is indistinguishable from one
- * that was deleted. `offered` therefore suppresses the *banner*, not the
- * request: a user who ignored the banner should not be nagged every four
- * hours, but they should still be counted.
+ * that was deleted.
+ *
+ * Because sessions outlive releases, the banner must track the feed: a later
+ * check that finds a *different* version replaces the offer (the text and the
+ * update it installs together), otherwise a days-old banner silently installs
+ * a days-old build and the user climbs one release per relaunch. Only an
+ * unchanged version is suppressed — a user who ignored the banner should not
+ * be nagged every four hours about the same release, but a genuinely newer
+ * one is new information and may reappear.
  *
  * Failures never interrupt the user: a failed check only logs (offline is
  * normal), a failed install re-arms the banner with a toast. Runs only under
  * Tauri — a plain-browser session has nothing to update.
  */
 
-import { check } from "@tauri-apps/plugin-updater";
+import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { isTauri } from "./auth.js";
 import type { UIManager } from "./ui.js";
@@ -29,10 +35,18 @@ const FIRST_CHECK_DELAY_MS = 5_000;
 /** Re-check cadence while the app stays open. */
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
-/** Latched once a banner has been offered; the next launch offers again.
- *  Keeps a dismissed banner from re-appearing every interval — the check
- *  itself still runs, see the module comment. */
-let offered = false;
+/** Version the banner currently offers (suppresses same-version re-offers). */
+let offeredVersion: string | null = null;
+
+/** The update behind the banner. Kept so a superseding release can free it —
+ *  `check()` hands back a Rust-side Resource; dropping one without `close()`
+ *  leaks a handle. */
+let pending: Update | null = null;
+
+/** True from install click until relaunch (or failure); a mid-download check
+ *  must not yank the banner — or the update being installed — out from under
+ *  the user. */
+let installing = false;
 
 /** Begin periodic update checks. Call once at startup; no-op outside Tauri. */
 export function startUpdateChecks(ui: UIManager): void {
@@ -52,24 +66,29 @@ async function checkOnce(ui: UIManager): Promise<void> {
   }
   if (!update) return;
 
-  // Banner already offered this session. `check()` hands back a Rust-side
-  // Resource, so the one we are not going to use has to be released — without
-  // this, staying on an old build would leak a handle every interval.
-  if (offered) {
+  // The release we already offered, or one landing mid-install: drop the
+  // duplicate handle and leave the banner alone.
+  if (installing || update.version === offeredVersion) {
     await update.close().catch(() => {});
     return;
   }
 
-  offered = true;
-  ui.showUpdateBanner(update.version, () => {
-    void (async () => {
-      try {
-        await update.downloadAndInstall();
-        await relaunch();
-      } catch (e) {
-        console.error("[updater] install failed:", e);
-        ui.updateBannerFailed();
-      }
-    })();
-  });
+  // First offer of the session, or a newer release superseding the banner.
+  // The resource swaps with the text, so the banner installs what it names.
+  await pending?.close().catch(() => {});
+  pending = update;
+  offeredVersion = update.version;
+  ui.showUpdateBanner(update.version, () => void install(ui, update));
+}
+
+async function install(ui: UIManager, update: Update): Promise<void> {
+  installing = true;
+  try {
+    await update.downloadAndInstall();
+    await relaunch();
+  } catch (e) {
+    console.error("[updater] install failed:", e);
+    installing = false;
+    ui.updateBannerFailed();
+  }
 }
