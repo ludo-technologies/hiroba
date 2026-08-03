@@ -138,6 +138,17 @@ const EN = {
   billingNotEnabled: "Billing isn't enabled for this deployment.",
   errBillingPortal: "Couldn't open the billing portal. Please try again.",
 
+  // Billing lock (join screen; the org's subscription is paused or lapsed)
+  billingLockTrialTitle: "Your free trial has ended",
+  billingLockInactiveTitle: "Your subscription is inactive",
+  billingLockAdminTrialDesc:
+    "To keep using Hiroba, start your subscription. You'll enter payment details on Stripe's secure page, and Hiroba resumes automatically within a few minutes.",
+  billingLockAdminInactiveDesc:
+    "We couldn't collect the last payment. Update your payment details on Stripe's secure page and Hiroba resumes automatically within a few minutes.",
+  billingLockMemberDesc: "Ask your organization's administrator to update the subscription.",
+  billingLockSubscribe: "Start subscription",
+  billingLockUpdate: "Update payment details",
+
   // Reconnect overlay
   reconnecting: "Reconnecting…",
   reconnectAttempt: (n: number, max: number) => `Reconnecting… (attempt ${n}/${max})`,
@@ -365,6 +376,17 @@ const JA: typeof EN = {
   openingBilling: "お支払い管理を開いています…",
   billingNotEnabled: "この環境では課金は有効化されていません。",
   errBillingPortal: "お支払い管理を開けませんでした。もう一度お試しください。",
+
+  // 課金ロック(参加画面 — 組織のサブスクリプションが停止中)
+  billingLockTrialTitle: "無料トライアルが終了しました",
+  billingLockInactiveTitle: "サブスクリプションが停止されています",
+  billingLockAdminTrialDesc:
+    "引き続き Hiroba を利用するには、サブスクリプションを開始してください。お支払い情報は Stripe の安全なページで入力します。登録後、数分以内に自動的に再開されます。",
+  billingLockAdminInactiveDesc:
+    "前回のお支払いが確認できませんでした。Stripe の安全なページでお支払い情報を更新すると、数分以内に自動的に再開されます。",
+  billingLockMemberDesc: "利用を再開するには、組織の管理者にお問い合わせください。",
+  billingLockSubscribe: "サブスクリプションを開始",
+  billingLockUpdate: "お支払い情報を更新",
 
   // Reconnect overlay
   reconnecting: "再接続中…",

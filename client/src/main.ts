@@ -408,6 +408,9 @@ function reflectAuthSession(): void {
     ui.setAuthSession(null);
     ui.setAdminVisible(false);
   }
+  // Learn about a billing lock before a join attempt bounces off it (the
+  // lock screen carries the fix — the admin's subscribe CTA).
+  void syncBillingLock();
 }
 
 async function handleLogin(
@@ -685,6 +688,59 @@ async function handleOpenBilling(): Promise<void> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Billing lock (hosted: trial expired / subscription lapsed → server refuses
+// entry with `org_suspended`, so the CTA to fix it must live on the join card)
+// ---------------------------------------------------------------------------
+
+/** Stripe subscription status while the org is locked, else null. */
+let billingLockStatus: string | null = null;
+let billingLockTimer: number | null = null;
+/** While the notice is up, re-ask this often — the unlock happens out of band
+ *  (card added on Stripe's page → webhook resumes the subscription). */
+const BILLING_LOCK_POLL_MS = 10_000;
+
+/** Ask the auth backend whether our org is locked and reflect the answer.
+ *  Unreachable or malformed answers leave the current state alone (fail-open,
+ *  mirroring the signaling server's own gate). */
+async function syncBillingLock(): Promise<void> {
+  const org = authSession?.claims.org;
+  const authUrl = ui.getAuthUrl();
+  if (!org || !authUrl) return applyBillingLock(null);
+  try {
+    const resp = await fetch(`${authUrl}/billing/status/${encodeURIComponent(org)}`);
+    if (!resp.ok) return;
+    const data: { status?: string; locked?: boolean } = await resp.json();
+    // The session may have changed (sign-out, org switch) while in flight.
+    if (authSession?.claims.org !== org) return;
+    applyBillingLock(data.locked ? (data.status ?? "paused") : null);
+  } catch {
+    /* offline — keep whatever we showed last */
+  }
+}
+
+function applyBillingLock(status: string | null): void {
+  billingLockStatus = status;
+  if (billingLockTimer !== null) {
+    window.clearTimeout(billingLockTimer);
+    billingLockTimer = null;
+  }
+  if (status === null) {
+    ui.setBillingLock(null);
+    return;
+  }
+  ui.setBillingLock({
+    trial: status === "paused", // paused = card-less trial ran out (INFRA §6)
+    admin: authSession?.claims.role === "admin",
+  });
+  billingLockTimer = window.setTimeout(() => void syncBillingLock(), BILLING_LOCK_POLL_MS);
+}
+
+// Coming back from Stripe's page is the moment the answer most likely changed.
+window.addEventListener("focus", () => {
+  if (billingLockStatus !== null) void syncBillingLock();
+});
+
 /** The token a new connection should present: a manual (Advanced) token wins,
  *  then a live OAuth session; otherwise guest. Expired sessions are dropped
  *  on the spot so we don't knock on the server with a dead JWT. */
@@ -791,9 +847,21 @@ async function handleJoin(values: JoinFormValues): Promise<void> {
     const code = err instanceof Error ? err.message : "";
     if (code === "cancelled" || (err instanceof DOMException && err.name === "AbortError")) return;
     ui.showJoin(connectionErrorCopy(code));
+    reflectSuspension(code);
   } finally {
     if (connectAbort === controller) connectAbort = null;
   }
+}
+
+/** An `org_suspended` refusal means the lock screen (with the admin's fix-it
+ *  CTA) belongs on the join card — show it at once with our best guess at the
+ *  status, then let the status endpoint refine trial-ended vs. payment-lapsed.
+ *  Also covers the status check and the server's gate disagreeing (its cache
+ *  lags up to a minute). */
+function reflectSuspension(code: string): void {
+  if (code !== "org_suspended") return;
+  applyBillingLock(billingLockStatus ?? "paused");
+  void syncBillingLock();
 }
 
 function handleCancelConnect(): void {
@@ -865,6 +933,7 @@ function scheduleReconnect(): void {
       if (userLeaving || code === "cancelled" || (err instanceof DOMException && err.name === "AbortError")) return;
       if (isPermanentConnectionError(code)) {
         ui.showJoin(connectionErrorCopy(code));
+        reflectSuspension(code);
         return;
       }
       scheduleReconnect();

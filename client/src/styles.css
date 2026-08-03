@@ -1894,6 +1894,14 @@ body {
   display: none;
 }
 
+/* While the org is billing-locked, the join controls step aside — but the
+ * signed-in strip stays (the admin needs to see who they are / sign out). */
+#join-form.billing-lock-mode > .identity,
+#join-form.billing-lock-mode > .field,
+#join-form.billing-lock-mode > #join-btn {
+  display: none;
+}
+
 .org-setup-title {
   font-size: 18px;
   font-weight: 700;
@@ -1906,7 +1914,8 @@ body {
   color: var(--ink-soft);
 }
 
-#org-setup-btn {
+#org-setup-btn,
+#billing-lock-cta {
   padding: 14px;
   background: linear-gradient(180deg, var(--accent-hi), var(--accent));
   color: #fff;
@@ -1921,11 +1930,13 @@ body {
   transition: filter 0.15s, transform 0.08s;
 }
 
-#org-setup-btn:hover:not(:disabled) {
+#org-setup-btn:hover:not(:disabled),
+#billing-lock-cta:hover:not(:disabled) {
   filter: brightness(1.05);
 }
 
-#org-setup-btn:active:not(:disabled) {
+#org-setup-btn:active:not(:disabled),
+#billing-lock-cta:active:not(:disabled) {
   transform: translateY(1px);
 }
 

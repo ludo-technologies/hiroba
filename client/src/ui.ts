@@ -151,6 +151,11 @@ const elOrgSetupName = $<HTMLInputElement>("org-setup-name");
 const elOrgSetupBtn = $<HTMLButtonElement>("org-setup-btn");
 const elOrgSetupBack = $<HTMLButtonElement>("org-setup-back");
 
+const elBillingLock = $<HTMLDivElement>("billing-lock");
+const elBillingLockTitle = $<HTMLHeadingElement>("billing-lock-title");
+const elBillingLockDesc = $<HTMLParagraphElement>("billing-lock-desc");
+const elBillingLockCta = $<HTMLButtonElement>("billing-lock-cta");
+
 const elAdminMenuBtn = $<HTMLButtonElement>("admin-menu-btn");
 const elAdminMenu = $<HTMLDivElement>("admin-menu");
 const elBillingBtn = $<HTMLButtonElement>("billing-panel-btn");
@@ -401,6 +406,8 @@ export class UIManager {
   private codeSentTo: string | null = null;
   private lastOrgSetupBusy = false;
   private lastInviteIssueBusy = false;
+  /** Billing-lock notice currently shown on the join card, if any. */
+  private lastBillingLock: { trial: boolean; admin: boolean } | null = null;
 
   private readonly inviteRoleSelect: CustomSelect;
   private readonly micSelect: CustomSelect;
@@ -434,6 +441,7 @@ export class UIManager {
     this._bindLangSwitch();
     this._bindAuth();
     this._bindOrgSetup();
+    this._bindBillingLock();
     this._bindInvitePanel();
     this._bindMembersPanel();
     this._bindHud();
@@ -743,6 +751,7 @@ export class UIManager {
     if (this.codeSentTo) elCodeSentMsg.textContent = t.codeSentTo(this.codeSentTo);
     this.setOrgSetupBusy(this.lastOrgSetupBusy);
     this.setInviteIssueBusy(this.lastInviteIssueBusy);
+    this.setBillingLock(this.lastBillingLock);
 
     // HUD chrome that UI owns directly.
     this.setMuted(this.lastMuted);
@@ -920,6 +929,41 @@ export class UIManager {
       }
     });
     elOrgSetupBack.addEventListener("click", () => this.callbacks.onCancelOrgSetup());
+  }
+
+  // -------------------------------------------------------------------------
+  // Billing lock (org's trial ended / subscription lapsed; hosted only)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Swap the join form body for the billing-lock notice, or restore it (null).
+   * `trial` picks the copy (trial just ended vs. payment lapsed); `admin` adds
+   * the Stripe portal CTA — members are pointed at their admin instead.
+   */
+  setBillingLock(lock: { trial: boolean; admin: boolean } | null): void {
+    this.lastBillingLock = lock;
+    if (!lock) {
+      elJoinForm.classList.remove("billing-lock-mode");
+      elBillingLock.setAttribute("hidden", "");
+      return;
+    }
+    elJoinForm.classList.add("billing-lock-mode");
+    elBillingLockTitle.textContent = lock.trial ? t.billingLockTrialTitle : t.billingLockInactiveTitle;
+    elBillingLockDesc.textContent = lock.admin
+      ? (lock.trial ? t.billingLockAdminTrialDesc : t.billingLockAdminInactiveDesc)
+      : t.billingLockMemberDesc;
+    if (lock.admin) {
+      elBillingLockCta.textContent = lock.trial ? t.billingLockSubscribe : t.billingLockUpdate;
+      elBillingLockCta.removeAttribute("hidden");
+    } else {
+      elBillingLockCta.setAttribute("hidden", "");
+    }
+    elBillingLock.removeAttribute("hidden");
+    elJoinError.setAttribute("hidden", "");
+  }
+
+  private _bindBillingLock(): void {
+    elBillingLockCta.addEventListener("click", () => this.callbacks.onOpenBilling());
   }
 
   // -------------------------------------------------------------------------

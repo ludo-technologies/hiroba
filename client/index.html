@@ -223,6 +223,16 @@
           <button id="org-setup-back" type="button" class="ghost-btn" data-i18n="backToLogin">Back to sign-in</button>
         </div>
 
+        <!-- Billing lock: the org's trial ended (or its subscription lapsed)
+             and the server refuses entry. Swaps in for the form body; admins
+             get the Stripe portal CTA, members a pointer to their admin.
+             Copy is set from ui.ts (it varies by status and role). -->
+        <div id="billing-lock" class="org-setup" hidden>
+          <h2 id="billing-lock-title" class="org-setup-title"></h2>
+          <p id="billing-lock-desc" class="org-setup-desc"></p>
+          <button id="billing-lock-cta" type="button" hidden></button>
+        </div>
+
         <p id="join-error" class="error" role="alert" hidden></p>
       </form>
     </div>
