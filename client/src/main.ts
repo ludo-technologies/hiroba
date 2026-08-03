@@ -709,14 +709,20 @@ async function syncBillingLock(): Promise<void> {
   if (!org || !authUrl) return applyBillingLock(null);
   try {
     const resp = await fetch(`${authUrl}/billing/status/${encodeURIComponent(org)}`);
-    if (!resp.ok) return;
-    const data: { status?: string; locked?: boolean } = await resp.json();
-    // The session may have changed (sign-out, org switch) while in flight.
-    if (authSession?.claims.org !== org) return;
-    applyBillingLock(data.locked ? (data.status ?? "paused") : null);
+    if (resp.ok) {
+      const data: { status?: string; locked?: boolean } = await resp.json();
+      // The session may have changed (sign-out, org switch) while in flight;
+      // whatever triggered that change owns the state now.
+      if (authSession?.claims.org !== org) return;
+      applyBillingLock(data.locked ? (data.status ?? "paused") : null);
+      return;
+    }
   } catch {
     /* offline — keep whatever we showed last */
   }
+  // Non-200 or unreachable: keep the shown state, but keep the poll alive —
+  // the unlock happens out of band, so one auth hiccup must not end it.
+  scheduleBillingRecheck();
 }
 
 function applyBillingLock(status: string | null): void {
@@ -733,6 +739,13 @@ function applyBillingLock(status: string | null): void {
     trial: status === "paused", // paused = card-less trial ran out (INFRA §6)
     admin: authSession?.claims.role === "admin",
   });
+  scheduleBillingRecheck();
+}
+
+/** (Re)arm the next status check, only while the lock notice is up. */
+function scheduleBillingRecheck(): void {
+  if (billingLockStatus === null) return;
+  if (billingLockTimer !== null) window.clearTimeout(billingLockTimer);
   billingLockTimer = window.setTimeout(() => void syncBillingLock(), BILLING_LOCK_POLL_MS);
 }
 
