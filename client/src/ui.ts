@@ -363,6 +363,13 @@ export interface RosterEntry {
   canPage: boolean;
 }
 
+/** The reconnect overlay's message, derived so `showReconnecting` and the
+ *  locale re-render can't drift apart. */
+function reconnectCopy(state: { attempt: number; max: number; offline: boolean }): string {
+  if (state.offline) return t.reconnectOffline;
+  return state.attempt <= 1 ? t.reconnecting : t.reconnectAttempt(state.attempt, state.max);
+}
+
 // ---------------------------------------------------------------------------
 // UI manager
 // ---------------------------------------------------------------------------
@@ -398,7 +405,7 @@ export class UIManager {
   private lastScreenReopenVisible = false;
   private lastInvites: InviteEntry[] | null = null;
   private lastMembers: MemberEntry[] | null = null;
-  private lastReconnect: { attempt: number; max: number } | null = null;
+  private lastReconnect: { attempt: number; max: number; offline: boolean } | null = null;
   private lastUpdateVersion: string | null = null;
   private lastLoginBusy = false;
   private lastEmailBusy = false;
@@ -508,16 +515,17 @@ export class UIManager {
     if (ae instanceof HTMLElement && ae.closest("[hidden]")) ae.blur();
   }
 
-  /** Show the reconnecting overlay during auto-reconnect backoff. */
-  showReconnecting(attempt: number, max: number): void {
-    this.lastReconnect = { attempt, max };
+  /** Show the reconnecting overlay during auto-reconnect backoff. `offline`
+   *  means the OS reports no network: retries continue but cost nothing, so
+   *  there is no budget worth counting down in front of the user. */
+  showReconnecting(attempt: number, max: number, offline = false): void {
+    this.lastReconnect = { attempt, max, offline };
     elJoin.setAttribute("hidden", "");
     elHud.setAttribute("hidden", "");
     elSidebar.setAttribute("hidden", "");
     elTabs.setAttribute("hidden", "");
     elReconnect.removeAttribute("hidden");
-    elReconnectMsg.textContent =
-      attempt <= 1 ? t.reconnecting : t.reconnectAttempt(attempt, max);
+    elReconnectMsg.textContent = reconnectCopy(this.lastReconnect);
   }
 
   /** Update the peer count pill. `total` includes self. */
@@ -784,9 +792,7 @@ export class UIManager {
     }
 
     if (this.lastReconnect && !elReconnect.hasAttribute("hidden")) {
-      const { attempt, max } = this.lastReconnect;
-      elReconnectMsg.textContent =
-        attempt <= 1 ? t.reconnecting : t.reconnectAttempt(attempt, max);
+      elReconnectMsg.textContent = reconnectCopy(this.lastReconnect);
     }
 
     if (this.lastUpdateVersion && !elUpdateBanner.hasAttribute("hidden")) {

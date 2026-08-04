@@ -123,10 +123,22 @@ const LS_SPEAKER_DEVICE = "hiroba_speaker_device";
 
 // Reconnect bookkeeping.
 const MAX_RECONNECT = 6;
+/** Retry cadence while the OS reports no network (these attempts are free —
+ *  see {@link scheduleReconnect}). The "online" event is the fast path; this is
+ *  the floor under it. */
+const OFFLINE_RETRY_MS = 5000;
 let lastJoin: JoinFormValues | null = null;
 let userLeaving = false; // suppresses reconnect when the user left on purpose
 let reconnectAttempts = 0;
 let reconnectTimer = 0;
+/** Where auto-reconnect stands. `waiting` means a retry is on the clock and a
+ *  returning network should cut that wait short; `connecting` means an attempt
+ *  is already in flight and must be left to finish. */
+let reconnectState: "idle" | "waiting" | "connecting" = "idle";
+/** The drop we're recovering from killed a live call. Both sides just go quiet
+ *  (the peer is told no differently than a hang-up), so the least we can do is
+ *  say so on the way back in. */
+let droppedInCall = false;
 
 // Loop bookkeeping.
 let rafId = 0;
@@ -844,6 +856,8 @@ async function handleJoin(values: JoinFormValues): Promise<void> {
   lastJoin = values;
   userLeaving = false;
   reconnectAttempts = 0;
+  reconnectState = "idle";
+  droppedInCall = false;
   const controller = new AbortController();
   connectAbort?.abort();
   connectAbort = controller;
@@ -906,32 +920,43 @@ function startSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[
   initSession(net, msg, iceServers);
   bindServerMessages(net);
   reconnectAttempts = 0;
+  reconnectState = "idle";
   canvas.classList.add("walkable"); // pointer cursor: the floor is clickable
   ui.showSpace();
+  // After the space is on screen, so the toast isn't buried under the overlay.
+  if (droppedInCall) {
+    droppedInCall = false;
+    ui.showToast(t.callDropped);
+  }
   resetIdleTimer();
   wake();
 }
 
 function onSessionDropped(): void {
   if (userLeaving || !session) return;
+  if (session.pages.size > 0) droppedInCall = true;
   teardownSession();
   scheduleReconnect();
 }
 
 function scheduleReconnect(): void {
-  if (!lastJoin) {
-    ui.showJoin(t.errRejoin);
-    return;
-  }
-  if (reconnectAttempts >= MAX_RECONNECT) {
-    ui.showJoin(t.errRejoin);
-    return;
-  }
-  const attempt = ++reconnectAttempts;
-  const delay = Math.min(8000, 400 * 2 ** (attempt - 1));
-  ui.showReconnecting(attempt, MAX_RECONNECT);
+  if (!lastJoin) return giveUpReconnect();
+  // A failure logged while the OS reports no network says nothing about the
+  // server, so it doesn't cost an attempt — spending the budget on connects
+  // that can't succeed is what turns a sleep resume or a Wi-Fi roam into a trip
+  // back to the join screen. We keep trying anyway, slowly: `onLine` only
+  // decides whether the failure counts, never whether we bother (it can be
+  // wrong about a LAN self-host, and it must not be able to strand us).
+  const offline = !navigator.onLine;
+  if (offline) reconnectAttempts = 0;
+  else if (reconnectAttempts >= MAX_RECONNECT) return giveUpReconnect();
+  const attempt = offline ? 0 : ++reconnectAttempts;
+  const delay = offline ? OFFLINE_RETRY_MS : Math.min(8000, 400 * 2 ** (attempt - 1));
+  reconnectState = "waiting";
+  ui.showReconnecting(attempt, MAX_RECONNECT, offline);
   reconnectTimer = window.setTimeout(async () => {
     if (userLeaving || !lastJoin) return;
+    reconnectState = "connecting";
     const controller = new AbortController();
     connectAbort = controller;
     try {
@@ -945,7 +970,7 @@ function scheduleReconnect(): void {
       const code = err instanceof Error ? err.message : "";
       if (userLeaving || code === "cancelled" || (err instanceof DOMException && err.name === "AbortError")) return;
       if (isPermanentConnectionError(code)) {
-        ui.showJoin(connectionErrorCopy(code));
+        giveUpReconnect(connectionErrorCopy(code));
         reflectSuspension(code);
         return;
       }
@@ -956,11 +981,33 @@ function scheduleReconnect(): void {
   }, delay);
 }
 
+/** Stop trying and put the user back on the join card. The call is gone for
+ *  good at this point, and `errRejoin` already explains why. */
+function giveUpReconnect(message: string = t.errRejoin): void {
+  reconnectState = "idle";
+  droppedInCall = false;
+  ui.showJoin(message);
+}
+
+// A network that just came back outranks the backoff clock: the attempt budget
+// exists to stop hammering a dead server, not to give up on a Wi-Fi roam or a
+// sleep resume (whose queued timers fire while the interface is still down).
+// An in-flight attempt is left alone — it carries its own 12s timeout, and
+// cutting it short could kill a connect that was about to land.
+window.addEventListener("online", () => {
+  if (reconnectState !== "waiting" || session || userLeaving || !lastJoin) return;
+  window.clearTimeout(reconnectTimer);
+  reconnectAttempts = 0; // a fresh budget: the earlier failures weren't the server's
+  scheduleReconnect();
+});
+
 function handleCancelReconnect(): void {
   window.clearTimeout(reconnectTimer);
   connectAbort?.abort();
   connectAbort = null;
   reconnectAttempts = 0;
+  reconnectState = "idle";
+  droppedInCall = false;
   userLeaving = true;
   ui.showJoin();
 }
@@ -1988,6 +2035,8 @@ function handleLeave(): void {
   userLeaving = true;
   window.clearTimeout(reconnectTimer);
   window.clearTimeout(idleTimer);
+  reconnectState = "idle";
+  droppedInCall = false;
   session.net.send({ t: "bye" });
   teardownSession();
   ui.showJoin();

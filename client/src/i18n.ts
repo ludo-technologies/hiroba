@@ -153,6 +153,7 @@ const EN = {
   // Reconnect overlay
   reconnecting: "Reconnecting…",
   reconnectAttempt: (n: number, max: number) => `Reconnecting… (attempt ${n}/${max})`,
+  reconnectOffline: "Waiting for the network…",
   cancel: "Cancel",
 
   // Onboarding / nudge
@@ -272,6 +273,7 @@ const EN = {
   pageDeclined: (name: string) => `${name} declined the call.`,
   pageTimeout: (name: string) => `${name} didn't answer.`,
   pageMissed: (name: string) => `You missed a call from ${name}.`,
+  callDropped: "The call ended when the connection dropped.",
 };
 
 const JA: typeof EN = {
@@ -393,6 +395,7 @@ const JA: typeof EN = {
   // Reconnect overlay
   reconnecting: "再接続中…",
   reconnectAttempt: (n: number, max: number) => `再接続中…(${n}/${max} 回目)`,
+  reconnectOffline: "ネットワークの回復を待っています…",
   cancel: "キャンセル",
 
   // Onboarding / nudge
@@ -511,6 +514,7 @@ const JA: typeof EN = {
   pageDeclined: (name: string) => `${name} が通話を拒否しました。`,
   pageTimeout: (name: string) => `${name} が応答しませんでした。`,
   pageMissed: (name: string) => `${name} からの着信に応答できませんでした。`,
+  callDropped: "切断により通話が終了しました。",
 };
 
 /** The active message catalog. Reassigned by {@link setLocale}. */
