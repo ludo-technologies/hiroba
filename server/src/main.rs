@@ -77,7 +77,22 @@ async fn ice_handler(State(state): State<AppState>, headers: HeaderMap) -> Respo
 }
 
 /// WebSocket upgrade: GET /ws
-async fn ws_handler(upgrade: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
+async fn ws_handler(
+    headers: HeaderMap,
+    upgrade: WebSocketUpgrade,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    // Fly terminates TLS at the edge, so the TCP peer is always fly-proxy;
+    // `fly-client-ip` is the only place the real origin survives.
+    let ip = headers
+        .get("fly-client-ip")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("-");
+    let ua = headers
+        .get("user-agent")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("-");
+    tracing::info!(ip = %ip, ua = %ua, "ws upgrade");
     upgrade
         .on_upgrade(move |socket| ws::handle_ws(socket, state.registry, state.auth, state.billing))
 }
