@@ -79,6 +79,7 @@ const EN = {
   // Admin menu (gear in the sidebar header)
   adminMenuTitle: "Admin settings",
   manageInvitesTitle: "Manage invitations",
+  inviteMembers: "Invite members",
   manageBillingTitle: "Manage billing",
   invitePanel: "Invites",
   closePanel: "Close",
@@ -318,6 +319,7 @@ const JA: typeof EN = {
   // Admin menu (gear in the sidebar header)
   adminMenuTitle: "管理メニュー",
   manageInvitesTitle: "招待の管理",
+  inviteMembers: "メンバーを招待",
   manageBillingTitle: "お支払いの管理",
   invitePanel: "招待",
   closePanel: "閉じる",

@@ -162,6 +162,7 @@ const elBillingBtn = $<HTMLButtonElement>("billing-panel-btn");
 
 const elInvitePanel = $<HTMLDivElement>("invite-panel");
 const elInvitePanelBtn = $<HTMLButtonElement>("invite-panel-btn");
+const elRosterInviteBtn = $<HTMLButtonElement>("roster-invite-btn");
 const elInvitePanelClose = $<HTMLButtonElement>("invite-panel-close");
 const elInviteRoleHost = $<HTMLElement>("invite-role");
 const elInviteIssueBtn = $<HTMLButtonElement>("invite-issue-btn");
@@ -977,8 +978,10 @@ export class UIManager {
   setAdminVisible(isAdmin: boolean): void {
     if (isAdmin) {
       elAdminMenuBtn.removeAttribute("hidden");
+      elRosterInviteBtn.removeAttribute("hidden");
     } else {
       elAdminMenuBtn.setAttribute("hidden", "");
+      elRosterInviteBtn.setAttribute("hidden", "");
       this._setAdminMenuOpen(false);
     }
   }
@@ -1153,6 +1156,9 @@ export class UIManager {
     });
     elInvitePanelBtn.addEventListener("click", () => {
       this._setAdminMenuOpen(false);
+      this.callbacks.onOpenInvitePanel();
+    });
+    elRosterInviteBtn.addEventListener("click", () => {
       this.callbacks.onOpenInvitePanel();
     });
     elBillingBtn.addEventListener("click", () => {

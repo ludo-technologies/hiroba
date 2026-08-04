@@ -363,6 +363,15 @@
         </div>
       </header>
       <ul id="roster" class="roster" aria-label="Members" data-i18n-arialabel="ariaMembers"></ul>
+      <!-- Admin only, same gate as the gear menu; opens the same invite panel
+           but sits where a lonely roster makes the need for it obvious. -->
+      <button id="roster-invite-btn" class="roster-invite-btn" type="button" hidden>
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+        <span data-i18n="inviteMembers">Invite members</span>
+      </button>
       <footer
         class="side-foot"
         role="radiogroup"

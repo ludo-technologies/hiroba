@@ -1000,6 +1000,36 @@ body {
   gap: 2px;
 }
 
+/* Invite entry point pinned under the roster (admin only): a lonely member
+   list and the way to fix it belong in the same place. */
+.roster-invite-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin: 0 8px 8px;
+  padding: 8px 9px;
+  border: 1px dashed var(--edge-2);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink-mute);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.roster-invite-btn:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-lo);
+}
+
+.roster-invite-btn[hidden] {
+  display: none;
+}
+
 .roster-row {
   display: flex;
   align-items: center;
