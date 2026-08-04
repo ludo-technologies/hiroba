@@ -550,9 +550,16 @@ export class AudioEngine {
    */
   pollLevels(): boolean {
     let active = false;
+    // A live page mutes the whole space (see updateGains), so proximity peers
+    // are inaudible no matter how loud they are. Meter them as silent too —
+    // otherwise the speaking ring would show talkers we cannot hear. Distance
+    // attenuation is deliberately *not* gated this way: a faint peer is still
+    // audible, and seeing who is talking over there is the point.
+    const paging = this.hasPage();
 
     for (const entry of this.peers.values()) {
-      const raw = entry.analyser ? this._rms(entry.analyser) : 0;
+      const audible = entry.page || !paging;
+      const raw = entry.analyser && audible ? this._rms(entry.analyser) : 0;
       entry.level = smoothLevel(entry.level, raw);
       if (entry.level > ACTIVITY_FLOOR) active = true;
     }
@@ -1161,6 +1168,8 @@ export class AudioEngine {
     // reflects whether the peer is actually talking, independent of how far
     // away they are. This is a side branch — an analyser produces no sound, so
     // it never reaches the destination and cannot affect what we hear.
+    // Because it is pre-gain, a fully muted peer would still meter as loud;
+    // pollLevels gates that case explicitly.
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 512;
     analyser.smoothingTimeConstant = 0.3;

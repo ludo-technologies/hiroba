@@ -286,6 +286,43 @@ test("page link is full-gain and mutes space (proximity) audio while live", asyn
   assert.equal(gainOf(eng, "3"), 1, "space audio restored after the page ends");
 });
 
+// Make a peer's analyser read as loud speech (192 → (192-128)/128 = 0.5 RMS).
+function makeLoud(eng, id) {
+  eng.peers.get(id).analyser.getByteTimeDomainData = (buf) => buf.fill(192);
+}
+
+test("the speaking ring does not show space peers we cannot hear during a page", async () => {
+  installMocks();
+  const eng = new AudioEngine();
+  eng.init(SPACE, () => {}, () => {});
+
+  await eng.connect("3", true, "proximity");
+  attachTrack();
+  makeLoud(eng, "3");
+
+  // No page yet: a talking proximity peer rings, however faint the distance
+  // gain would make them. That behaviour must survive this fix.
+  eng.pollLevels();
+  assert.ok(eng.getLevel("3") > 0, "a talking space peer rings while audible");
+
+  // Page starts → updateGains forces peer 3 to gain 0, so they are inaudible.
+  await eng.connect("9", true, "page");
+  attachTrack();
+  makeLoud(eng, "9");
+  eng.updateGains({ x: 0, y: 0 }, new Map([["3", { x: 0, y: 0 }]]));
+  assert.equal(gainOf(eng, "3"), 0, "precondition: the space peer is fully muted");
+
+  // The ring fades out rather than popping, so poll until it settles.
+  for (let i = 0; i < 100 && eng.getLevel("3") > 0; i++) eng.pollLevels();
+  assert.equal(eng.getLevel("3"), 0, "a muted space peer stops ringing (we hear nothing)");
+  assert.ok(eng.getLevel("9") > 0, "the page peer we DO hear still rings");
+
+  // Hang up → the space peer is audible again and rings on the next poll.
+  eng.endPage("9");
+  eng.pollLevels();
+  assert.ok(eng.getLevel("3") > 0, "the ring returns once the page ends");
+});
+
 test("paging a near peer then hanging up falls back to proximity (no silence)", async () => {
   installMocks();
   const eng = new AudioEngine();
