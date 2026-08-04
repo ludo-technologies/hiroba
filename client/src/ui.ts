@@ -82,16 +82,18 @@ const AVATAR_SIZE = 256;
  *  (state.rs MAX_AVATAR_LEN) so an avatar we accept is never silently dropped. */
 const AVATAR_MAX_CHARS = 64 * 1024;
 
-/** Curated friendly palette offered as one-tap swatches. */
-const PALETTE = [
-  "#b54f2c", // clay (accent)
-  "#e6a94e", // amber
-  "#d9594f", // coral
-  "#86b27a", // sage
-  "#4f9dde", // sky
-  "#b07ad0", // lilac
-  "#46b9b0", // teal
-  "#8a93a6", // slate
+/** Curated friendly palette offered as one-tap swatches. Each carries a
+ *  localized name so a swatch announces "Clay", not "#b54f2c" (the catalog is
+ *  read lazily so the labels follow a language switch). */
+const PALETTE: { hex: string; name: () => string }[] = [
+  { hex: "#b54f2c", name: () => t.colorClay }, // accent
+  { hex: "#e6a94e", name: () => t.colorAmber },
+  { hex: "#d9594f", name: () => t.colorCoral },
+  { hex: "#86b27a", name: () => t.colorSage },
+  { hex: "#4f9dde", name: () => t.colorSky },
+  { hex: "#b07ad0", name: () => t.colorLilac },
+  { hex: "#46b9b0", name: () => t.colorTeal },
+  { hex: "#8a93a6", name: () => t.colorSlate },
 ];
 
 // ---------------------------------------------------------------------------
@@ -200,6 +202,7 @@ const elAudioSettingsClose = $<HTMLButtonElement>("audio-settings-close");
 const elMicSelectHost = $<HTMLElement>("mic-device-select");
 const elSpeakerSelectHost = $<HTMLElement>("speaker-device-select");
 const elLangSwitchSettings = $<HTMLDivElement>("lang-switch-settings");
+const elMicLevel = $<HTMLDivElement>("mic-level");
 const elMicLevelBar = $<HTMLDivElement>("mic-level-bar");
 
 const elOnboard = $<HTMLDivElement>("onboard");
@@ -399,6 +402,9 @@ export class UIManager {
   // without round-tripping through main.ts for UI-owned state.
   private lastMuted = true;
   private lastPeerCount = 1;
+  /** Last value pushed to the level meter's ARIA state (0..100), so a 60 Hz
+   *  meter loop only touches the DOM when the rounded level actually moves. */
+  private lastMicLevelPct = 0;
   private lastCall: { mode: CallBannerMode; text: string } | null = null;
   private lastScreenSharing = false;
   private lastCameraOn = false;
@@ -563,9 +569,17 @@ export class UIManager {
     elAudioSettings.removeAttribute("hidden");
   }
 
-  /** Update the input-level meter (0..1) while the audio-settings panel is open. */
+  /** Update the input-level meter (0..1) while the audio-settings panel is open.
+   *  The percentage drives both the bar width and role="meter"'s aria-valuenow,
+   *  so assistive tech reads the same level the bar shows. */
   setMicLevel(level: number): void {
-    elMicLevelBar.style.width = `${Math.round(Math.max(0, Math.min(1, level)) * 100)}%`;
+    const pct = Math.round(Math.max(0, Math.min(1, level)) * 100);
+    elMicLevelBar.style.width = `${pct}%`;
+    if (pct !== this.lastMicLevelPct) {
+      this.lastMicLevelPct = pct;
+      elMicLevel.setAttribute("aria-valuenow", String(pct));
+      elMicLevel.setAttribute("aria-valuetext", `${pct}%`);
+    }
   }
 
   private _fillDeviceSelect(
@@ -742,6 +756,7 @@ export class UIManager {
    */
   private _onLocaleChanged(): void {
     this._syncLangSwitch();
+    this._syncSwatchLabels();
 
     // Invite role select labels.
     const role = this.inviteRoleSelect.value || "member";
@@ -1070,7 +1085,9 @@ export class UIManager {
       meta.textContent = inv.creator
         ? `${t.inviteExpiresAt(expiry)} · ${t.inviteByCreator(inv.creator)}`
         : t.inviteExpiresAt(expiry);
-      meta.title = inv.token;
+      // The row truncates on narrow panels; the tooltip repeats what is shown
+      // rather than leaking the invite token into a hover.
+      meta.title = meta.textContent;
       li.appendChild(meta);
 
       const revoke = document.createElement("button");
@@ -1235,9 +1252,11 @@ export class UIManager {
   // Sidebar roster (org scope, FR-02/03)
   // -------------------------------------------------------------------------
 
-  /** Set the org name shown atop the sidebar. */
+  /** Set the org name shown atop the sidebar. Long names ellipsize, so the
+   *  tooltip is the only way to read one in full. */
   setOrgName(name: string): void {
     elOrgName.textContent = name;
+    elOrgName.title = name;
   }
 
   /** Rebuild the member list. `entries` is prepared by main.ts (incl. self). */
@@ -1265,9 +1284,12 @@ export class UIManager {
       const nm = document.createElement("span");
       nm.className = "roster-name";
       nm.textContent = e.isSelf ? t.youName(e.name) : e.name;
+      // Both lines ellipsize in the narrow sidebar — tooltips carry the rest.
+      nm.title = nm.textContent;
       const st = document.createElement("span");
       st.className = "roster-status";
       st.textContent = e.label;
+      st.title = e.label;
       text.append(nm, st);
       li.appendChild(text);
 
@@ -1607,18 +1629,17 @@ export class UIManager {
   // -------------------------------------------------------------------------
 
   private _buildSwatches(): void {
-    for (const color of PALETTE) {
+    for (const { hex } of PALETTE) {
       const b = document.createElement("button");
       b.type = "button";
       b.className = "swatch";
-      b.style.background = color;
-      b.style.setProperty("--swatch-glow", color);
-      b.dataset.color = color;
+      b.style.background = hex;
+      b.style.setProperty("--swatch-glow", hex);
+      b.dataset.color = hex;
       // Plain buttons: Tab-navigable and Enter/Space-activatable out of the box.
       // (Not role="radio", which would also require arrow-key roving focus.)
       b.setAttribute("aria-pressed", "false");
-      b.setAttribute("aria-label", `Color ${color}`);
-      b.addEventListener("click", () => this._selectColor(color, /* custom */ false));
+      b.addEventListener("click", () => this._selectColor(hex, /* custom */ false));
       elSwatches.appendChild(b);
     }
 
@@ -1627,10 +1648,11 @@ export class UIManager {
     custom.type = "button";
     custom.className = "swatch swatch-custom";
     custom.setAttribute("aria-pressed", "false");
-    custom.setAttribute("aria-label", "Custom color");
     custom.dataset.custom = "1";
     custom.addEventListener("click", () => elJoinColor.click());
     elSwatches.appendChild(custom);
+
+    this._syncSwatchLabels();
 
     // The hidden native input is the source of truth for custom colors.
     elJoinColor.addEventListener("input", () => {
@@ -1643,6 +1665,19 @@ export class UIManager {
     this.custom = custom;
     this._syncSwatchSelection();
     this._refreshAvatar();
+  }
+
+  /** (Re-)label the swatches in the active language. */
+  private _syncSwatchLabels(): void {
+    for (const s of elSwatches.querySelectorAll<HTMLButtonElement>(".swatch")) {
+      const label = s.dataset.custom
+        ? t.colorCustom
+        : PALETTE.find((p) => p.hex === s.dataset.color)?.name();
+      if (label) {
+        s.setAttribute("aria-label", label);
+        s.title = label;
+      }
+    }
   }
 
   private _syncSwatchSelection(): void {
@@ -1711,6 +1746,10 @@ export class UIManager {
       // Flatten transparency onto white (JPEG has no alpha channel).
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, AVATAR_SIZE, AVATAR_SIZE);
+      // A phone photo down to 256² is a steep downscale; the default resampler
+      // aliases badly, and this runs once per upload so quality is free here.
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
       ctx.drawImage(
         img,
         (img.naturalWidth - side) / 2,
@@ -1778,7 +1817,7 @@ export class UIManager {
     if (name) elJoinName.value = name;
     if (color) {
       elJoinColor.value = color;
-      this.custom = !PALETTE.some((c) => c.toLowerCase() === color.toLowerCase());
+      this.custom = !PALETTE.some((p) => p.hex.toLowerCase() === color.toLowerCase());
     }
     if (server) {
       if (!import.meta.env.DEV && isLoopbackUrl(server)) {

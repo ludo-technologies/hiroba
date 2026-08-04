@@ -16,7 +16,7 @@
  * What the renderer adds over a static scene:
  *  - Kind-specific floor plans with seat hit-targets for click-to-sit.
  *  - Smooth interpolation of remote peers toward their last server position.
- *  - A gently eased camera that follows self.
+ *  - Fit-to-room framing: the whole floor is always on screen, centred.
  *  - Spawn / leave fades so presence appears and dissolves rather than popping.
  *  - Person tokens with a soft grounding shadow, a name chip, and a mute badge.
  *  - Speaking ripples: concentric rings that radiate from a talking peer.
@@ -155,10 +155,9 @@ const STATUS_CALL_PULSE_PERIOD = 1.7;
 // Easing time-constants (seconds). Smaller = snappier. Frame-rate independent
 // via 1 - exp(-dt/tau), so behaviour is identical at 30 or 144 Hz.
 const PEER_LERP_TAU = 0.09;
-const CAMERA_TAU = 0.12;
 const ANIM_TAU = 0.18; // spawn / leave fades
 
-// A position/camera within this many world units of its target is "settled".
+// A position within this many world units of its target is "settled".
 const SETTLE_EPS = 0.3;
 
 // ---------------------------------------------------------------------------
@@ -178,10 +177,6 @@ export class Renderer {
 
   /** Sit targets for the current space (click-to-sit + seated pose). */
   private seats: Seat[] = [];
-
-  /** Eased camera centre, in world units. */
-  private camX = 0;
-  private camY = 0;
 
   /** Click-to-walk destination marker, in world units (null = none). */
   private walkTarget: { x: number; y: number } | null = null;
@@ -247,10 +242,6 @@ export class Renderer {
     this._resize();
     this.space = space;
     this.self = this._mkPeer(self, /* spawned */ true);
-    // Start at the camera's resting point (room centre at fit-to-room zoom)
-    // so joining doesn't open with a pan.
-    this.camX = space.width / 2;
-    this.camY = space.height / 2;
     this.lastDraw = 0;
     this.peers.clear();
     const plan = buildFloor(space);
@@ -273,8 +264,25 @@ export class Renderer {
   }
 
   /**
-   * Map a pointer event's client coordinates to world units using the current
-   * camera, for click-to-walk. Returns null before a session initializes.
+   * Scale that fits the whole room in the viewport, and the screen-space origin
+   * of the room's top-left corner at that scale. The floor is always fully
+   * visible and centred, so there is no camera to pan; a future zoom (a floor
+   * bigger than one screen) is what would bring one back, and both `draw` and
+   * `screenToWorld` would then need to share its state through here.
+   */
+  private _view(space: SpaceDescriptor): { scale: number; ox: number; oy: number } {
+    const { canvas } = this;
+    const scale = Math.min(canvas.width / space.width, canvas.height / space.height);
+    return {
+      scale,
+      ox: (canvas.width - space.width * scale) / 2,
+      oy: (canvas.height - space.height * scale) / 2,
+    };
+  }
+
+  /**
+   * Map a pointer event's client coordinates to world units, for
+   * click-to-walk. Returns null before a session initializes.
    */
   screenToWorld(clientX: number, clientY: number): { x: number; y: number } | null {
     const { canvas, space } = this;
@@ -283,9 +291,7 @@ export class Renderer {
     const dpr = window.devicePixelRatio || 1;
     const px = (clientX - rect.left) * dpr;
     const py = (clientY - rect.top) * dpr;
-    const scale = Math.min(canvas.width / space.width, canvas.height / space.height);
-    const ox = canvas.width / 2 - this.camX * scale;
-    const oy = canvas.height / 2 - this.camY * scale;
+    const { scale, ox, oy } = this._view(space);
     return { x: (px - ox) / scale, y: (py - oy) / scale };
   }
 
@@ -466,26 +472,9 @@ export class Renderer {
 
     const vw = canvas.width;
     const vh = canvas.height;
-    const scale = Math.min(vw / space.width, vh / space.height);
-
-    // --- Camera: ease toward self, clamped so the room never leaves the
-    // viewport. At the current fit-to-room zoom the clamp pins the room
-    // centred (walking to an edge must not push half the floor off-screen);
-    // the easing only matters if a closer zoom is ever introduced. ---
-    const halfW = vw / (2 * scale);
-    const halfH = vh / (2 * scale);
-    const tx =
-      space.width <= halfW * 2 ? space.width / 2 : clamp(self.x, halfW, space.width - halfW);
-    const ty =
-      space.height <= halfH * 2 ? space.height / 2 : clamp(self.y, halfH, space.height - halfH);
-    const camK = ease(dt, CAMERA_TAU);
-    this.camX += (tx - this.camX) * camK;
-    this.camY += (ty - this.camY) * camK;
-    if (Math.hypot(tx - this.camX, ty - this.camY) > SETTLE_EPS) animating = true;
-
-    // World origin in screen space so the camera centre sits at viewport centre.
-    const ox = vw / 2 - this.camX * scale;
-    const oy = vh / 2 - this.camY * scale;
+    // Fit-to-room framing; see `_view`. The scene never scrolls, so nothing
+    // here can leave a frame animating on its own.
+    const { scale, ox, oy } = this._view(space);
 
     // --- Backdrop (wooden frame + the room) ---
     ctx.fillStyle = FRAME_BG;
@@ -937,6 +926,10 @@ export class Renderer {
       ctx.beginPath();
       ctx.arc(sx, sy, r, 0, Math.PI * 2);
       ctx.clip();
+      // Avatars are stored well above token size, so this is always a
+      // downscale — ask for the good resampler or faces come out crunchy.
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
       ctx.drawImage(photo, sx - r, sy - r, r * 2, r * 2);
       ctx.restore();
     } else {
@@ -1388,10 +1381,6 @@ function ease(dt: number, tau: number): number {
 
 function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
-}
-
-function clamp(v: number, lo: number, hi: number): number {
-  return v < lo ? lo : v > hi ? hi : v;
 }
 
 /** Gentle overshoot for a lively-but-calm spawn. */

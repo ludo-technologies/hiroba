@@ -120,6 +120,10 @@ let session: Session | null = null;
 // convention; this module owns AudioEngine, so it owns these two keys).
 const LS_MIC_DEVICE = "hiroba_mic_device";
 const LS_SPEAKER_DEVICE = "hiroba_speaker_device";
+/** Set once the movement hint has done its job. It teaches WASD/click-to-walk,
+ *  which nobody needs to be told twice — a hint that returns on every join
+ *  stops reading as onboarding and starts reading as clutter. */
+const LS_MOVE_HINT_SEEN = "hiroba_move_hint_seen";
 
 // Reconnect bookkeeping.
 const MAX_RECONNECT = 6;
@@ -868,8 +872,10 @@ async function handleJoin(values: JoinFormValues): Promise<void> {
       return;
     }
     startSession(net, msg, iceServers);
-    moveHintActive = true;
-    ui.showMoveHint();
+    if (!localStorage.getItem(LS_MOVE_HINT_SEEN)) {
+      moveHintActive = true;
+      ui.showMoveHint();
+    }
   } catch (err) {
     const code = err instanceof Error ? err.message : "";
     if (code === "cancelled" || (err instanceof DOMException && err.name === "AbortError")) return;
@@ -1242,6 +1248,9 @@ function frame(now: number): void {
 function onInputActivity(): void {
   if (moveHintActive) {
     moveHintActive = false;
+    // Dismissed by actually moving: the hint has been read and acted on, so
+    // don't show it again on later joins.
+    localStorage.setItem(LS_MOVE_HINT_SEEN, "1");
     ui.hideMoveHint();
   }
   markActive();

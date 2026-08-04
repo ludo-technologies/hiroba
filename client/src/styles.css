@@ -581,10 +581,17 @@ body {
   transition: border-color 0.15s, color 0.15s, background 0.15s;
 }
 
-.ghost-btn:hover {
+.ghost-btn:hover:not(:disabled) {
   border-color: var(--accent);
   color: var(--ink);
   background: var(--accent-soft);
+}
+
+/* Busy/blocked (e.g. "Send another code" during its cooldown): dimmed and
+   inert, so a disabled button never reads as one waiting to be pressed. */
+.ghost-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 /* ---------------------------------------------------------------------------

@@ -578,7 +578,17 @@
           <span class="field-label" data-i18n="fieldMicrophone">Microphone</span>
           <div id="mic-device-select"></div>
         </label>
-        <div class="mic-level" role="meter" aria-label="Microphone input level" data-i18n-arialabel="micLevelAria">
+        <div
+          id="mic-level"
+          class="mic-level"
+          role="meter"
+          aria-label="Microphone input level"
+          data-i18n-arialabel="micLevelAria"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="0"
+          aria-valuetext="0%"
+        >
           <div id="mic-level-bar" class="mic-level-bar"></div>
         </div>
         <label class="field">
