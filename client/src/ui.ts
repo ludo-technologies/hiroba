@@ -25,6 +25,7 @@ import {
 } from "./i18n.js";
 import { CODE_LENGTH, extractInviteCode, sanitizeCode } from "./auth.js";
 import { CustomSelect, type SelectOption } from "./select.js";
+import { bindOverlayDismiss } from "./overlay.js";
 
 // ---------------------------------------------------------------------------
 // LocalStorage keys
@@ -453,6 +454,7 @@ export class UIManager {
     this._bindInvitePanel();
     this._bindMembersPanel();
     this._bindHud();
+    this._bindScreenPerm();
     this._bindAudioSettings();
     this._bindReconnect();
     this._bindSidebar();
@@ -697,11 +699,14 @@ export class UIManager {
     focus?.focus();
   }
 
+  private hideServerSettings(): void {
+    elServerSettings.setAttribute("hidden", "");
+  }
+
   private _bindServerSettings(): void {
     elJoinSettingsBtn.addEventListener("click", () => this.showServerSettings());
-    elServerSettingsClose.addEventListener("click", () => {
-      elServerSettings.setAttribute("hidden", "");
-    });
+    elServerSettingsClose.addEventListener("click", () => this.hideServerSettings());
+    bindOverlayDismiss(elServerSettings, () => this.hideServerSettings());
   }
 
   /** Wire EN | JA switchers on the server-settings dialog and audio-settings panel. */
@@ -1144,9 +1149,7 @@ export class UIManager {
       this.callbacks.onOpenMembersPanel();
     });
     elMembersPanelClose.addEventListener("click", () => this.hideMembersPanel());
-    elMembersPanel.addEventListener("click", (e) => {
-      if (e.target === elMembersPanel) this.hideMembersPanel(); // click outside the card
-    });
+    bindOverlayDismiss(elMembersPanel, () => this.hideMembersPanel());
   }
 
   private _bindInvitePanel(): void {
@@ -1172,9 +1175,7 @@ export class UIManager {
       this.callbacks.onOpenBilling();
     });
     elInvitePanelClose.addEventListener("click", () => this.hideInvitePanel());
-    elInvitePanel.addEventListener("click", (e) => {
-      if (e.target === elInvitePanel) this.hideInvitePanel(); // click outside the card
-    });
+    bindOverlayDismiss(elInvitePanel, () => this.hideInvitePanel());
     elInviteIssueBtn.addEventListener("click", () => {
       const role = this.inviteRoleSelect.value === "admin" ? "admin" : "member";
       this.callbacks.onIssueInvite(role);
@@ -1438,8 +1439,16 @@ export class UIManager {
     // Plain assignment (not addEventListener) so a re-show never stacks handlers.
     elScreenPermOpen.onclick = onOpenSettings;
     elScreenPermRelaunch.onclick = onRelaunch;
-    elScreenPermClose.onclick = () => elScreenPerm.setAttribute("hidden", "");
     elScreenPerm.removeAttribute("hidden");
+  }
+
+  private hideScreenPerm(): void {
+    elScreenPerm.setAttribute("hidden", "");
+  }
+
+  private _bindScreenPerm(): void {
+    elScreenPermClose.addEventListener("click", () => this.hideScreenPerm());
+    bindOverlayDismiss(elScreenPerm, () => this.hideScreenPerm());
   }
 
   /** Show the given video stream in the main panel, or hide the panel when
@@ -1850,9 +1859,7 @@ export class UIManager {
       this.callbacks.onCloseAudioSettings();
     };
     elAudioSettingsClose.addEventListener("click", close);
-    elAudioSettings.addEventListener("click", (e) => {
-      if (e.target === elAudioSettings) close();
-    });
+    bindOverlayDismiss(elAudioSettings, close);
   }
 
   private _bindReconnect(): void {
