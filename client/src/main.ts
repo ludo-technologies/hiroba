@@ -465,22 +465,44 @@ async function syncOrgList(): Promise<void> {
   ui.setOrgList(orgs, session.claims.org);
 }
 
+/** The in-flight org switch, if any. One at a time: the refresh token is
+ *  single-use, so a second rotation alongside the first would 401. Joining
+ *  waits on this too (see `effectiveToken`) — between the dropdown showing
+ *  org B and the switch settling, the held token still says org A. Never
+ *  rejects (failures are handled inside). */
+let orgSwitchPending: Promise<void> | null = null;
+
 /** Re-anchor the session in another org. On failure nothing moved — the old
  *  refresh token is only consumed by a successful switch — so keep the current
  *  session and say so. */
 async function handleSwitchOrg(orgSlug: string): Promise<void> {
   const session = authSession;
-  if (!session || orgSlug === session.claims.org) return;
+  if (orgSwitchPending || !session || orgSlug === session.claims.org) return;
+  const run = (async () => {
+    try {
+      const switched = await switchOrg(ui.getAuthUrl(), session.refreshToken, orgSlug);
+      // A sign-out (or any other session change) while the switch was in
+      // flight owns the state now — adopting the answer would resurrect
+      // exactly what the user just discarded.
+      if (authSession !== session) return;
+      cancelRestoreRetry();
+      authSession = switched;
+      reflectAuthSession();
+      if ((await saveSession(switched)) === "failed") ui.showError(t.errSessionNotSaved);
+    } catch {
+      if (authSession !== session) return;
+      ui.showToast(t.errOrgSwitch, "error");
+      // Snap the dropdown back to the org we actually still hold.
+      ui.setOrgList(orgList, session.claims.org);
+    }
+  })();
+  orgSwitchPending = run;
+  ui.setOrgSwitchBusy(true);
   try {
-    const switched = await switchOrg(ui.getAuthUrl(), session.refreshToken, orgSlug);
-    cancelRestoreRetry();
-    authSession = switched;
-    reflectAuthSession();
-    if ((await saveSession(switched)) === "failed") ui.showError(t.errSessionNotSaved);
-  } catch {
-    ui.showToast(t.errOrgSwitch, "error");
-    // Snap the dropdown back to the org we actually still hold.
-    ui.setOrgList(orgList, session.claims.org);
+    await run;
+  } finally {
+    orgSwitchPending = null;
+    ui.setOrgSwitchBusy(false);
   }
 }
 
@@ -766,6 +788,8 @@ async function handleOpenBilling(): Promise<void> {
 
 /** Stripe subscription status while the org is locked, else null. */
 let billingLockStatus: string | null = null;
+/** Which org `billingLockStatus` was computed for. */
+let billingLockOrg: string | null = null;
 let billingLockTimer: number | null = null;
 /** While the notice is up, re-ask this often — the unlock happens out of band
  *  (card added on Stripe's page → webhook resumes the subscription). */
@@ -778,6 +802,10 @@ async function syncBillingLock(): Promise<void> {
   const org = authSession?.claims.org;
   const authUrl = ui.getAuthUrl();
   if (!org || !authUrl) return applyBillingLock(null);
+  // A lock belongs to the org it was computed for. After an org switch the
+  // fail-open branches below would otherwise keep the previous org's lock
+  // covering the join controls when the new org's status can't be fetched.
+  if (billingLockStatus !== null && billingLockOrg !== org) applyBillingLock(null);
   try {
     const resp = await fetch(`${authUrl}/billing/status/${encodeURIComponent(org)}`);
     if (resp.ok) {
@@ -785,6 +813,7 @@ async function syncBillingLock(): Promise<void> {
       // The session may have changed (sign-out, org switch) while in flight;
       // whatever triggered that change owns the state now.
       if (authSession?.claims.org !== org) return;
+      billingLockOrg = org;
       applyBillingLock(data.locked ? (data.status ?? "paused") : null);
       return;
     }
@@ -830,6 +859,9 @@ window.addEventListener("focus", () => {
  *  on the spot so we don't knock on the server with a dead JWT. */
 async function effectiveToken(manual: string): Promise<string> {
   if (manual) return manual;
+  // An org switch in flight owns the session: connecting with the pre-switch
+  // token would put the user in the org the chip no longer shows.
+  if (orgSwitchPending) await orgSwitchPending;
   if (!authSession || !isLive(authSession.claims)) {
     const { session, problem } = await loadSession(ui.getAuthUrl());
     authSession = session;
@@ -948,6 +980,7 @@ async function handleJoin(values: JoinFormValues): Promise<void> {
  *  lags up to a minute). */
 function reflectSuspension(code: string): void {
   if (code !== "org_suspended") return;
+  billingLockOrg = authSession?.claims.org ?? null;
   applyBillingLock(billingLockStatus ?? "paused");
   void syncBillingLock();
 }

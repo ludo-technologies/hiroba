@@ -675,6 +675,15 @@ export class UIManager {
     this._renderBillingLockOrgs();
   }
 
+  /** Freeze both switch surfaces while a switch is in flight — the refresh
+   *  token is single-use, so there is exactly one rotation at a time. */
+  setOrgSwitchBusy(busy: boolean): void {
+    this.orgSelect.setDisabled(busy);
+    for (const btn of elBillingLockOrgsList.querySelectorAll("button")) {
+      btn.disabled = busy;
+    }
+  }
+
   private _renderAuthChip(): void {
     const session = this.lastAuth;
     if (!session) return;
