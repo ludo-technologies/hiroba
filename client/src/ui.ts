@@ -23,7 +23,7 @@ import {
   t,
   type Locale,
 } from "./i18n.js";
-import { CODE_LENGTH, extractInviteCode, sanitizeCode } from "./auth.js";
+import { CODE_LENGTH, extractInviteCode, sanitizeCode, type OrgSummary } from "./auth.js";
 import { CustomSelect, type SelectOption } from "./select.js";
 import { bindOverlayDismiss } from "./overlay.js";
 
@@ -136,6 +136,7 @@ const elLoginCodeResend = $<HTMLButtonElement>("login-code-resend");
 const elLoginCodeBack = $<HTMLButtonElement>("login-code-back");
 const elAuthSession = $<HTMLDivElement>("auth-session");
 const elAuthUser = $<HTMLSpanElement>("auth-user");
+const elAuthOrgSelect = $<HTMLDivElement>("auth-org-select");
 const elAuthLogout = $<HTMLButtonElement>("auth-logout");
 const elJoinBtn = $<HTMLButtonElement>("join-btn");
 const elJoinError = $<HTMLParagraphElement>("join-error");
@@ -158,6 +159,8 @@ const elBillingLock = $<HTMLDivElement>("billing-lock");
 const elBillingLockTitle = $<HTMLHeadingElement>("billing-lock-title");
 const elBillingLockDesc = $<HTMLParagraphElement>("billing-lock-desc");
 const elBillingLockCta = $<HTMLButtonElement>("billing-lock-cta");
+const elBillingLockOrgs = $<HTMLDivElement>("billing-lock-orgs");
+const elBillingLockOrgsList = $<HTMLDivElement>("billing-lock-orgs-list");
 
 const elAdminMenuBtn = $<HTMLButtonElement>("admin-menu-btn");
 const elAdminMenu = $<HTMLDivElement>("admin-menu");
@@ -286,6 +289,9 @@ export interface UICallbacks {
   onEmailVerify(code: string, authUrl: string, invite: string): void;
   /** Drop the stored session and return to the signed-out state. */
   onLogout(): void;
+  /** Re-anchor the session in another org the user belongs to (chip dropdown
+   *  or the billing-lock escape hatch). */
+  onSwitchOrg(orgSlug: string): void;
   /** Found the org for a pending first sign-in (org-setup step). */
   onCreateOrg(name: string): void;
   /** Abandon the org-setup step and return to the sign-in form. */
@@ -423,8 +429,14 @@ export class UIManager {
   private lastInviteIssueBusy = false;
   /** Billing-lock notice currently shown on the join card, if any. */
   private lastBillingLock: { trial: boolean; admin: boolean } | null = null;
+  /** What the signed-in chip shows, kept for re-rendering when the org list
+   *  arrives (it comes from a separate, slower request than the session). */
+  private lastAuth: AuthDisplay | null = null;
+  private lastOrgs: OrgSummary[] = [];
+  private lastOrgSlug = "";
 
   private readonly inviteRoleSelect: CustomSelect;
+  private readonly orgSelect: CustomSelect;
   private readonly micSelect: CustomSelect;
   private readonly speakerSelect: CustomSelect;
 
@@ -439,6 +451,10 @@ export class UIManager {
         { value: "admin", label: t.roleAdmin },
       ],
       value: "member",
+    });
+    this.orgSelect = new CustomSelect(elAuthOrgSelect, {
+      onChange: (orgSlug) => this.callbacks.onSwitchOrg(orgSlug),
+      ariaLabel: t.orgSwitchAria,
     });
     this.micSelect = new CustomSelect(elMicSelectHost, {
       onChange: (deviceId) => this.callbacks.onMicDeviceChange(deviceId),
@@ -629,18 +645,55 @@ export class UIManager {
   /** Reflect the signed-in state: chip with name/org, or the login buttons. */
   setAuthSession(session: AuthDisplay | null): void {
     this.setAuthRestoring(false);
+    this.lastAuth = session;
     if (session) {
-      elAuthUser.textContent =
-        session.role === "admin"
-          ? `${session.name} — ${session.org} (admin)`
-          : `${session.name} — ${session.org}`;
+      this._renderAuthChip();
       elAuthSession.removeAttribute("hidden");
       elAuthActions.setAttribute("hidden", "");
     } else {
+      this.lastOrgs = [];
+      this.lastOrgSlug = "";
+      elAuthOrgSelect.setAttribute("hidden", "");
       elAuthSession.setAttribute("hidden", "");
       elAuthActions.removeAttribute("hidden");
       // Signing out mid-code-entry would otherwise leave a stale code step.
       this.showEmailStep();
+    }
+  }
+
+  /**
+   * The session's memberships, current org first as the backend orders them.
+   * Two or more turn the chip's org text into a switcher (and put the escape
+   * hatch on the billing-lock notice); fewer keep the plain text — the list
+   * arrives from a separate request and may legitimately never come (offline,
+   * old backend), which must simply mean "no switcher".
+   */
+  setOrgList(orgs: OrgSummary[], currentSlug: string): void {
+    this.lastOrgs = orgs;
+    this.lastOrgSlug = currentSlug;
+    this._renderAuthChip();
+    this._renderBillingLockOrgs();
+  }
+
+  private _renderAuthChip(): void {
+    const session = this.lastAuth;
+    if (!session) return;
+    if (this.lastOrgs.length >= 2) {
+      elAuthUser.textContent = session.name;
+      this.orgSelect.setOptions(
+        this.lastOrgs.map((o) => ({
+          value: o.slug,
+          label: o.role === "admin" ? `${o.name} (admin)` : o.name,
+        })),
+        this.lastOrgSlug,
+      );
+      elAuthOrgSelect.removeAttribute("hidden");
+    } else {
+      elAuthOrgSelect.setAttribute("hidden", "");
+      elAuthUser.textContent =
+        session.role === "admin"
+          ? `${session.name} — ${session.org} (admin)`
+          : `${session.name} — ${session.org}`;
     }
   }
 
@@ -985,8 +1038,30 @@ export class UIManager {
     } else {
       elBillingLockCta.setAttribute("hidden", "");
     }
+    this._renderBillingLockOrgs();
     elBillingLock.removeAttribute("hidden");
     elJoinError.setAttribute("hidden", "");
+  }
+
+  /** The way out of a locked org: one button per *other* membership. */
+  private _renderBillingLockOrgs(): void {
+    const others = this.lastOrgs.filter((o) => o.slug !== this.lastOrgSlug);
+    if (!this.lastBillingLock || others.length === 0) {
+      elBillingLockOrgs.setAttribute("hidden", "");
+      elBillingLockOrgsList.replaceChildren();
+      return;
+    }
+    elBillingLockOrgsList.replaceChildren(
+      ...others.map((org) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "ghost-btn";
+        btn.textContent = org.name;
+        btn.addEventListener("click", () => this.callbacks.onSwitchOrg(org.slug));
+        return btn;
+      }),
+    );
+    elBillingLockOrgs.removeAttribute("hidden");
   }
 
   private _bindBillingLock(): void {

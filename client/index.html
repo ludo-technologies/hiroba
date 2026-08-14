@@ -132,6 +132,8 @@
           <div id="auth-session" class="auth-session" hidden>
             <span class="auth-dot" aria-hidden="true"></span>
             <span id="auth-user" class="auth-user"></span>
+            <!-- Org switcher; stays hidden unless the user belongs to 2+ orgs. -->
+            <div id="auth-org-select" class="auth-org-select" hidden></div>
             <button id="auth-logout" type="button" class="ghost-btn" data-i18n="signOut">Sign out</button>
           </div>
         </div>
@@ -231,6 +233,12 @@
           <h2 id="billing-lock-title" class="org-setup-title"></h2>
           <p id="billing-lock-desc" class="org-setup-desc"></p>
           <button id="billing-lock-cta" type="button" hidden></button>
+          <!-- Way out of a locked org: the user's other memberships, one
+               button each. Hidden unless they belong to 2+ orgs. -->
+          <div id="billing-lock-orgs" class="billing-lock-orgs" hidden>
+            <p class="org-setup-desc" data-i18n="billingLockSwitchTitle"></p>
+            <div id="billing-lock-orgs-list" class="billing-lock-orgs-list"></div>
+          </div>
         </div>
 
         <p id="join-error" class="error" role="alert" hidden></p>

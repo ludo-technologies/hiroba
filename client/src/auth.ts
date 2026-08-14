@@ -281,6 +281,53 @@ export function parseInviteDeepLink(url: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Org membership (multi-org sessions switch by re-issuing the refresh token)
+// ---------------------------------------------------------------------------
+
+/** One org the signed-in user belongs to (mirrors GET /orgs). */
+export interface OrgSummary {
+  slug: string;
+  name: string;
+  role: string;
+}
+
+/** The session's memberships, most recently used first. */
+export async function listOrgs(authBase: string, token: string): Promise<OrgSummary[]> {
+  const resp = await fetch(authEndpoint(authBase, "/orgs"), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) throw new Error(`org list refused with HTTP ${resp.status}`);
+  const data: { orgs?: OrgSummary[] } = await resp.json();
+  if (!Array.isArray(data.orgs)) throw new Error("org list response malformed");
+  return data.orgs;
+}
+
+/**
+ * Re-anchor the session in another org the user belongs to. The refresh token
+ * is the thing that actually moves — the backend rotates it under the new org
+ * and mints a matching JWT. Throws on any failure, and only a success consumes
+ * the old refresh token, so the caller's current session stays valid.
+ */
+export async function switchOrg(
+  authBase: string,
+  refreshToken: string,
+  orgSlug: string,
+): Promise<AuthSession> {
+  const resp = await fetch(authEndpoint(authBase, "/refresh"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh_token: refreshToken, org: orgSlug }),
+  });
+  if (!resp.ok) throw new Error(`org switch refused with HTTP ${resp.status}`);
+  const data: { token?: string; refresh_token?: string } = await resp.json();
+  const claims = data.token ? decodeClaims(data.token) : null;
+  if (!data.token || !data.refresh_token || !claims) {
+    throw new Error("org switch response malformed");
+  }
+  return { token: data.token, claims, refreshToken: data.refresh_token };
+}
+
+// ---------------------------------------------------------------------------
 // Session persistence (keychain under Tauri)
 // ---------------------------------------------------------------------------
 

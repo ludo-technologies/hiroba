@@ -1939,6 +1939,32 @@ body {
   display: none;
 }
 
+/* Other-membership escape hatch on the billing-lock notice. */
+.billing-lock-orgs {
+  margin-top: 6px;
+}
+
+.billing-lock-orgs-list {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+/* Org switcher in the signed-in chip. The cselect is built for full-width
+ * form rows; here it shares the row with the name and the sign-out button. */
+.auth-session .auth-org-select {
+  width: auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 55%;
+}
+
+.auth-session .cselect-trigger {
+  padding: 5px 9px;
+  font-size: 12.5px;
+}
+
 .org-setup-title {
   font-size: 18px;
   font-weight: 700;

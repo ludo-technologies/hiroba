@@ -18,10 +18,12 @@ import {
   emailStart,
   emailVerify,
   extractInviteCode,
+  listOrgs,
   loadSession,
   parseInviteDeepLink,
   sanitizeCode,
   saveSession,
+  switchOrg,
 } from "../.test-build/auth.js";
 
 /** Swap in a stub `fetch` for one call, recording what it received. */
@@ -29,7 +31,7 @@ async function withFetch(handler, body) {
   const real = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async (url, init) => {
-    calls.push({ url, init, body: JSON.parse(init.body) });
+    calls.push({ url, init, body: init?.body ? JSON.parse(init.body) : null });
     return handler();
   };
   try {
@@ -161,6 +163,62 @@ test("emailVerify rejects a refused code and a malformed session", async () => {
     () => emailVerify("https://auth.example.com", "aoi@example.com", "012345").catch((e) => e),
   );
   assert.match(malformed.message, /malformed token/);
+});
+
+// ---------------------------------------------------------------------------
+// Org membership (multi-org: list + refresh-based switch)
+// ---------------------------------------------------------------------------
+
+test("listOrgs sends the bearer and returns the memberships", async () => {
+  const orgs = [
+    { slug: "beta", name: "Beta", role: "member" },
+    { slug: "acme", name: "Acme", role: "admin" },
+  ];
+  const { result, calls } = await withFetch(
+    () => jsonResponse(200, { orgs }),
+    () => listOrgs("https://auth.example.com/", "tok"),
+  );
+  assert.equal(calls[0].url, "https://auth.example.com/orgs");
+  assert.equal(calls[0].init.headers.Authorization, "Bearer tok");
+  assert.deepEqual(result, orgs);
+});
+
+test("listOrgs throws on a refusal or a malformed answer", async () => {
+  for (const answer of [
+    () => new Response("invalid token", { status: 401 }),
+    () => jsonResponse(200, { orgs: "not-a-list" }),
+  ]) {
+    const { result } = await withFetch(answer, () =>
+      listOrgs("https://auth.example.com", "tok").catch((e) => e),
+    );
+    assert.ok(result instanceof Error);
+  }
+});
+
+test("switchOrg posts the refresh token with the target org and adopts the answer", async () => {
+  const fresh = jwt(43200);
+  const { result, calls } = await withFetch(
+    () => jsonResponse(200, { token: fresh, refresh_token: "r2" }),
+    () => switchOrg("https://auth.example.com", "r1", "beta"),
+  );
+  assert.equal(calls[0].url, "https://auth.example.com/refresh");
+  assert.deepEqual(calls[0].body, { refresh_token: "r1", org: "beta" });
+  assert.equal(result.token, fresh);
+  assert.equal(result.refreshToken, "r2");
+  assert.equal(result.claims.sub, "email:aoi@example.com");
+});
+
+test("switchOrg throws on a refusal and on a malformed session", async () => {
+  for (const answer of [
+    () => new Response("invalid refresh token", { status: 401 }),
+    () => jsonResponse(200, { token: "not-a-jwt", refresh_token: "r2" }),
+    () => jsonResponse(200, { token: jwt(43200) }), // no refresh token
+  ]) {
+    const { result } = await withFetch(answer, () =>
+      switchOrg("https://auth.example.com", "r1", "beta").catch((e) => e),
+    );
+    assert.ok(result instanceof Error);
+  }
 });
 
 // ---------------------------------------------------------------------------

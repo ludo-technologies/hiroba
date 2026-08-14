@@ -46,12 +46,15 @@ import {
   InviteRejectedError,
   isLive,
   isTauri,
+  listOrgs,
   loadSession,
   oauthLogin,
   openExternal,
   saveSession,
+  switchOrg,
   type AuthSession,
   type OAuthResult,
+  type OrgSummary,
   type RestoreResult,
 } from "./auth.js";
 import type {
@@ -184,6 +187,7 @@ const ui = new UIManager(
     onEmailStart: handleEmailStart,
     onEmailVerify: handleEmailVerify,
     onLogout: handleLogout,
+    onSwitchOrg: (orgSlug) => void handleSwitchOrg(orgSlug),
     onCreateOrg: handleCreateOrg,
     onCancelOrgSetup: handleCancelOrgSetup,
     onOpenInvitePanel: handleOpenInvitePanel,
@@ -427,6 +431,57 @@ function reflectAuthSession(): void {
   // Learn about a billing lock before a join attempt bounces off it (the
   // lock screen carries the fix — the admin's subscribe CTA).
   void syncBillingLock();
+  void syncOrgList();
+}
+
+// ---------------------------------------------------------------------------
+// Org switching (multi-org accounts; the chip dropdown and the billing-lock
+// escape hatch both land here)
+// ---------------------------------------------------------------------------
+
+/** Memberships behind the chip's org switcher (empty until GET /orgs answers). */
+let orgList: OrgSummary[] = [];
+
+/** Fetch the session's memberships and hand them to the UI. Any failure —
+ *  offline, expired JWT, a pre-multi-org backend — just means no switcher,
+ *  which is the plain single-org chip, never an error. */
+async function syncOrgList(): Promise<void> {
+  const session = authSession;
+  if (!session) {
+    orgList = [];
+    ui.setOrgList([], "");
+    return;
+  }
+  let orgs: OrgSummary[];
+  try {
+    orgs = await listOrgs(ui.getAuthUrl(), session.token);
+  } catch {
+    orgs = [];
+  }
+  // The session may have moved (sign-out, switch) while the list was in
+  // flight; whatever caused that runs its own sync against the new claims.
+  if (authSession !== session) return;
+  orgList = orgs;
+  ui.setOrgList(orgs, session.claims.org);
+}
+
+/** Re-anchor the session in another org. On failure nothing moved — the old
+ *  refresh token is only consumed by a successful switch — so keep the current
+ *  session and say so. */
+async function handleSwitchOrg(orgSlug: string): Promise<void> {
+  const session = authSession;
+  if (!session || orgSlug === session.claims.org) return;
+  try {
+    const switched = await switchOrg(ui.getAuthUrl(), session.refreshToken, orgSlug);
+    cancelRestoreRetry();
+    authSession = switched;
+    reflectAuthSession();
+    if ((await saveSession(switched)) === "failed") ui.showError(t.errSessionNotSaved);
+  } catch {
+    ui.showToast(t.errOrgSwitch, "error");
+    // Snap the dropdown back to the org we actually still hold.
+    ui.setOrgList(orgList, session.claims.org);
+  }
 }
 
 async function handleLogin(

@@ -159,6 +159,11 @@ const EN = {
   billingLockMemberDesc: "Ask your organization's administrator to update the subscription.",
   billingLockSubscribe: "Start subscription",
   billingLockUpdate: "Update payment details",
+  billingLockSwitchTitle: "Or continue in another organization you belong to:",
+
+  // Org switcher (signed-in chip; shown when the user belongs to 2+ orgs)
+  orgSwitchAria: "Switch organization",
+  errOrgSwitch: "Couldn't switch organizations. Please try again.",
 
   // Reconnect overlay
   reconnecting: "Reconnecting…",
@@ -411,6 +416,11 @@ const JA: typeof EN = {
   billingLockMemberDesc: "利用を再開するには、組織の管理者にお問い合わせください。",
   billingLockSubscribe: "サブスクリプションを開始",
   billingLockUpdate: "お支払い情報を更新",
+  billingLockSwitchTitle: "または、所属している別の組織で続ける:",
+
+  // 組織切替(サインイン済みチップ — 2つ以上の組織に所属しているとき)
+  orgSwitchAria: "組織を切り替え",
+  errOrgSwitch: "組織を切り替えられませんでした。もう一度お試しください。",
 
   // Reconnect overlay
   reconnecting: "再接続中…",
