@@ -220,6 +220,9 @@ pub async fn handle_ws(
                 }
                 Ok(ClientMsg::PageAccept { to }) => org.page_accept(&pid, &to).await,
                 Ok(ClientMsg::PageEnd { to }) => org.page_end(&pid, &to).await,
+                Ok(ClientMsg::Ping) => {
+                    let _ = tx.send(ServerMsg::Pong).await;
+                }
                 Ok(ClientMsg::Bye) => break 'read,
                 Ok(ClientMsg::Hello { .. }) => {
                     debug!(peer_id = %pid, "ignoring duplicate hello");

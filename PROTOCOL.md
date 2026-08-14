@@ -235,6 +235,16 @@ policy). The UI shows "in call" with one-click hang-up.
 { "t": "bye" }
 ```
 
+### `ping` — liveness probe
+```json
+{ "t": "ping" }
+```
+The server answers immediately with `pong`. Lets a client detect a half-open
+socket (sleep resume, network switch) that TCP alone would only surface
+minutes later, if ever. Servers that predate this message ignore it (unknown
+types are dropped), so clients must not treat a missing `pong` as a dead
+connection until at least one `pong` has been received on that socket.
+
 ---
 
 ## Server → Client messages
@@ -401,6 +411,11 @@ Tear down the page link to `from`, or dismiss a pending `page_offer` from
 ### `signal` — relayed WebRTC signaling from another peer
 ```json
 { "t": "signal", "from": "3", "data": { "...": "opaque" } }
+```
+
+### `pong` — echo of a client `ping`
+```json
+{ "t": "pong" }
 ```
 
 ### `error` — a request failed

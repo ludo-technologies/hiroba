@@ -168,6 +168,13 @@ export interface ByeMsg {
   t: "bye";
 }
 
+/** Liveness probe; the server answers with `pong`. Lets the client notice a
+ *  half-open socket (sleep resume, network switch) that TCP alone would only
+ *  report minutes later, if ever. */
+export interface PingMsg {
+  t: "ping";
+}
+
 /** Union of all messages the client sends to the server. */
 export type ClientMsg =
   | HelloMsg
@@ -180,7 +187,8 @@ export type ClientMsg =
   | PageMsg
   | PageAcceptMsg
   | PageEndMsg
-  | ByeMsg;
+  | ByeMsg
+  | PingMsg;
 
 // ---------------------------------------------------------------------------
 // Server → Client messages
@@ -310,6 +318,13 @@ export interface ServerSignalMsg {
   data: SignalData;
 }
 
+/** Answer to a client `ping`. Servers that predate this message ignore the
+ *  ping (unknown types are dropped), so its absence alone proves nothing —
+ *  the client only arms its dead-connection check after the first pong. */
+export interface PongMsg {
+  t: "pong";
+}
+
 /** A request failed. */
 export interface ErrorMsg {
   t: "error";
@@ -341,6 +356,7 @@ export type ServerMsg =
   | PageRejectedMsg
   | PageEndedMsg
   | ServerSignalMsg
+  | PongMsg
   | ErrorMsg;
 
 // ---------------------------------------------------------------------------

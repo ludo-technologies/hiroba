@@ -134,9 +134,15 @@ const MAX_RECONNECT = 6;
  *  see {@link scheduleReconnect}). The "online" event is the fast path; this is
  *  the floor under it. */
 const OFFLINE_RETRY_MS = 5000;
+/** Free (offline) attempts still get a ceiling: Windows can report `onLine`
+ *  false with the network up (VPNs, virtual adapters), and without a cap that
+ *  misreport turns an unreachable server into reconnecting forever. ~3 minutes
+ *  at {@link OFFLINE_RETRY_MS} cadence — enough for any sleep resume or roam. */
+const MAX_OFFLINE_RECONNECT = 36;
 let lastJoin: JoinFormValues | null = null;
 let userLeaving = false; // suppresses reconnect when the user left on purpose
 let reconnectAttempts = 0;
+let offlineReconnectAttempts = 0;
 let reconnectTimer = 0;
 /** Where auto-reconnect stands. `waiting` means a retry is on the clock and a
  *  returning network should cut that wait short; `connecting` means an attempt
@@ -146,6 +152,19 @@ let reconnectState: "idle" | "waiting" | "connecting" = "idle";
  *  (the peer is told no differently than a hang-up), so the least we can do is
  *  say so on the way back in. */
 let droppedInCall = false;
+
+// Heartbeat: the client pings, the server echoes `pong`. A half-open socket
+// (sleep resume, network switch — routine on Windows) fires no close event
+// until TCP gives up, minutes later or never; missed pongs turn that into a
+// prompt drop + reconnect. The dead check only arms after the first pong, so
+// servers that predate `pong` (they ignore unknown messages) never get a
+// healthy connection killed.
+const HEARTBEAT_MS = 15_000;
+/** Unanswered pings tolerated before the connection is declared dead. */
+const HEARTBEAT_MISSED_LIMIT = 2;
+let heartbeatTimer = 0;
+let heartbeatMissed = 0;
+let pongSeen = false;
 
 // Loop bookkeeping.
 let rafId = 0;
@@ -882,9 +901,11 @@ function openConnection(values: JoinFormValues, signal: AbortSignal): Promise<{ 
   return new Promise((resolve, reject) => {
     const net = new HirobaNet();
     let settled = false;
+    let welcomeTimer = 0;
     const finish = (fn: () => void, close = false) => {
       if (settled) return;
       settled = true;
+      window.clearTimeout(welcomeTimer);
       signal.removeEventListener("abort", abort);
       if (close) net.close();
       fn();
@@ -912,6 +933,14 @@ function openConnection(values: JoinFormValues, signal: AbortSignal): Promise<{ 
       .connect(values.serverUrl, signal)
       .then(() => {
         if (signal.aborted) return abort();
+        // The socket can open and then blackhole before `welcome` arrives (a
+        // Wi-Fi roam or sleep right after the handshake). TCP won't surface
+        // that for minutes, so the hello→welcome span needs its own clock —
+        // net.connect's timeout only covers the open.
+        welcomeTimer = window.setTimeout(
+          () => finish(() => reject(new Error("connection_timeout")), true),
+          12_000,
+        );
         net.on(
           "welcome",
           (e) => finish(() => resolve({ net, msg: e.detail })),
@@ -947,6 +976,7 @@ async function handleJoin(values: JoinFormValues): Promise<void> {
   lastJoin = values;
   userLeaving = false;
   reconnectAttempts = 0;
+  offlineReconnectAttempts = 0;
   reconnectState = "idle";
   droppedInCall = false;
   const controller = new AbortController();
@@ -1013,7 +1043,9 @@ function startSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[
 
   initSession(net, msg, iceServers);
   bindServerMessages(net);
+  startHeartbeat();
   reconnectAttempts = 0;
+  offlineReconnectAttempts = 0;
   reconnectState = "idle";
   canvas.classList.add("walkable"); // pointer cursor: the floor is clickable
   ui.showSpace();
@@ -1033,17 +1065,43 @@ function onSessionDropped(): void {
   scheduleReconnect();
 }
 
+/** Ping the server on a fixed cadence and treat sustained pong silence as a
+ *  dropped connection (rationale at {@link HEARTBEAT_MS}). Cleared by
+ *  {@link teardownSession}; safe across sleep — timers don't run while
+ *  suspended, so a resume gets the full missed-pong allowance (~30–45s)
+ *  before the connection is written off. */
+function startHeartbeat(): void {
+  heartbeatMissed = 0;
+  pongSeen = false;
+  heartbeatTimer = window.setInterval(() => {
+    if (!session) return;
+    if (pongSeen && heartbeatMissed >= HEARTBEAT_MISSED_LIMIT) {
+      onSessionDropped();
+      return;
+    }
+    heartbeatMissed++;
+    session.net.send({ t: "ping" });
+  }, HEARTBEAT_MS);
+}
+
 function scheduleReconnect(): void {
   if (!lastJoin) return giveUpReconnect();
   // A failure logged while the OS reports no network says nothing about the
-  // server, so it doesn't cost an attempt — spending the budget on connects
-  // that can't succeed is what turns a sleep resume or a Wi-Fi roam into a trip
-  // back to the join screen. We keep trying anyway, slowly: `onLine` only
-  // decides whether the failure counts, never whether we bother (it can be
-  // wrong about a LAN self-host, and it must not be able to strand us).
+  // server, so it doesn't cost a normal attempt — spending the budget on
+  // connects that can't succeed is what turns a sleep resume or a Wi-Fi roam
+  // into a trip back to the join screen. We keep trying anyway, slowly:
+  // `onLine` only decides which budget the failure comes out of, never whether
+  // we bother (it can be wrong about a LAN self-host). Offline attempts have
+  // their own, much larger ceiling because `onLine` can also be wrong the
+  // other way (see MAX_OFFLINE_RECONNECT).
   const offline = !navigator.onLine;
-  if (offline) reconnectAttempts = 0;
-  else if (reconnectAttempts >= MAX_RECONNECT) return giveUpReconnect();
+  if (offline) {
+    reconnectAttempts = 0;
+    if (++offlineReconnectAttempts > MAX_OFFLINE_RECONNECT) return giveUpReconnect();
+  } else {
+    offlineReconnectAttempts = 0;
+    if (reconnectAttempts >= MAX_RECONNECT) return giveUpReconnect();
+  }
   const attempt = offline ? 0 : ++reconnectAttempts;
   const delay = offline ? OFFLINE_RETRY_MS : Math.min(8000, 400 * 2 ** (attempt - 1));
   reconnectState = "waiting";
@@ -1086,12 +1144,15 @@ function giveUpReconnect(message: string = t.errRejoin): void {
 // A network that just came back outranks the backoff clock: the attempt budget
 // exists to stop hammering a dead server, not to give up on a Wi-Fi roam or a
 // sleep resume (whose queued timers fire while the interface is still down).
-// An in-flight attempt is left alone — it carries its own 12s timeout, and
-// cutting it short could kill a connect that was about to land.
+// An in-flight attempt is left alone — every phase of it (ICE, open, welcome)
+// carries its own 12s timeout, and cutting it short could kill a connect that
+// was about to land.
 window.addEventListener("online", () => {
   if (reconnectState !== "waiting" || session || userLeaving || !lastJoin) return;
   window.clearTimeout(reconnectTimer);
-  reconnectAttempts = 0; // a fresh budget: the earlier failures weren't the server's
+  // A fresh budget: the earlier failures weren't the server's.
+  reconnectAttempts = 0;
+  offlineReconnectAttempts = 0;
   scheduleReconnect();
 });
 
@@ -1100,6 +1161,7 @@ function handleCancelReconnect(): void {
   connectAbort?.abort();
   connectAbort = null;
   reconnectAttempts = 0;
+  offlineReconnectAttempts = 0;
   reconnectState = "idle";
   droppedInCall = false;
   userLeaving = true;
@@ -1459,6 +1521,11 @@ function bindServerMessages(net: HirobaNet): void {
   net.on("signal", (e) => {
     if (!session) return;
     void session.audio.handleSignal(e.detail.from, e.detail.data);
+  });
+
+  net.on("pong", () => {
+    pongSeen = true;
+    heartbeatMissed = 0;
   });
 
   // --- Space switch ---
@@ -2145,6 +2212,7 @@ function teardownSession(): void {
   session = null;
 
   window.clearTimeout(idleTimer);
+  window.clearInterval(heartbeatTimer);
   if (rafId) cancelAnimationFrame(rafId);
   rafId = 0;
   rafScheduled = false;

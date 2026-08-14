@@ -215,6 +215,10 @@ pub enum ClientMsg {
 
     /// Explicit leave (optional — closing the socket is equivalent).
     Bye,
+
+    /// Liveness probe; answered immediately with `pong`. Lets clients detect
+    /// half-open sockets that TCP alone reports minutes late, if ever.
+    Ping,
 }
 
 // ---------------------------------------------------------------------------
@@ -306,6 +310,9 @@ pub enum ServerMsg {
 
     /// Relayed WebRTC signaling from another peer.
     Signal { from: String, data: Value },
+
+    /// Echo of a client `ping`.
+    Pong,
 
     /// A request failed. Codes: auth_failed, org_suspended, space_full,
     /// space_limit, unknown_space, forbidden. On auth_failed or org_suspended
