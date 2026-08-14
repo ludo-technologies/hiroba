@@ -136,13 +136,20 @@ const MAX_RECONNECT = 6;
 const OFFLINE_RETRY_MS = 5000;
 /** Free (offline) attempts still get a ceiling: Windows can report `onLine`
  *  false with the network up (VPNs, virtual adapters), and without a cap that
- *  misreport turns an unreachable server into reconnecting forever. ~3 minutes
- *  at {@link OFFLINE_RETRY_MS} cadence — enough for any sleep resume or roam. */
-const MAX_OFFLINE_RECONNECT = 36;
+ *  misreport turns an unreachable server into reconnecting forever. Wall-clock
+ *  from the drop (attempt counts would stretch with per-phase timeouts), long
+ *  enough for any awake network outage worth riding out. */
+const OFFLINE_WINDOW_MS = 3 * 60_000;
+/** A retry timer firing this far past its delay means the machine was
+ *  suspended, not waiting — the offline window restarts on resume. */
+const SUSPEND_GAP_MS = 30_000;
 let lastJoin: JoinFormValues | null = null;
 let userLeaving = false; // suppresses reconnect when the user left on purpose
 let reconnectAttempts = 0;
-let offlineReconnectAttempts = 0;
+/** When the current reconnect sequence stops being worth offline retries.
+ *  Anchored once per drop ({@link onSessionDropped}); deliberately NOT
+ *  extended by online/offline flapping. */
+let offlineDeadline = 0;
 let reconnectTimer = 0;
 /** Where auto-reconnect stands. `waiting` means a retry is on the clock and a
  *  returning network should cut that wait short; `connecting` means an attempt
@@ -156,15 +163,17 @@ let droppedInCall = false;
 // Heartbeat: the client pings, the server echoes `pong`. A half-open socket
 // (sleep resume, network switch — routine on Windows) fires no close event
 // until TCP gives up, minutes later or never; missed pongs turn that into a
-// prompt drop + reconnect. The dead check only arms after the first pong, so
-// servers that predate `pong` (they ignore unknown messages) never get a
-// healthy connection killed.
+// prompt drop + reconnect. The dead check is armed by the `heartbeat`
+// capability flag in `welcome` — servers that predate `pong` (they ignore
+// unknown messages) never get a healthy connection killed. A pong also arms
+// it, covering servers built in the window where `pong` existed but the
+// welcome flag didn't.
 const HEARTBEAT_MS = 15_000;
 /** Unanswered pings tolerated before the connection is declared dead. */
 const HEARTBEAT_MISSED_LIMIT = 2;
 let heartbeatTimer = 0;
 let heartbeatMissed = 0;
-let pongSeen = false;
+let heartbeatCapable = false;
 
 // Loop bookkeeping.
 let rafId = 0;
@@ -976,7 +985,6 @@ async function handleJoin(values: JoinFormValues): Promise<void> {
   lastJoin = values;
   userLeaving = false;
   reconnectAttempts = 0;
-  offlineReconnectAttempts = 0;
   reconnectState = "idle";
   droppedInCall = false;
   const controller = new AbortController();
@@ -1043,9 +1051,8 @@ function startSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[
 
   initSession(net, msg, iceServers);
   bindServerMessages(net);
-  startHeartbeat();
+  startHeartbeat(msg.heartbeat === true);
   reconnectAttempts = 0;
-  offlineReconnectAttempts = 0;
   reconnectState = "idle";
   canvas.classList.add("walkable"); // pointer cursor: the floor is clickable
   ui.showSpace();
@@ -1062,6 +1069,7 @@ function onSessionDropped(): void {
   if (userLeaving || !session) return;
   if (session.pages.size > 0) droppedInCall = true;
   teardownSession();
+  offlineDeadline = Date.now() + OFFLINE_WINDOW_MS;
   scheduleReconnect();
 }
 
@@ -1070,12 +1078,12 @@ function onSessionDropped(): void {
  *  {@link teardownSession}; safe across sleep — timers don't run while
  *  suspended, so a resume gets the full missed-pong allowance (~30–45s)
  *  before the connection is written off. */
-function startHeartbeat(): void {
+function startHeartbeat(capable: boolean): void {
   heartbeatMissed = 0;
-  pongSeen = false;
+  heartbeatCapable = capable;
   heartbeatTimer = window.setInterval(() => {
     if (!session) return;
-    if (pongSeen && heartbeatMissed >= HEARTBEAT_MISSED_LIMIT) {
+    if (heartbeatCapable && heartbeatMissed >= HEARTBEAT_MISSED_LIMIT) {
       onSessionDropped();
       return;
     }
@@ -1091,23 +1099,29 @@ function scheduleReconnect(): void {
   // connects that can't succeed is what turns a sleep resume or a Wi-Fi roam
   // into a trip back to the join screen. We keep trying anyway, slowly:
   // `onLine` only decides which budget the failure comes out of, never whether
-  // we bother (it can be wrong about a LAN self-host). Offline attempts have
-  // their own, much larger ceiling because `onLine` can also be wrong the
-  // other way (see MAX_OFFLINE_RECONNECT).
+  // we bother (it can be wrong about a LAN self-host). Offline retries run on
+  // a wall-clock window instead of a count, because `onLine` can also be
+  // wrong the other way (see OFFLINE_WINDOW_MS).
   const offline = !navigator.onLine;
   if (offline) {
     reconnectAttempts = 0;
-    if (++offlineReconnectAttempts > MAX_OFFLINE_RECONNECT) return giveUpReconnect();
-  } else {
-    offlineReconnectAttempts = 0;
-    if (reconnectAttempts >= MAX_RECONNECT) return giveUpReconnect();
+    if (Date.now() > offlineDeadline) return giveUpReconnect();
+  } else if (reconnectAttempts >= MAX_RECONNECT) {
+    return giveUpReconnect();
   }
   const attempt = offline ? 0 : ++reconnectAttempts;
   const delay = offline ? OFFLINE_RETRY_MS : Math.min(8000, 400 * 2 ** (attempt - 1));
   reconnectState = "waiting";
   ui.showReconnecting(attempt, MAX_RECONNECT, offline);
+  const scheduledAt = Date.now();
   reconnectTimer = window.setTimeout(async () => {
     if (userLeaving || !lastJoin) return;
+    // Fired far past the delay ⇒ the machine was suspended, not waiting. The
+    // clock kept running while nothing could possibly have connected, so the
+    // resume gets a full offline window rather than an already-spent one.
+    if (Date.now() - scheduledAt > delay + SUSPEND_GAP_MS) {
+      offlineDeadline = Date.now() + OFFLINE_WINDOW_MS;
+    }
     reconnectState = "connecting";
     const controller = new AbortController();
     connectAbort = controller;
@@ -1150,9 +1164,10 @@ function giveUpReconnect(message: string = t.errRejoin): void {
 window.addEventListener("online", () => {
   if (reconnectState !== "waiting" || session || userLeaving || !lastJoin) return;
   window.clearTimeout(reconnectTimer);
-  // A fresh budget: the earlier failures weren't the server's.
+  // A fresh normal budget: the earlier failures weren't the server's. The
+  // offline window is left alone — extending it here would let an interface
+  // that flaps on and off keep the reconnect alive forever.
   reconnectAttempts = 0;
-  offlineReconnectAttempts = 0;
   scheduleReconnect();
 });
 
@@ -1161,7 +1176,6 @@ function handleCancelReconnect(): void {
   connectAbort?.abort();
   connectAbort = null;
   reconnectAttempts = 0;
-  offlineReconnectAttempts = 0;
   reconnectState = "idle";
   droppedInCall = false;
   userLeaving = true;
@@ -1524,7 +1538,7 @@ function bindServerMessages(net: HirobaNet): void {
   });
 
   net.on("pong", () => {
-    pongSeen = true;
+    heartbeatCapable = true;
     heartbeatMissed = 0;
   });
 

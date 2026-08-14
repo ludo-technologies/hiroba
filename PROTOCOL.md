@@ -243,7 +243,8 @@ The server answers immediately with `pong`. Lets a client detect a half-open
 socket (sleep resume, network switch) that TCP alone would only surface
 minutes later, if ever. Servers that predate this message ignore it (unknown
 types are dropped), so clients must not treat a missing `pong` as a dead
-connection until at least one `pong` has been received on that socket.
+connection unless the server declared the capability (`heartbeat: true` in
+`welcome`) or has already answered a `ping` on that socket.
 
 ---
 
@@ -268,7 +269,8 @@ connection until at least one `pong` has been received on that socket.
   "roster": [
     { "id": "3", "name": "Ren", "color": "#e0708a", "spaceId": "lobby", "status": "active", "muted": false },
     { "id": "9", "name": "Sora", "color": "#7ac77a", "spaceId": "dev", "status": "in_call", "muted": false }
-  ]
+  ],
+  "heartbeat": true
 }
 ```
 - `you` is the joiner's own descriptor (with server-chosen spawn coords in the
@@ -277,6 +279,9 @@ connection until at least one `pong` has been received on that socket.
 - `peers` is the roster of the **current space only** (excludes self), with
   positions.
 - `roster` is the **org-wide** member list (excludes self), with status.
+- `heartbeat` is a capability flag: this server answers `ping` with `pong`,
+  so the client may treat sustained pong silence as a dead connection. Absent
+  on servers that predate the heartbeat.
 
 ### `space_snapshot` — fresh space view after `enter_space`
 ```json

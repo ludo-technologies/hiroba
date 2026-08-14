@@ -210,6 +210,10 @@ export interface WelcomeMsg {
   peers: Peer[];
   /** Org-wide member list (excludes self), with status. */
   roster: RosterMember[];
+  /** Capability flag: this server answers `ping` with `pong`, so sustained
+   *  pong silence may be treated as a dead connection. Absent on servers
+   *  that predate the heartbeat. */
+  heartbeat?: boolean;
 }
 
 /** Fresh space view sent to the switching client after `enter_space`. */

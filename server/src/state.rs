@@ -587,6 +587,7 @@ impl Org {
             spaces,
             peers,
             roster,
+            heartbeat: true,
         }
     }
 

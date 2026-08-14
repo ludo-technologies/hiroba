@@ -246,6 +246,9 @@ pub enum ServerMsg {
         peers: Vec<PeerInfo>,
         /// The *org-wide* member list (excludes self), with status.
         roster: Vec<RosterMember>,
+        /// Capability flag: this server answers `ping` with `pong`, so the
+        /// client may treat sustained pong silence as a dead connection.
+        heartbeat: bool,
     },
 
     /// Fresh space view sent to the switching client after `enter_space`.
