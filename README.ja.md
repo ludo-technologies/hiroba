@@ -65,8 +65,12 @@
 macOS（Apple Silicon／Intel）：
 
 ```bash
-brew install --cask ludo-technologies/hiroba/hiroba
+brew tap ludo-technologies/hiroba
+brew trust ludo-technologies/hiroba
+brew install --cask hiroba
 ```
+
+Homebrew 6以降は、公式以外のtapのcaskを信頼するまで読み込みません。それ以前のバージョンでは`brew trust`の行は不要です。
 
 Windows：
 

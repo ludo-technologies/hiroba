@@ -31,7 +31,9 @@ matching the `prerelease` flag on the release itself).
 Verify with:
 
 ```bash
-brew install --cask ludo-technologies/hiroba/hiroba
+brew tap ludo-technologies/hiroba
+brew trust ludo-technologies/hiroba   # Homebrew 6 blocks untrusted third-party taps
+brew install --cask hiroba
 ```
 
 `Casks/hiroba.rb` is machine-edited by the release job, which rewrites the
