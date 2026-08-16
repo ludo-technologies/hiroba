@@ -60,6 +60,22 @@
 - **サーバー**（`server/`）— Rust、axum、tokio。単一の静的バイナリです。メディアを扱わないため、小さく低負荷に動作します。
 - **クライアント**（`client/`）— RustシェルとOS WebViewからなるTauri、Vanilla TypeScript、Canvas 2Dで構成されています。OS WebView内蔵のWebRTCを使うため、Electronアプリよりもバイナリを小さく軽量にできます。
 
+## インストール
+
+macOS（Apple Silicon／Intel）：
+
+```bash
+brew install --cask ludo-technologies/hiroba/hiroba
+```
+
+Windows：
+
+```powershell
+winget install LudoTechnologies.Hiroba
+```
+
+[最新リリース](https://github.com/ludo-technologies/hiroba/releases/latest)からインストーラーを直接ダウンロードすることもできます。Hirobaはアプリ自身が更新されるため、これらのコマンドが必要なのは最初の1回だけです。詳しくは[アップデート確認](#アップデート確認)をご覧ください。
+
 ## クイックスタート（開発）
 
 必要なもの：**Rust**（stable）、**Node.js 18以降**、利用するOS向けの[Tauri v2システム依存パッケージ](https://tauri.app/start/prerequisites/)。
@@ -95,6 +111,8 @@ VITE_HIROBA_SERVER="wss://hiroba.example/ws" \
 VITE_HIROBA_AUTH_SERVER="https://auth.hiroba.example" \
 npm run tauri build
 ```
+
+タグを打つとCIがこれらをビルドし、GitHub Releases、Homebrew tap、wingetへ公開します。詳しくは**[docs/PACKAGING.md](docs/PACKAGING.md)**をご覧ください。
 
 ## セルフホスト
 

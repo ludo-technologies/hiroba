@@ -76,6 +76,25 @@ in that space. The wire format is specified in [`PROTOCOL.md`](PROTOCOL.md).
   TypeScript + Canvas 2D frontend. Uses the OS WebView's built-in WebRTC, so the
   binary is far smaller and lighter than an Electron app.
 
+## Install
+
+macOS (Apple Silicon or Intel):
+
+```bash
+brew install --cask ludo-technologies/hiroba/hiroba
+```
+
+Windows:
+
+```powershell
+winget install LudoTechnologies.Hiroba
+```
+
+Or download the installer directly from the
+[latest release](https://github.com/ludo-technologies/hiroba/releases/latest).
+Hiroba updates itself in place, so either command is only needed once — see
+[Update Checks](#update-checks).
+
 ## Quick Start (Development)
 
 Prerequisites: **Rust** (stable), **Node** 18+, and the
@@ -116,6 +135,9 @@ VITE_HIROBA_SERVER="wss://hiroba.example/ws" \
 VITE_HIROBA_AUTH_SERVER="https://auth.hiroba.example" \
 npm run tauri build
 ```
+
+Tagged releases build these on CI and publish them to GitHub Releases, the
+Homebrew tap, and winget — see **[docs/PACKAGING.md](docs/PACKAGING.md)**.
 
 ## Self-Hosting
 

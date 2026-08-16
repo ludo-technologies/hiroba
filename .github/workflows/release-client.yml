@@ -157,3 +157,87 @@ jobs:
             echo "Unexpected signing Team ID: $ACTUAL_TEAM_ID" >&2
             exit 1
           fi
+
+  # Point the Homebrew cask at the release that publish-tauri just uploaded.
+  # Requires HOMEBREW_TAP_TOKEN: a token with contents:write on
+  # ludo-technologies/homebrew-hiroba (GITHUB_TOKEN cannot push to another repo).
+  update-homebrew-tap:
+    needs: publish-tauri
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tap
+        uses: actions/checkout@v4
+        with:
+          repository: ludo-technologies/homebrew-hiroba
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Download release DMGs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          gh release download "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir dmg \
+            --pattern "Hiroba_${VERSION}_aarch64.dmg" \
+            --pattern "Hiroba_${VERSION}_x64.dmg"
+
+      - name: Rewrite cask version and checksums
+        run: |
+          ARM_SHA="$(sha256sum "dmg/Hiroba_${VERSION}_aarch64.dmg" | cut -d' ' -f1)"
+          INTEL_SHA="$(sha256sum "dmg/Hiroba_${VERSION}_x64.dmg" | cut -d' ' -f1)"
+          ARM_SHA="$ARM_SHA" INTEL_SHA="$INTEL_SHA" python3 <<'PY'
+          import os, pathlib, re
+
+          version, arm, intel = os.environ["VERSION"], os.environ["ARM_SHA"], os.environ["INTEL_SHA"]
+          path = pathlib.Path("tap/Casks/hiroba.rb")
+          src = path.read_text()
+
+          src, hits = re.subn(r'^  version "[^"]+"$', f'  version "{version}"', src, flags=re.M)
+          assert hits == 1, f"expected 1 version stanza, found {hits}"
+
+          src, hits = re.subn(
+              r'^  sha256 arm:   "[^"]+",\n         intel: "[^"]+"$',
+              f'  sha256 arm:   "{arm}",\n         intel: "{intel}"',
+              src,
+              flags=re.M,
+          )
+          assert hits == 1, f"expected 1 sha256 stanza, found {hits}"
+
+          path.write_text(src)
+          PY
+
+      - name: Commit and push
+        working-directory: tap
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Casks/hiroba.rb
+          if git diff --cached --quiet; then
+            echo "Cask already at $VERSION; nothing to push."
+            exit 0
+          fi
+          git commit -m "hiroba $VERSION"
+          git push
+
+  # Open the winget-pkgs PR for this version. The package must already exist in
+  # microsoft/winget-pkgs (see docs/PACKAGING.md for the one-time submission);
+  # this action only adds versions. WINGET_TOKEN must be a *classic* PAT with
+  # the public_repo scope, owned by the account holding the winget-pkgs fork.
+  publish-winget:
+    needs: publish-tauri
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: vedantmgoyal9/winget-releaser@v2
+        with:
+          identifier: LudoTechnologies.Hiroba
+          # The MSI is what the Tauri updater installs on Windows, so winget and
+          # the in-app updater stay on the same installer and install scope.
+          installers-regex: '_x64_en-US\.msi$'
+          release-tag: ${{ github.ref_name }}
+          max-versions-to-keep: 5
+          token: ${{ secrets.WINGET_TOKEN }}
