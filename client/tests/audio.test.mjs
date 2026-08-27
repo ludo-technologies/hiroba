@@ -136,6 +136,21 @@ function deferredCapture() {
   });
   return { track, stream, request: () => pending, release };
 }
+
+function deferredMicCapture() {
+  const track = {
+    kind: "audio",
+    enabled: false,
+    stopped: false,
+    stop() { this.stopped = true; },
+  };
+  const stream = new FakeMediaStream([track]);
+  let release;
+  const pending = new Promise((resolve) => {
+    release = () => resolve(stream);
+  });
+  return { track, request: () => pending, release };
+}
 class FakePC {
   constructor() {
     FakePC.instances.push(this);
@@ -547,4 +562,38 @@ test("toggleMute acquires the mic and enables the track (the barge-in path)", as
   const muted = await eng.toggleMute();
   assert.equal(muted, false, "first toggle goes live");
   assert.equal(FakeMic.lastTrack?.enabled, true, "the acquired mic track is enabled (voice is live)");
+});
+
+test("destroy stops a microphone capture that resolves after teardown", async () => {
+  installMocks();
+  const capture = deferredMicCapture();
+  navigator.mediaDevices.getUserMedia = capture.request;
+  const eng = new AudioEngine();
+  eng.init(SPACE, () => {}, () => {});
+
+  const toggle = eng.toggleMute();
+  eng.destroy();
+  capture.release();
+
+  assert.equal(await toggle, true, "the destroyed engine remains muted");
+  assert.equal(capture.track.stopped, true, "the stale microphone track was stopped");
+});
+
+test("superseding microphone acquisition leaves the engine able to retry", async () => {
+  installMocks();
+  const capture = deferredMicCapture();
+  navigator.mediaDevices.getUserMedia = capture.request;
+  const eng = new AudioEngine();
+  eng.init(SPACE, () => {}, () => {});
+
+  const firstToggle = eng.toggleMute();
+  eng.stopMicPreview();
+  capture.release();
+
+  assert.equal(await firstToggle, true, "a superseded acquisition returns to muted");
+  assert.equal(capture.track.stopped, true, "the superseded track was stopped");
+
+  navigator.mediaDevices.getUserMedia = FakeMic.getUserMedia;
+  assert.equal(await eng.toggleMute(), false, "the next unmute retries acquisition");
+  assert.equal(FakeMic.lastTrack?.enabled, true, "the retry acquires a live track");
 });

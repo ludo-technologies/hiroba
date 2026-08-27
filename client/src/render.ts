@@ -39,6 +39,11 @@ export interface FrameLevels {
   levelOf(id: string): number;
 }
 
+export interface RenderActivity {
+  highRate: boolean;
+  lowRate: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Internal render state
 // ---------------------------------------------------------------------------
@@ -414,14 +419,18 @@ export class Renderer {
   }
 
   /** Update org-wide status for self (away / dnd / in_call). */
-  setSelfStatus(status: Status): void {
-    if (this.self) this.self.status = status;
+  setSelfStatus(status: Status): boolean {
+    if (!this.self || this.self.status === status) return false;
+    this.self.status = status;
+    return true;
   }
 
   /** Update org-wide status for a remote peer in the current space. */
-  updatePeerStatus(id: string, status: Status): void {
+  updatePeerStatus(id: string, status: Status): boolean {
     const p = this.peers.get(id);
-    if (p) p.status = status;
+    if (!p || p.status === status) return false;
+    p.status = status;
+    return true;
   }
 
   /** Begin the leave animation for a peer (from `peer_left`). */
@@ -452,23 +461,23 @@ export class Renderer {
   // -------------------------------------------------------------------------
 
   /**
-   * Render one frame. Returns `true` if anything is still animating (peers
-   * interpolating, camera easing, spawn/leave fades, or live speech), telling
-   * the loop it must keep going. Returns `false` once the scene is fully at
-   * rest so the loop may sleep.
+   * Render one frame and report whether high-refresh motion or 30fps effects
+   * remain. Keeping those classes separate lets call and speech pulses stay
+   * smooth without repainting at a 120Hz display's full refresh rate.
    */
-  draw(now: number, levels: FrameLevels): boolean {
+  draw(now: number, effectsNow: number, levels: FrameLevels): RenderActivity {
     const { ctx, canvas, space, self } = this;
     if (!space || !self) {
       this.paintIdle();
-      return false;
+      return { highRate: false, lowRate: false };
     }
 
     // Frame-rate-independent dt. Clamp so a wake from sleep doesn't teleport.
     const dt = this.lastDraw === 0 ? 0 : Math.min(0.1, (now - this.lastDraw) / 1000);
     this.lastDraw = now;
 
-    let animating = false;
+    let highRate = false;
+    let lowRate = false;
 
     const vw = canvas.width;
     const vh = canvas.height;
@@ -493,7 +502,7 @@ export class Renderer {
     // Click-to-walk destination: a calm pulsing ring until we arrive.
     if (this.walkTarget) {
       this._drawWalkMarker(now, ox + this.walkTarget.x * scale, oy + this.walkTarget.y * scale);
-      animating = true;
+      highRate = true;
     }
 
     // --- Peers: advance animations, interpolate, draw (and reap leavers) ---
@@ -506,30 +515,30 @@ export class Renderer {
       // Interpolate toward the latest server position.
       p.x += (p.targetX - p.x) * lerpK;
       p.y += (p.targetY - p.y) * lerpK;
-      if (Math.hypot(p.targetX - p.x, p.targetY - p.y) > SETTLE_EPS) animating = true;
+      if (Math.hypot(p.targetX - p.x, p.targetY - p.y) > SETTLE_EPS) highRate = true;
 
       // Spawn / leave fades.
       if (p.leaving) {
         p.leave += (0 - p.leave) * animK;
         if (p.leave < 0.02) { reap.push(p.id); continue; }
-        animating = true;
+        highRate = true;
       } else if (p.spawn < 0.999) {
         p.spawn += (1 - p.spawn) * animK;
-        animating = true;
+        highRate = true;
       }
 
       const level = levels.levelOf(p.id);
-      if (level > 0) animating = true;
-      if (p.status === "in_call") animating = true;
-      this._drawPeer(now, ox, oy, scale, p, false, level, this._isSeated(p.x, p.y));
+      if (level > 0) lowRate = true;
+      if (p.status === "in_call") lowRate = true;
+      this._drawPeer(effectsNow, ox, oy, scale, p, false, level, this._isSeated(p.x, p.y));
     }
     for (const id of reap) this.peers.delete(id);
 
     // Self on top so it's never occluded.
-    if (levels.selfLevel > 0) animating = true;
-    if (self.status === "in_call") animating = true;
+    if (levels.selfLevel > 0) lowRate = true;
+    if (self.status === "in_call") lowRate = true;
     this._drawPeer(
-      now,
+      effectsNow,
       ox,
       oy,
       scale,
@@ -556,7 +565,7 @@ export class Renderer {
 
     ctx.restore();
 
-    return animating;
+    return { highRate, lowRate };
   }
 
   /** Paint the "not in a space" screen. Cheap; called when idle. */

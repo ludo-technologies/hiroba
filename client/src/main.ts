@@ -21,7 +21,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, UserAttentionType } from "@tauri-apps/api/window";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { HirobaNet } from "./net.js";
-import { Renderer, type FrameLevels } from "./render.js";
+import { Renderer, type FrameLevels, type RenderActivity } from "./render.js";
 import { InputHandler, isTypingTarget } from "./input.js";
 import { AudioEngine } from "./audio.js";
 import {
@@ -31,7 +31,12 @@ import {
   type MemberEntry,
   type RosterEntry,
 } from "./ui.js";
-import { shouldDraw, shouldKeepAwake } from "./loop.js";
+import {
+  isLowRateFrameDue,
+  LOW_RATE_FRAME_MS,
+  shouldDraw,
+  shouldKeepAwake,
+} from "./loop.js";
 import { startUpdateChecks } from "./updater.js";
 import { startDeepLinkListener } from "./deeplink.js";
 import { resolveIceServers } from "./config.js";
@@ -178,13 +183,16 @@ let heartbeatCapable = false;
 // Loop bookkeeping.
 let rafId = 0;
 let rafScheduled = false;
+let frameRunning = false;
 let dirty = false;
-let wasAnimating = false;
+let renderActivity: RenderActivity = { highRate: false, lowRate: false };
+let audioActive = false;
+let lastLowRateFrame = Number.NEGATIVE_INFINITY;
+let effectsNow = 0;
 
-// Audio-settings panel: a small dedicated rAF loop drives the level meter
-// while it's open, independent of the main demand-driven loop above (which
-// may be asleep — e.g. testing the mic alone in an empty space).
-let audioSettingsRaf = 0;
+// Audio-settings panel: a small dedicated timer drives the level meter while
+// the main demand-driven loop may be asleep (e.g. testing the mic alone).
+let audioSettingsTimer = 0;
 
 // Ambient-prompt state.
 let moveHintActive = false;
@@ -261,6 +269,22 @@ startUpdateChecks(ui);
 // Invite deep links (hiroba://invite/<token>): prefill the join form so the
 // invited user only has to pick a sign-in provider. No-op outside Tauri.
 startDeepLinkListener((code) => ui.applyInvite(code));
+
+if (isTauri()) {
+  const appWindow = getCurrentWindow();
+  void appWindow
+    .onCloseRequested(async (event) => {
+      try {
+        leaveSession();
+        await appWindow.hide();
+        event.preventDefault();
+      } catch (error) {
+        console.error("[window] close cleanup failed:", error);
+      }
+    })
+    .then(() => invoke("mark_close_handler_ready"))
+    .catch((error) => { throw error; });
+}
 
 // Push-to-toggle mute shortcut (M) — standard in voice tools. Ignores typing
 // contexts and modifier chords so it never hijacks text input or app shortcuts.
@@ -367,10 +391,7 @@ canvas.addEventListener("pointerleave", () => {
 // Closing the window is an intentional leave: tell the server so peers see us
 // go immediately instead of waiting out the server's disconnect timeout.
 window.addEventListener("pagehide", () => {
-  if (!session) return;
-  userLeaving = true;
-  session.net.send({ t: "bye" });
-  teardownSession();
+  leaveSession();
 });
 
 // ---------------------------------------------------------------------------
@@ -1343,17 +1364,18 @@ function rebuildRoster(): void {
   }
 
   ui.renderRoster(entries);
-  syncAvatarStatuses();
+  if (syncAvatarStatuses()) wake();
 }
 
 /** Push org-wide status onto canvas avatars for self + peers in this space. */
-function syncAvatarStatuses(): void {
-  if (!session) return;
-  renderer.setSelfStatus(selfStatus());
+function syncAvatarStatuses(): boolean {
+  if (!session) return false;
+  let changed = renderer.setSelfStatus(selfStatus());
   for (const id of session.peerPositions.keys()) {
     const member = session.roster.get(id);
-    renderer.updatePeerStatus(id, member?.status ?? "active");
+    changed = renderer.updatePeerStatus(id, member?.status ?? "active") || changed;
   }
+  return changed;
 }
 
 /** "Just you" / "N here" for the current space. */
@@ -1368,7 +1390,7 @@ function setPeerCount(): void {
 
 function wake(): void {
   dirty = true;
-  if (!session || rafScheduled) return;
+  if (!session || rafScheduled || frameRunning) return;
   rafScheduled = true;
   rafId = requestAnimationFrame(frame);
 }
@@ -1376,19 +1398,44 @@ function wake(): void {
 function frame(now: number): void {
   rafScheduled = false;
   if (!session) return;
+  frameRunning = true;
+  try {
+    runFrame(now);
+  } finally {
+    frameRunning = false;
+  }
+}
 
+function runFrame(now: number): void {
+  if (!session) return;
   const moving = session.input.tick(now);
   renderer.setWalkTarget(session.input.moveTarget); // floor marker while walking
   session.audio.updateGains(session.input.position, session.peerPositions);
-  const audioActive = session.audio.pollLevels();
+  const lowRateDue = isLowRateFrameDue(now, lastLowRateFrame);
+  let audioFrame = false;
+  if (lowRateDue) {
+    lastLowRateFrame = now;
+    effectsNow = now;
+    const wasAudioActive = audioActive;
+    audioActive = session.audio.pollLevels();
+    audioFrame = audioActive || wasAudioActive !== audioActive;
+  }
 
   // Speaking counts as presence: without this, a long proximity chat with no
   // keyboard/mouse activity flips the user to Away mid-conversation.
   if (session.audio.selfLevel > 0) markActive();
 
-  if (shouldDraw(moving, audioActive, wasAnimating, dirty)) {
+  if (
+    shouldDraw(
+      moving,
+      audioFrame,
+      renderActivity.highRate,
+      renderActivity.lowRate && lowRateDue,
+      dirty,
+    )
+  ) {
     frameLevels.selfLevel = session.audio.selfLevel;
-    wasAnimating = renderer.draw(now, frameLevels);
+    renderActivity = renderer.draw(now, effectsNow, frameLevels);
     dirty = false;
   }
 
@@ -1398,7 +1445,7 @@ function frame(now: number): void {
     shouldKeepAwake(
       moving,
       audioActive,
-      wasAnimating,
+      renderActivity.highRate || renderActivity.lowRate,
       session.audio.hasConnections(),
       session.audio.isMuted,
     )
@@ -1506,11 +1553,15 @@ function bindServerMessages(net: HirobaNet): void {
 
   net.on("state", (e) => {
     if (!session) return;
+    let changed = false;
     for (const p of e.detail.peers) {
+      const previous = session.peerPositions.get(p.id);
+      if (previous?.x === p.x && previous.y === p.y) continue;
       renderer.updatePeerPosition(p.id, p.x, p.y);
       session.peerPositions.set(p.id, { x: p.x, y: p.y });
+      changed = true;
     }
-    wake();
+    if (changed) wake();
   });
 
   net.on("mute", (e) => {
@@ -1898,8 +1949,10 @@ function stopCamera(): void {
  */
 async function goLiveForPage(): Promise<void> {
   if (!session || !session.audio.isMuted) return;
+  const activeSession = session;
   try {
-    const muted = await session.audio.toggleMute();
+    const muted = await activeSession.audio.toggleMute();
+    if (session !== activeSession) return;
     ui.setMuted(muted);
     renderer.setSelfMuted(muted);
     if (!muted) {
@@ -1918,8 +1971,10 @@ async function restoreMuteAfterPage(): Promise<void> {
   if (!session.pageAutoUnmuted) return;
   session.pageAutoUnmuted = false;
   if (session.audio.isMuted) return;
+  const activeSession = session;
   try {
-    const muted = await session.audio.toggleMute();
+    const muted = await activeSession.audio.toggleMute();
+    if (session !== activeSession) return;
     ui.setMuted(muted);
     renderer.setSelfMuted(muted);
     session.net.send({ t: "mute", muted });
@@ -1934,16 +1989,19 @@ async function restoreMuteAfterPage(): Promise<void> {
 
 async function handleMicToggle(): Promise<void> {
   if (!session) return;
+  const activeSession = session;
   markActive();
   // Manual mic control takes ownership: don't auto-restore mute after a page.
   session.pageAutoUnmuted = false;
   try {
-    const muted = await session.audio.toggleMute();
+    const muted = await activeSession.audio.toggleMute();
+    if (session !== activeSession) return;
     ui.setMuted(muted);
     renderer.setSelfMuted(muted);
     session.net.send({ t: "mute", muted });
     wake();
   } catch {
+    if (session !== activeSession) return;
     ui.setMuted(true);
     // We're inside a session, so the join-card error area is hidden — surface
     // the failure where the user actually is.
@@ -1960,18 +2018,19 @@ function handleOpenAudioSettings(): void {
     // regardless of whether the preview below succeeds, so a denied/missing
     // mic doesn't also lock the user out of picking a speaker.
     const { inputs, outputs } = await audio.listDevices();
+    if (!session || session.audio !== audio) return;
     ui.openAudioSettings(
       inputs.map((d) => ({ id: d.deviceId, label: d.label })),
       outputs.map((d) => ({ id: d.deviceId, label: d.label })),
       audio.micDevice ?? "",
       audio.speakerDevice ?? "",
     );
-    cancelAnimationFrame(audioSettingsRaf);
-    const meterLoop = () => {
-      ui.setMicLevel(audio.getMicLevel());
-      audioSettingsRaf = requestAnimationFrame(meterLoop);
-    };
-    meterLoop();
+    window.clearInterval(audioSettingsTimer);
+    ui.setMicLevel(audio.getMicLevel());
+    audioSettingsTimer = window.setInterval(
+      () => ui.setMicLevel(audio.getMicLevel()),
+      Math.ceil(LOW_RATE_FRAME_MS),
+    );
     try {
       await audio.startMicPreview(audio.micDevice);
     } catch {
@@ -1982,7 +2041,7 @@ function handleOpenAudioSettings(): void {
 }
 
 function handleCloseAudioSettings(): void {
-  cancelAnimationFrame(audioSettingsRaf);
+  window.clearInterval(audioSettingsTimer);
   session?.audio.stopMicPreview();
 }
 
@@ -2113,10 +2172,12 @@ function handleHangUp(): void {
 
 async function handleScreenShareToggle(): Promise<void> {
   if (!session) return;
+  const activeSession = session;
   markActive();
-  if (session.pages.size === 0) return;
+  if (activeSession.pages.size === 0) return;
+  const pagePeers = new Set(activeSession.pages.keys());
 
-  if (session.audio.isScreenSharing) {
+  if (activeSession.audio.isScreenSharing) {
     stopScreenShare();
     return;
   }
@@ -2127,7 +2188,9 @@ async function handleScreenShareToggle(): Promise<void> {
   // shipping a black rectangle. Non-macOS builds report granted.
   if (isTauri()) {
     try {
-      if (!(await invoke<boolean>("screen_capture_permission"))) {
+      const granted = await invoke<boolean>("screen_capture_permission");
+      if (session !== activeSession) return;
+      if (!granted) {
         ui.setScreenSharing(false);
         ui.showScreenPermissionHelp(
           () => void invoke("open_screen_recording_settings").catch(() => {}),
@@ -2136,13 +2199,19 @@ async function handleScreenShareToggle(): Promise<void> {
         return;
       }
     } catch {
+      if (session !== activeSession) return;
       // Older shell without the command — fall through and try the capture.
     }
   }
 
+  if (
+    session !== activeSession ||
+    ![...pagePeers].some((peerId) => activeSession.pages.has(peerId))
+  ) return;
   try {
-    await session.audio.startScreenShare();
+    await activeSession.audio.startScreenShare();
   } catch {
+    if (session !== activeSession) return;
     ui.setScreenSharing(false);
     ui.showToast(t.errScreenShare, "error");
   }
@@ -2150,17 +2219,24 @@ async function handleScreenShareToggle(): Promise<void> {
 
 async function handleCameraToggle(): Promise<void> {
   if (!session) return;
+  const activeSession = session;
   markActive();
-  if (session.pages.size === 0) return;
+  if (activeSession.pages.size === 0) return;
 
-  if (session.audio.isCameraOn) {
+  if (activeSession.audio.isCameraOn) {
     stopCamera();
     return;
   }
+  const pagePeers = new Set(activeSession.pages.keys());
 
   try {
-    await session.audio.startCamera();
+    await activeSession.audio.startCamera();
+    if (session !== activeSession) return;
+    if (![...pagePeers].some((peerId) => activeSession.pages.has(peerId))) {
+      activeSession.audio.stopCamera();
+    }
   } catch {
+    if (session !== activeSession) return;
     ui.setCameraOn(false);
     ui.showToast(t.errCameraDenied, "error");
   }
@@ -2209,14 +2285,22 @@ function handleSetStatus(away: boolean, dnd: boolean): void {
 // ---------------------------------------------------------------------------
 
 function handleLeave(): void {
-  if (!session) return;
+  leaveSession();
+}
+
+function leaveSession(): void {
   userLeaving = true;
   window.clearTimeout(reconnectTimer);
   window.clearTimeout(idleTimer);
+  connectAbort?.abort();
+  connectAbort = null;
+  reconnectAttempts = 0;
   reconnectState = "idle";
   droppedInCall = false;
-  session.net.send({ t: "bye" });
-  teardownSession();
+  if (session) {
+    session.net.send({ t: "bye" });
+    teardownSession();
+  }
   ui.showJoin();
 }
 
@@ -2230,7 +2314,12 @@ function teardownSession(): void {
   if (rafId) cancelAnimationFrame(rafId);
   rafId = 0;
   rafScheduled = false;
-  cancelAnimationFrame(audioSettingsRaf);
+  frameRunning = false;
+  window.clearInterval(audioSettingsTimer);
+  renderActivity = { highRate: false, lowRate: false };
+  audioActive = false;
+  lastLowRateFrame = Number.NEGATIVE_INFINITY;
+  effectsNow = 0;
 
   s.input.destroy();
   // destroy() also stopRingtone(); clear Dock/taskbar attention explicitly.

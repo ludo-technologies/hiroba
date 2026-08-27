@@ -10,7 +10,12 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { shouldDraw, shouldKeepAwake } from "../.test-build/loop.js";
+import {
+  isLowRateFrameDue,
+  LOW_RATE_FRAME_MS,
+  shouldDraw,
+  shouldKeepAwake,
+} from "../.test-build/loop.js";
 
 // Order: (moving, audioActive, wasAnimating, hasConnections, muted)
 
@@ -33,11 +38,18 @@ test("movement, live voice, and in-flight animation each keep the loop awake", (
   assert.equal(shouldKeepAwake(false, false, true, false, true), true); // wasAnimating
 });
 
-test("shouldDraw repaints only on a visual change, not merely because live", () => {
-  // Live + still + silent + nothing dirty ⇒ poll, but do NOT repaint.
-  assert.equal(shouldDraw(false, false, false, false), false);
-  assert.equal(shouldDraw(true, false, false, false), true); // moving
-  assert.equal(shouldDraw(false, true, false, false), true); // live voice
-  assert.equal(shouldDraw(false, false, true, false), true); // animation settling
-  assert.equal(shouldDraw(false, false, false, true), true); // one-shot dirty event
+test("shouldDraw separates full-rate motion from sampled effects", () => {
+  // Order: moving, audioFrame, highRateAnimating, lowRateFrame, dirty.
+  assert.equal(shouldDraw(false, false, false, false, false), false);
+  assert.equal(shouldDraw(true, false, false, false, false), true);
+  assert.equal(shouldDraw(false, true, false, false, false), true);
+  assert.equal(shouldDraw(false, false, true, false, false), true);
+  assert.equal(shouldDraw(false, false, false, true, false), true);
+  assert.equal(shouldDraw(false, false, false, false, true), true);
+});
+
+test("low-rate effects are capped at 30fps", () => {
+  assert.equal(isLowRateFrameDue(LOW_RATE_FRAME_MS - 0.01, 0), false);
+  assert.equal(isLowRateFrameDue(LOW_RATE_FRAME_MS, 0), true);
+  assert.equal(isLowRateFrameDue(LOW_RATE_FRAME_MS * 2, LOW_RATE_FRAME_MS), true);
 });
