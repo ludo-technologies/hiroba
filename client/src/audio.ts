@@ -97,8 +97,9 @@ interface PeerConn {
  * flicker on every speech gap), which also keeps the demand-driven render loop
  * awake for a beat after speech so the fade-out is actually drawn.
  */
-const LEVEL_ATTACK = 0.6;
-const LEVEL_RELEASE = 0.12;
+// Preserve the old 60Hz envelope after level sampling moves to 30Hz.
+const LEVEL_ATTACK = 1 - (1 - 0.6) ** 2;
+const LEVEL_RELEASE = 1 - (1 - 0.12) ** 2;
 /** Smoothed levels below this read as silence (ring hidden; loop may sleep). */
 const ACTIVITY_FLOOR = 0.02;
 
@@ -544,9 +545,9 @@ export class AudioEngine {
 
   /**
    * Sample every analyser once and update the smoothed per-peer + self levels.
-   * Called once per frame by the main loop. Returns `true` if anyone (peers or
-   * self) is currently above the silence floor — the loop uses this to decide
-   * whether it must keep animating or may go idle.
+   * Called by the main loop at most 30 times per second. Returns `true` if
+   * anyone (peers or self) is currently above the silence floor — the loop uses
+   * this to decide whether it must keep animating or may go idle.
    */
   pollLevels(): boolean {
     let active = false;
@@ -1263,11 +1264,17 @@ export class AudioEngine {
 
   /** Acquire the local microphone track. Called once on first unmute. */
   private async _acquireMic(): Promise<void> {
+    const epoch = ++this.micEpoch;
     this.micAcquired = true; // set before await to prevent duplicate calls
     try {
       const stream = await navigator.mediaDevices.getUserMedia(this._micConstraints());
+      if (epoch !== this.micEpoch) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       const [track] = stream.getAudioTracks();
       if (!track) {
+        stream.getTracks().forEach((entry) => entry.stop());
         this.micAcquired = false;
         throw new Error("no audio track from getUserMedia");
       }
@@ -1286,6 +1293,7 @@ export class AudioEngine {
         }
       }
     } catch (err) {
+      if (epoch !== this.micEpoch) return;
       this.micAcquired = false;
       console.error("[audio] getUserMedia failed:", err);
       throw err;

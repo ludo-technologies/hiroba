@@ -136,6 +136,21 @@ function deferredCapture() {
   });
   return { track, stream, request: () => pending, release };
 }
+
+function deferredMicCapture() {
+  const track = {
+    kind: "audio",
+    enabled: false,
+    stopped: false,
+    stop() { this.stopped = true; },
+  };
+  const stream = new FakeMediaStream([track]);
+  let release;
+  const pending = new Promise((resolve) => {
+    release = () => resolve(stream);
+  });
+  return { track, request: () => pending, release };
+}
 class FakePC {
   constructor() {
     FakePC.instances.push(this);
@@ -547,4 +562,19 @@ test("toggleMute acquires the mic and enables the track (the barge-in path)", as
   const muted = await eng.toggleMute();
   assert.equal(muted, false, "first toggle goes live");
   assert.equal(FakeMic.lastTrack?.enabled, true, "the acquired mic track is enabled (voice is live)");
+});
+
+test("destroy stops a microphone capture that resolves after teardown", async () => {
+  installMocks();
+  const capture = deferredMicCapture();
+  navigator.mediaDevices.getUserMedia = capture.request;
+  const eng = new AudioEngine();
+  eng.init(SPACE, () => {}, () => {});
+
+  const toggle = eng.toggleMute();
+  eng.destroy();
+  capture.release();
+
+  assert.equal(await toggle, true, "the destroyed engine remains muted");
+  assert.equal(capture.track.stopped, true, "the stale microphone track was stopped");
 });

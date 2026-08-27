@@ -8,18 +8,25 @@
  * and deserve a guard. See tests/loop.test.mjs.
  */
 
+export const LOW_RATE_FRAME_MS = 1000 / 30;
+
+export function isLowRateFrameDue(now: number, lastFrame: number): boolean {
+  return now - lastFrame >= LOW_RATE_FRAME_MS;
+}
+
 /**
  * Should the loop repaint this frame? The expensive canvas work runs ONLY when
- * something visually changed: local movement, live voice, an animation still in
- * flight, or a one-shot `dirty` event (join/leave/mute/resize).
+ * something visually changed: local movement, a sampled voice frame, an
+ * animation still in flight, or a one-shot `dirty` event.
  */
 export function shouldDraw(
   moving: boolean,
-  audioActive: boolean,
-  wasAnimating: boolean,
+  audioFrame: boolean,
+  highRateAnimating: boolean,
+  lowRateFrame: boolean,
   dirty: boolean,
 ): boolean {
-  return moving || audioActive || wasAnimating || dirty;
+  return moving || audioFrame || highRateAnimating || lowRateFrame || dirty;
 }
 
 /**
