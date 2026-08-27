@@ -132,6 +132,7 @@ export class AudioEngine {
 
   /** Whether getUserMedia has been attempted (so we only acquire once). */
   private micAcquired = false;
+  private micAcquirePromise: Promise<void> | null = null;
 
   /** Current mute state. Starts true per FR-08. */
   private muted = true;
@@ -622,12 +623,16 @@ export class AudioEngine {
     }
 
     if (!this.muted && !this.micAcquired) {
+      const acquisition = this.micAcquirePromise ?? this._acquireMic();
+      this.micAcquirePromise = acquisition;
       try {
-        await this._acquireMic();
+        await acquisition;
       } catch {
         // Mic acquisition failed (denied/no device): revert to muted.
         this.muted = true;
         return this.muted;
+      } finally {
+        if (this.micAcquirePromise === acquisition) this.micAcquirePromise = null;
       }
     }
 
@@ -1025,6 +1030,7 @@ export class AudioEngine {
     this.audioCtx = null;
 
     this.micAcquired = false;
+    this.micAcquirePromise = null;
     this.muted = true;
     this.space = null;
     this.sendSignal = null;
@@ -1265,23 +1271,23 @@ export class AudioEngine {
   /** Acquire the local microphone track. Called once on first unmute. */
   private async _acquireMic(): Promise<void> {
     const epoch = ++this.micEpoch;
-    this.micAcquired = true; // set before await to prevent duplicate calls
+    let stream: MediaStream | null = null;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia(this._micConstraints());
+      stream = await navigator.mediaDevices.getUserMedia(this._micConstraints());
       if (epoch !== this.micEpoch) {
         stream.getTracks().forEach((track) => track.stop());
-        return;
+        throw new DOMException("microphone acquisition superseded", "AbortError");
       }
       const [track] = stream.getAudioTracks();
       if (!track) {
         stream.getTracks().forEach((entry) => entry.stop());
-        this.micAcquired = false;
         throw new Error("no audio track from getUserMedia");
       }
-      this.localStream = stream;
-      this.localTrack = track;
       track.enabled = !this.muted; // still muted until the toggle completes
       this._tapLocalStream(stream);
+      this.localStream = stream;
+      this.localTrack = track;
+      this.micAcquired = true;
 
       // Add the track (with its stream) to every existing peer. Each addTrack
       // fires onnegotiationneeded, renegotiating to send our audio.
@@ -1293,9 +1299,13 @@ export class AudioEngine {
         }
       }
     } catch (err) {
-      if (epoch !== this.micEpoch) return;
-      this.micAcquired = false;
-      console.error("[audio] getUserMedia failed:", err);
+      if (stream && stream !== this.localStream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
+      this.micAcquired = this.localTrack !== null;
+      if (!(err instanceof DOMException && err.name === "AbortError")) {
+        console.error("[audio] getUserMedia failed:", err);
+      }
       throw err;
     }
   }

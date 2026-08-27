@@ -578,3 +578,22 @@ test("destroy stops a microphone capture that resolves after teardown", async ()
   assert.equal(await toggle, true, "the destroyed engine remains muted");
   assert.equal(capture.track.stopped, true, "the stale microphone track was stopped");
 });
+
+test("superseding microphone acquisition leaves the engine able to retry", async () => {
+  installMocks();
+  const capture = deferredMicCapture();
+  navigator.mediaDevices.getUserMedia = capture.request;
+  const eng = new AudioEngine();
+  eng.init(SPACE, () => {}, () => {});
+
+  const firstToggle = eng.toggleMute();
+  eng.stopMicPreview();
+  capture.release();
+
+  assert.equal(await firstToggle, true, "a superseded acquisition returns to muted");
+  assert.equal(capture.track.stopped, true, "the superseded track was stopped");
+
+  navigator.mediaDevices.getUserMedia = FakeMic.getUserMedia;
+  assert.equal(await eng.toggleMute(), false, "the next unmute retries acquisition");
+  assert.equal(FakeMic.lastTrack?.enabled, true, "the retry acquires a live track");
+});

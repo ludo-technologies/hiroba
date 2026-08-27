@@ -274,10 +274,16 @@ if (isTauri()) {
   const appWindow = getCurrentWindow();
   void appWindow
     .onCloseRequested(async (event) => {
-      event.preventDefault();
-      leaveSession();
-      await appWindow.hide();
+      try {
+        leaveSession();
+        event.preventDefault();
+        await appWindow.hide();
+      } catch (error) {
+        console.error("[window] close cleanup failed:", error);
+        await appWindow.destroy();
+      }
     })
+    .then(() => invoke("mark_close_handler_ready"))
     .catch((error) => { throw error; });
 }
 
@@ -1394,7 +1400,15 @@ function frame(now: number): void {
   rafScheduled = false;
   if (!session) return;
   frameRunning = true;
+  try {
+    runFrame(now);
+  } finally {
+    frameRunning = false;
+  }
+}
 
+function runFrame(now: number): void {
+  if (!session) return;
   const moving = session.input.tick(now);
   renderer.setWalkTarget(session.input.moveTarget); // floor marker while walking
   session.audio.updateGains(session.input.position, session.peerPositions);
@@ -1428,7 +1442,6 @@ function frame(now: number): void {
 
   updateNudge();
 
-  frameRunning = false;
   if (
     shouldKeepAwake(
       moving,
@@ -2160,10 +2173,12 @@ function handleHangUp(): void {
 
 async function handleScreenShareToggle(): Promise<void> {
   if (!session) return;
+  const activeSession = session;
   markActive();
-  if (session.pages.size === 0) return;
+  if (activeSession.pages.size === 0) return;
+  const pagePeers = new Set(activeSession.pages.keys());
 
-  if (session.audio.isScreenSharing) {
+  if (activeSession.audio.isScreenSharing) {
     stopScreenShare();
     return;
   }
@@ -2174,7 +2189,9 @@ async function handleScreenShareToggle(): Promise<void> {
   // shipping a black rectangle. Non-macOS builds report granted.
   if (isTauri()) {
     try {
-      if (!(await invoke<boolean>("screen_capture_permission"))) {
+      const granted = await invoke<boolean>("screen_capture_permission");
+      if (session !== activeSession) return;
+      if (!granted) {
         ui.setScreenSharing(false);
         ui.showScreenPermissionHelp(
           () => void invoke("open_screen_recording_settings").catch(() => {}),
@@ -2183,13 +2200,19 @@ async function handleScreenShareToggle(): Promise<void> {
         return;
       }
     } catch {
+      if (session !== activeSession) return;
       // Older shell without the command — fall through and try the capture.
     }
   }
 
+  if (
+    session !== activeSession ||
+    ![...pagePeers].some((peerId) => activeSession.pages.has(peerId))
+  ) return;
   try {
-    await session.audio.startScreenShare();
+    await activeSession.audio.startScreenShare();
   } catch {
+    if (session !== activeSession) return;
     ui.setScreenSharing(false);
     ui.showToast(t.errScreenShare, "error");
   }
@@ -2197,17 +2220,19 @@ async function handleScreenShareToggle(): Promise<void> {
 
 async function handleCameraToggle(): Promise<void> {
   if (!session) return;
+  const activeSession = session;
   markActive();
-  if (session.pages.size === 0) return;
+  if (activeSession.pages.size === 0) return;
 
-  if (session.audio.isCameraOn) {
+  if (activeSession.audio.isCameraOn) {
     stopCamera();
     return;
   }
 
   try {
-    await session.audio.startCamera();
+    await activeSession.audio.startCamera();
   } catch {
+    if (session !== activeSession) return;
     ui.setCameraOn(false);
     ui.showToast(t.errCameraDenied, "error");
   }

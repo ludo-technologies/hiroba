@@ -12,6 +12,16 @@
 
 mod oauth;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+#[derive(Default)]
+struct CloseHandlerReady(AtomicBool);
+
+#[tauri::command]
+fn mark_close_handler_ready(state: tauri::State<'_, CloseHandlerReady>) {
+    state.0.store(true, Ordering::Release);
+}
+
 #[cfg(desktop)]
 fn show_main_window(app: &tauri::AppHandle) {
     use tauri::Manager;
@@ -93,6 +103,7 @@ pub fn run() {
         }));
     }
     builder
+        .manage(CloseHandlerReady::default())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -142,13 +153,23 @@ pub fn run() {
             }
             Ok(())
         })
-        .on_window_event(|_window, event| {
+        .on_window_event(|window, event| {
             #[cfg(desktop)]
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
+                use tauri::Manager;
+
+                if !window
+                    .state::<CloseHandlerReady>()
+                    .0
+                    .load(Ordering::Acquire)
+                {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![
+            mark_close_handler_ready,
             oauth::oauth_login,
             oauth::secret_save,
             oauth::secret_load,
