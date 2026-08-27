@@ -1275,12 +1275,10 @@ export class AudioEngine {
     try {
       stream = await navigator.mediaDevices.getUserMedia(this._micConstraints());
       if (epoch !== this.micEpoch) {
-        stream.getTracks().forEach((track) => track.stop());
         throw new DOMException("microphone acquisition superseded", "AbortError");
       }
       const [track] = stream.getAudioTracks();
       if (!track) {
-        stream.getTracks().forEach((entry) => entry.stop());
         throw new Error("no audio track from getUserMedia");
       }
       track.enabled = !this.muted; // still muted until the toggle completes

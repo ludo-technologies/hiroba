@@ -276,11 +276,10 @@ if (isTauri()) {
     .onCloseRequested(async (event) => {
       try {
         leaveSession();
-        event.preventDefault();
         await appWindow.hide();
+        event.preventDefault();
       } catch (error) {
         console.error("[window] close cleanup failed:", error);
-        await appWindow.destroy();
       }
     })
     .then(() => invoke("mark_close_handler_ready"))
@@ -2228,9 +2227,14 @@ async function handleCameraToggle(): Promise<void> {
     stopCamera();
     return;
   }
+  const pagePeers = new Set(activeSession.pages.keys());
 
   try {
     await activeSession.audio.startCamera();
+    if (session !== activeSession) return;
+    if (![...pagePeers].some((peerId) => activeSession.pages.has(peerId))) {
+      activeSession.audio.stopCamera();
+    }
   } catch {
     if (session !== activeSession) return;
     ui.setCameraOn(false);
