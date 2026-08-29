@@ -235,6 +235,10 @@ jobs:
       - uses: vedantmgoyal9/winget-releaser@v2
         with:
           identifier: LudoTechnologies.Hiroba
+          # The winget-pkgs fork lives under the personal account that owns
+          # WINGET_TOKEN, not under the org (defaulting fork-user to the org
+          # made komac fail with "Could not resolve ludo-technologies/winget-pkgs").
+          fork-user: DaisukeYoda
           # The MSI is what the Tauri updater installs on Windows, so winget and
           # the in-app updater stay on the same installer and install scope.
           installers-regex: '_x64_en-US\.msi$'
