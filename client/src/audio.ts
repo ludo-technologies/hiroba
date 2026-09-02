@@ -97,6 +97,11 @@ interface PeerConn {
  * flicker on every speech gap), which also keeps the demand-driven render loop
  * awake for a beat after speech so the fade-out is actually drawn.
  */
+/** Encoder cap for screen share (bps). Roughly what a 1440p–4K desktop with
+ *  text needs to stay legible; the bandwidth estimator still goes lower on a
+ *  weak link. */
+const SCREEN_SHARE_MAX_BITRATE = 6_000_000;
+
 // Preserve the old 60Hz envelope after level sampling moves to 30Hz.
 const LEVEL_ATTACK = 1 - (1 - 0.6) ** 2;
 const LEVEL_RELEASE = 1 - (1 - 0.12) ** 2;
@@ -823,6 +828,9 @@ export class AudioEngine {
         stream.getTracks().forEach((t) => t.stop());
         throw new Error("no video track from getDisplayMedia");
       }
+      // Tell the encoder this is static, text-heavy content: keep resolution
+      // and drop frame rate under pressure instead of blurring the picture.
+      track.contentHint = "detail";
       try {
         await this._awaitFirstFrame(stream);
       } catch (err) {
@@ -960,6 +968,7 @@ export class AudioEngine {
         void entry.videoSender.replaceTrack(track).catch((err) => {
           console.error("[audio] replaceTrack (video) error:", err);
         });
+        void this._applyVideoEncoding(entry.videoSender, mode);
         this.sendSignal?.(entry.id, { kind: "video-mode", mode });
       } else {
         this._addVideoTrack(entry);
@@ -1136,9 +1145,47 @@ export class AudioEngine {
     if (!this.videoTrack || !this.videoStream || entry.videoSender) return;
     try {
       entry.videoSender = entry.pc.addTrack(this.videoTrack, this.videoStream);
+      this._preferVideoCodecs(entry);
+      void this._applyVideoEncoding(entry.videoSender, this.videoMode);
       this.sendSignal?.(entry.id, { kind: "video-mode", mode: this.videoMode });
     } catch (err) {
       console.error("[audio] add video track error:", err);
+    }
+  }
+
+  /**
+   * Prefer VP9, then AV1, for our outgoing video. Both have a screen-content
+   * mode that keeps text crisp; the engine default often lands on VP8, which
+   * smears fine detail at any bitrate. Takes effect at the next negotiation,
+   * which addTrack triggers anyway.
+   */
+  private _preferVideoCodecs(entry: PeerConn): void {
+    const transceiver = entry.pc.getTransceivers().find((t) => t.sender === entry.videoSender);
+    const capabilities = RTCRtpSender.getCapabilities("video");
+    if (!transceiver || !capabilities) return;
+    const rank = (c: RTCRtpCodec): number =>
+      c.mimeType === "video/VP9" ? 0 : c.mimeType === "video/AV1" ? 1 : 2;
+    transceiver.setCodecPreferences([...capabilities.codecs].sort((a, b) => rank(a) - rank(b)));
+  }
+
+  /**
+   * Tune the sender's encoder for the current video mode. Engine defaults
+   * are sized for camera video: a Retina/4K screen at that bitrate is soft
+   * even on a good link, and under congestion the encoder shrinks the picture
+   * first. For screen share we raise the cap and ask it to sacrifice frame
+   * rate before resolution; camera goes back to balanced defaults.
+   */
+  private async _applyVideoEncoding(sender: RTCRtpSender, mode: "screen" | "camera" | null): Promise<void> {
+    const params = sender.getParameters();
+    const screen = mode === "screen";
+    for (const encoding of params.encodings) {
+      encoding.maxBitrate = screen ? SCREEN_SHARE_MAX_BITRATE : undefined;
+    }
+    params.degradationPreference = screen ? "maintain-resolution" : "balanced";
+    try {
+      await sender.setParameters(params);
+    } catch (err) {
+      console.error("[audio] setParameters (video) error:", err);
     }
   }
 
