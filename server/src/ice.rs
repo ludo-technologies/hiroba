@@ -23,8 +23,9 @@
 //! so a client that fetches `/ice` always gets a usable list (self-host default).
 
 use std::env;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tokio::sync::Mutex;
 
 use base64::Engine;
 use hmac::{Hmac, Mac};
@@ -263,19 +264,25 @@ impl CloudflareTurn {
 
     async fn issue(&self) -> Result<IceConfig, String> {
         let refresh_after = Duration::from_secs(self.ttl_secs / 2);
-        let cached = self.cache.lock().expect("ice cache poisoned").clone();
-        let cached = match cached {
-            Some(c) if c.issued_at.elapsed() < refresh_after => c,
+        // Held across the Cloudflare round-trip on purpose: every client was
+        // handed the same ttl, so they all come back for a renewal at the same
+        // moment, and without single-flighting each would miss the cache and
+        // hit the API on its own (rate limits, a burst of 502s). Waiters get
+        // the list the first one fetched.
+        let mut cache = self.cache.lock().await;
+        let cached = match &*cache {
+            Some(c) if c.issued_at.elapsed() < refresh_after => c.clone(),
             _ => {
                 let servers = self.fetch().await?;
                 let fresh = CachedIce {
                     servers,
                     issued_at: Instant::now(),
                 };
-                *self.cache.lock().expect("ice cache poisoned") = Some(fresh.clone());
+                *cache = Some(fresh.clone());
                 fresh
             }
         };
+        drop(cache);
         let remaining = self
             .ttl_secs
             .saturating_sub(cached.issued_at.elapsed().as_secs());
@@ -401,6 +408,8 @@ mod tests {
             hits.fetch_add(1, Ordering::SeqCst);
             assert_eq!(headers["authorization"], "Bearer tok");
             assert_eq!(body["ttl"], 600);
+            // Long enough for concurrent callers to overlap the round-trip.
+            tokio::time::sleep(Duration::from_millis(50)).await;
             Json(serde_json::json!({
                 "iceServers": [
                     { "urls": ["stun:stun.cloudflare.com:3478"] },
@@ -454,6 +463,31 @@ mod tests {
             hits.load(Ordering::SeqCst),
             1,
             "second call served from cache"
+        );
+    }
+
+    #[tokio::test]
+    async fn concurrent_cache_misses_share_one_cloudflare_call() {
+        let hits = Arc::new(AtomicUsize::new(0));
+        let base = spawn_fake_cloudflare(hits.clone()).await;
+        let issuer = IceIssuer {
+            stun_url: DEFAULT_STUN.to_string(),
+            relay: Relay::Cloudflare(CloudflareTurn::new(
+                base,
+                "key123".to_string(),
+                "tok".to_string(),
+                600,
+            )),
+        };
+
+        let (a, b, c) = tokio::join!(issuer.issue(), issuer.issue(), issuer.issue());
+        for cfg in [a.unwrap(), b.unwrap(), c.unwrap()] {
+            assert_eq!(cfg.ice_servers.len(), 2);
+        }
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            1,
+            "a refresh burst is single-flighted"
         );
     }
 

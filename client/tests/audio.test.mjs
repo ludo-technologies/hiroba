@@ -165,12 +165,41 @@ class FakePC {
   fire(type, ev) {
     for (const cb of this._listeners[type] || []) cb(ev);
   }
-  addTrack() {}
+  addTrack() {
+    return FakePC.makeSender?.();
+  }
+  getTransceivers() {
+    return [];
+  }
   close() {
     this.closed = true;
   }
 }
 FakePC.instances = [];
+/** Set by a test that needs addTrack to hand back a sender. */
+FakePC.makeSender = null;
+
+/** An RTCRtpSender whose replaceTrack resolves only when the test releases it,
+ *  logging every call so ordering can be asserted. */
+function fakeSender(log) {
+  return {
+    replaceTrack(track) {
+      let release;
+      const done = new Promise((resolve) => {
+        release = resolve;
+      });
+      log.push({ op: "replaceTrack", track, release });
+      return done;
+    },
+    getParameters() {
+      return { encodings: [{}] };
+    },
+    setParameters(params) {
+      log.push({ op: "setParameters", mode: params.degradationPreference });
+      return Promise.resolve();
+    },
+  };
+}
 
 // Fake microphone: records the last track handed out so tests can assert the
 // unmute path enabled it (the mechanism page barge-in relies on).
@@ -198,6 +227,8 @@ function installMocks() {
     writable: true,
   });
   FakePC.instances = [];
+  FakePC.makeSender = null;
+  globalThis.RTCRtpSender = { getCapabilities: () => null };
   FakeAudio.instances = [];
   FakeOscillator.instances = [];
   FakeMic.lastTrack = null;
@@ -596,4 +627,51 @@ test("superseding microphone acquisition leaves the engine able to retry", async
   navigator.mediaDevices.getUserMedia = FakeMic.getUserMedia;
   assert.equal(await eng.toggleMute(), false, "the next unmute retries acquisition");
   assert.equal(FakeMic.lastTrack?.enabled, true, "the retry acquires a live track");
+});
+
+/** Let queued microtasks (the sender update chain) run. */
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+test("video sender updates are serialised and a superseded switch is dropped", async () => {
+  installMocks();
+  const log = [];
+  FakePC.makeSender = () => fakeSender(log);
+  const eng = new AudioEngine();
+  eng.init(SPACE, () => {}, () => {}, undefined, () => {});
+  await eng.connect("9", true, "page");
+
+  const screen = deferredCapture();
+  navigator.mediaDevices.getDisplayMedia = screen.request;
+  const sharing = eng.startScreenShare();
+  screen.release();
+  await sharing;
+  await tick();
+  assert.deepEqual(log.map((e) => e.op), ["setParameters"], "a fresh sender gets its encoder settings");
+  assert.equal(log[0].mode, "maintain-resolution");
+
+  // Flip to the camera, then straight back to a new screen capture while the
+  // camera's replaceTrack is still pending.
+  const camera = deferredCapture();
+  navigator.mediaDevices.getUserMedia = camera.request;
+  const camStart = eng.startCamera();
+  camera.release();
+  await camStart;
+  const screen2 = deferredCapture();
+  navigator.mediaDevices.getDisplayMedia = screen2.request;
+  const sharing2 = eng.startScreenShare();
+  screen2.release();
+  await sharing2;
+  await tick();
+
+  assert.deepEqual(log.slice(1).map((e) => e.op), ["replaceTrack"], "the second switch waits for the first replaceTrack");
+  assert.equal(log[1].track, camera.track);
+
+  log[1].release();
+  await tick();
+  assert.deepEqual(log.slice(2).map((e) => e.op), ["replaceTrack"], "the superseded camera switch applies no encoder settings");
+  assert.equal(log[2].track, screen2.track);
+
+  log[2].release();
+  await tick();
+  assert.deepEqual(log.slice(3).map((e) => e.mode), ["maintain-resolution"], "the current mode's settings land last");
 });

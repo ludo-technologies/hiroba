@@ -999,6 +999,9 @@ async function connectSession(
   values: JoinFormValues,
   signal: AbortSignal,
 ): Promise<{ net: HirobaNet; msg: WelcomeMsg; ice: IceResolution }> {
+  // The credential is resolved per attempt, not once per join: a reconnect
+  // hours in must not carry a JWT that has since expired.
+  values = { ...values, token: await effectiveToken(values.token) };
   // Resolve ICE before opening the WebSocket so a slow /ice response cannot
   // leave post-welcome events arriving before session handlers are installed.
   const ice = await resolveIceServers(values.serverUrl, values.token, signal);
@@ -1007,9 +1010,8 @@ async function connectSession(
 }
 
 async function handleJoin(values: JoinFormValues): Promise<void> {
-  // Resolve the token once and remember it, so auto-reconnect reuses the same
-  // credential the session was opened with.
-  values = { ...values, token: await effectiveToken(values.token) };
+  // Kept as typed (manual token or none): every connect and ICE refresh
+  // resolves the live credential from it via `effectiveToken`.
   lastJoin = values;
   userLeaving = false;
   reconnectAttempts = 0;
@@ -1103,7 +1105,12 @@ function scheduleIceRefresh(
   const s = session;
   iceRefreshTimer = window.setTimeout(async () => {
     if (!s || session !== s || !lastJoin) return;
-    const ice = await resolveIceServers(lastJoin.serverUrl, lastJoin.token);
+    // The JWT is good for 12h and `/ice` refuses an expired one, so a session
+    // that outlives it has to renew the token before every re-resolve —
+    // otherwise each retry from here on would 401 and the day ends on STUN.
+    const token = await effectiveToken(lastJoin.token);
+    if (session !== s) return;
+    const ice = await resolveIceServers(lastJoin.serverUrl, token);
     if (session !== s) return;
     if (ice.ttlSeconds === null) {
       scheduleIceRefresh(ttlSeconds, ICE_REFRESH_RETRY_MS);

@@ -66,6 +66,8 @@ interface PeerConn {
   ignoreOffer: boolean;
   /** Candidates received before remoteDescription is set; flushed after. */
   pendingCandidates: RTCIceCandidateInit[];
+  /** Tail of the video-sender update chain — see {@link _queueVideoUpdate}. */
+  videoUpdate: Promise<void>;
   // --- Web Audio nodes for the remote stream (null until `track` fires) ---
   source: MediaStreamAudioSourceNode | null;
   gainNode: GainNode | null;
@@ -97,9 +99,11 @@ interface PeerConn {
  * flicker on every speech gap), which also keeps the demand-driven render loop
  * awake for a beat after speech so the fade-out is actually drawn.
  */
-/** Encoder cap for screen share (bps). Roughly what a 1440p–4K desktop with
- *  text needs to stay legible; the bandwidth estimator still goes lower on a
- *  weak link. */
+/** Encoder cap for screen share (bps). Without an explicit maxBitrate the
+ *  engine tops out at 2.5 Mbps for anything above 960×540 (libwebrtc's
+ *  GetMaxDefaultVideoBitrateKbps), so this is a raise, not a new ceiling:
+ *  roughly what a 1440p–4K desktop with text needs to stay legible. The
+ *  bandwidth estimator still goes lower on a weak link. */
 const SCREEN_SHARE_MAX_BITRATE = 6_000_000;
 
 // Preserve the old 60Hz envelope after level sampling moves to 30Hz.
@@ -964,11 +968,14 @@ export class AudioEngine {
 
     for (const entry of this.peers.values()) {
       if (!entry.page) continue;
-      if (entry.videoSender) {
-        void entry.videoSender.replaceTrack(track).catch((err) => {
-          console.error("[audio] replaceTrack (video) error:", err);
+      const sender = entry.videoSender;
+      if (sender) {
+        this._queueVideoUpdate(entry, async () => {
+          if (entry.videoSender !== sender || this.videoTrack !== track) return;
+          await sender.replaceTrack(track);
+          if (entry.videoSender !== sender || this.videoTrack !== track) return;
+          await this._applyVideoEncoding(sender, mode);
         });
-        void this._applyVideoEncoding(entry.videoSender, mode);
         this.sendSignal?.(entry.id, { kind: "video-mode", mode });
       } else {
         this._addVideoTrack(entry);
@@ -1076,6 +1083,7 @@ export class AudioEngine {
       makingOffer: false,
       ignoreOffer: false,
       pendingCandidates: [],
+      videoUpdate: Promise.resolve(),
       source: null,
       gainNode: null,
       analyser: null,
@@ -1142,15 +1150,35 @@ export class AudioEngine {
 
   private _addVideoTrack(entry: PeerConn): void {
     if (!entry.page) return;
-    if (!this.videoTrack || !this.videoStream || entry.videoSender) return;
+    const { videoTrack: track, videoStream: stream, videoMode: mode } = this;
+    if (!track || !stream || !mode || entry.videoSender) return;
     try {
-      entry.videoSender = entry.pc.addTrack(this.videoTrack, this.videoStream);
+      const sender = entry.pc.addTrack(track, stream);
+      entry.videoSender = sender;
       this._preferVideoCodecs(entry);
-      void this._applyVideoEncoding(entry.videoSender, this.videoMode);
-      this.sendSignal?.(entry.id, { kind: "video-mode", mode: this.videoMode });
+      this._queueVideoUpdate(entry, async () => {
+        if (entry.videoSender !== sender || this.videoTrack !== track) return;
+        await this._applyVideoEncoding(sender, mode);
+      });
+      this.sendSignal?.(entry.id, { kind: "video-mode", mode });
     } catch (err) {
       console.error("[audio] add video track error:", err);
     }
+  }
+
+  /**
+   * Run a change to a peer's video sender after whatever change is already in
+   * flight for it. replaceTrack and setParameters are both async and neither
+   * queues: a quick screen → camera → screen flip would otherwise let the
+   * older call finish last (the new track with stale encoder settings) or
+   * fail setParameters' transaction check outright. Each update re-checks
+   * that its sender and track are still current before touching anything, so
+   * a superseded switch is dropped rather than replayed.
+   */
+  private _queueVideoUpdate(entry: PeerConn, update: () => Promise<void>): void {
+    entry.videoUpdate = entry.videoUpdate.then(update).catch((err) => {
+      console.error("[audio] video sender update error:", err);
+    });
   }
 
   /**
@@ -1175,7 +1203,7 @@ export class AudioEngine {
    * first. For screen share we raise the cap and ask it to sacrifice frame
    * rate before resolution; camera goes back to balanced defaults.
    */
-  private async _applyVideoEncoding(sender: RTCRtpSender, mode: "screen" | "camera" | null): Promise<void> {
+  private async _applyVideoEncoding(sender: RTCRtpSender, mode: "screen" | "camera"): Promise<void> {
     const params = sender.getParameters();
     const screen = mode === "screen";
     for (const encoding of params.encodings) {
