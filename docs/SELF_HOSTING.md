@@ -263,6 +263,24 @@ realm=turn.your.domain
 | `HIROBA_TURN_USER`  | `hiroba`                         | Tag embedded in the ephemeral username.              |
 | `HIROBA_STUN_URL`   | `stun:stun.l.google.com:19302`   | STUN URL returned by `/ice` (and the client default).|
 
+`/ice` also reports `ttl` (seconds the credentials stay valid); the client
+re-fetches at half-life, so a session that stays open all day keeps a working
+relay.
+
+**Alternative: Cloudflare Realtime TURN (no coturn to run).** Create a TURN key
+in the Cloudflare dashboard (Realtime → TURN) and hand the server its id and
+API token. `/ice` then proxies Cloudflare's credential API (one call, cached
+for half the TTL) and returns Cloudflare's list, which includes `turns:` on
+TCP 443 — the transport that gets through corporate firewalls. This is what
+the hosted service uses. Mutually exclusive with `HIROBA_TURN_URL`/`SECRET`;
+setting both, or only one of the pair below, aborts start-up.
+
+| Variable                    | Default              | Meaning                                  |
+|-----------------------------|----------------------|------------------------------------------|
+| `HIROBA_TURN_CF_KEY_ID`     | _(unset → no TURN)_  | Cloudflare TURN key id.                  |
+| `HIROBA_TURN_CF_API_TOKEN`  | _(unset → no TURN)_  | That key's API token.                    |
+| `HIROBA_TURN_TTL`           | `86400`              | Credential lifetime requested from Cloudflare, seconds. |
+
 **Alternative: a fixed client-side list.** Set the global before the app loads —
 e.g. uncomment the block in `client/index.html` — then rebuild
 (`npm run tauri build`). This wins over `/ice`:

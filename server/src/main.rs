@@ -23,7 +23,7 @@ use axum::{
     Json, Router,
 };
 use hiroba_common::cors_from_env;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 mod auth;
 mod billing;
@@ -67,11 +67,15 @@ async fn health() -> &'static str {
 /// when a relay is configured. Delivered out-of-band over HTTP, never the WS.
 async fn ice_handler(State(state): State<AppState>, headers: HeaderMap) -> Response {
     let token = bearer_token(&headers);
-    match state.auth.resolve(token).await {
-        Ok(_) => Json(state.ice.issue()).into_response(),
+    if let Err(err) = state.auth.resolve(token).await {
+        debug!(reason = %err, "ICE config rejected");
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    match state.ice.issue().await {
+        Ok(cfg) => Json(cfg).into_response(),
         Err(err) => {
-            debug!(reason = %err, "ICE config rejected");
-            StatusCode::UNAUTHORIZED.into_response()
+            error!(error = %err, "ICE config issuance failed");
+            StatusCode::BAD_GATEWAY.into_response()
         }
     }
 }

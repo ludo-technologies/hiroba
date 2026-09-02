@@ -247,6 +247,15 @@ export class AudioEngine {
   }
 
   /**
+   * Swap the ICE list used for peer connections created from now on (TURN
+   * credential refresh, NFR-07). Live connections keep the list they were
+   * built with; a relay allocation is renewed with its original credential.
+   */
+  setIceServers(iceServers: RTCIceServer[]): void {
+    if (iceServers.length > 0) this.iceServers = iceServers;
+  }
+
+  /**
    * Swap in a new space's config after `enter_space`. Proximity links from the
    * old space have already been torn down by `disconnectAllProximity`; this
    * just updates the radii used for spatial gain in the new space.

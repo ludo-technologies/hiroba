@@ -123,9 +123,10 @@ test("resolveIceServers: operator override wins without hitting the network", as
     () =>
       new Promise((resolve) => {
         withWindow({ __HIROBA_CONFIG__: { iceServers: turn } }, async () => {
-          const servers = await resolveIceServers("ws://127.0.0.1:8787/ws");
+          const { iceServers: servers, ttlSeconds } = await resolveIceServers("ws://127.0.0.1:8787/ws");
           assert.equal(servers.length, 2);
           assert.equal(servers[1].urls, "turn:override.example.com:3478");
+          assert.equal(ttlSeconds, null, "an override carries no expiry");
           assert.equal(fetched, false, "override must short-circuit the fetch");
           resolve();
         });
@@ -137,8 +138,13 @@ test("resolveIceServers: uses the server's /ice TURN list when no override", asy
   const fromServer = {
     iceServers: [
       { urls: "stun:stun.l.google.com:19302" },
-      { urls: "turn:turn.server.com:3478", username: "1781000000:hiroba", credential: "abc=" },
+      {
+        urls: ["turn:turn.server.com:3478", "turns:turn.server.com:443"],
+        username: "1781000000:hiroba",
+        credential: "abc=",
+      },
     ],
+    ttl: 3600,
   };
   await withFetch(
     async (url, init) => {
@@ -147,9 +153,10 @@ test("resolveIceServers: uses the server's /ice TURN list when no override", asy
       return { ok: true, json: async () => fromServer };
     },
     async () => {
-      const servers = await resolveIceServers("ws://127.0.0.1:8787/ws", "test-token");
+      const { iceServers: servers, ttlSeconds } = await resolveIceServers("ws://127.0.0.1:8787/ws", "test-token");
       assert.equal(servers.length, 2);
       assert.equal(servers[1].credential, "abc=");
+      assert.equal(ttlSeconds, 3600, "server-reported credential lifetime is passed through");
     },
   );
 });
@@ -160,9 +167,10 @@ test("resolveIceServers: falls back to STUN when the fetch fails", async () => {
       throw new Error("network down");
     },
     async () => {
-      const servers = await resolveIceServers("ws://127.0.0.1:8787/ws");
+      const { iceServers: servers, ttlSeconds } = await resolveIceServers("ws://127.0.0.1:8787/ws");
       assert.equal(servers.length, 1);
       assert.match(String(servers[0].urls), /^stun:/);
+      assert.equal(ttlSeconds, null);
     },
   );
 });
@@ -172,7 +180,7 @@ test("resolveIceServers: falls back to STUN on a non-ok or malformed response", 
   await withFetch(
     async () => ({ ok: false, json: async () => ({}) }),
     async () => {
-      const servers = await resolveIceServers("ws://127.0.0.1:8787/ws");
+      const { iceServers: servers } = await resolveIceServers("ws://127.0.0.1:8787/ws");
       assert.match(String(servers[0].urls), /^stun:/);
     },
   );
@@ -180,7 +188,7 @@ test("resolveIceServers: falls back to STUN on a non-ok or malformed response", 
   await withFetch(
     async () => ({ ok: true, json: async () => ({ iceServers: "nope" }) }),
     async () => {
-      const servers = await resolveIceServers("ws://127.0.0.1:8787/ws");
+      const { iceServers: servers } = await resolveIceServers("ws://127.0.0.1:8787/ws");
       assert.equal(servers.length, 1);
       assert.match(String(servers[0].urls), /^stun:/);
     },
@@ -189,7 +197,7 @@ test("resolveIceServers: falls back to STUN on a non-ok or malformed response", 
 
 test("resolveIceServers: with no server URL and no override, returns STUN", async () => {
   await withWindow(undefined, async () => {
-    const servers = await resolveIceServers(undefined);
+    const { iceServers: servers } = await resolveIceServers(undefined);
     assert.equal(servers.length, 1);
     assert.match(String(servers[0].urls), /^stun:/);
   });

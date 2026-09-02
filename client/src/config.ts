@@ -64,6 +64,17 @@ export function getIceServers(): RTCIceServer[] {
   return DEFAULT_ICE_SERVERS;
 }
 
+/** Outcome of {@link resolveIceServers}. */
+export interface IceResolution {
+  iceServers: RTCIceServer[];
+  /**
+   * Seconds the TURN credentials in `iceServers` stay valid, as reported by the
+   * server, or `null` when the list carries none (override, STUN-only, or the
+   * fetch failed). The session re-resolves before this elapses.
+   */
+  ttlSeconds: number | null;
+}
+
 /**
  * Resolve the ICE server list for a session, consulting (in order) the operator
  * override, then the server's `GET /ice` endpoint, then public STUN. The fetch
@@ -77,10 +88,10 @@ export async function resolveIceServers(
   serverWsUrl?: string,
   token?: string,
   signal?: AbortSignal,
-): Promise<RTCIceServer[]> {
+): Promise<IceResolution> {
   // 1. Operator override wins outright — don't even hit the network.
   const injected = globalThis.window?.__HIROBA_CONFIG__?.iceServers;
-  if (isValidIceServerList(injected)) return injected;
+  if (isValidIceServerList(injected)) return { iceServers: injected, ttlSeconds: null };
 
   // 2. Ask the server (out-of-band over HTTP, never the WebSocket).
   if (serverWsUrl) {
@@ -94,9 +105,13 @@ export async function resolveIceServers(
       if (token) headers.authorization = `Bearer ${token}`;
       const res = await fetch(iceEndpointFromWs(serverWsUrl), { headers, signal: controller.signal });
       if (res.ok) {
-        const body: unknown = await res.json();
-        const servers = (body as { iceServers?: unknown } | null)?.iceServers;
-        if (isValidIceServerList(servers)) return servers;
+        const body = (await res.json()) as { iceServers?: unknown; ttl?: unknown } | null;
+        const servers = body?.iceServers;
+        if (isValidIceServerList(servers)) {
+          const ttl = body?.ttl;
+          const ttlSeconds = typeof ttl === "number" && Number.isFinite(ttl) && ttl > 0 ? ttl : null;
+          return { iceServers: servers, ttlSeconds };
+        }
       }
     } catch (err) {
       if (signal?.aborted) throw err;
@@ -108,7 +123,7 @@ export async function resolveIceServers(
   }
 
   // 3. Self-host default.
-  return DEFAULT_ICE_SERVERS;
+  return { iceServers: DEFAULT_ICE_SERVERS, ttlSeconds: null };
 }
 
 /**

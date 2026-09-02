@@ -39,7 +39,7 @@ import {
 } from "./loop.js";
 import { startUpdateChecks } from "./updater.js";
 import { startDeepLinkListener } from "./deeplink.js";
-import { resolveIceServers } from "./config.js";
+import { resolveIceServers, type IceResolution } from "./config.js";
 import { locale, spaceLabel, t } from "./i18n.js";
 import {
   clearSession,
@@ -179,6 +179,13 @@ const HEARTBEAT_MISSED_LIMIT = 2;
 let heartbeatTimer = 0;
 let heartbeatMissed = 0;
 let heartbeatCapable = false;
+
+/** TURN credentials from `/ice` expire (server-reported ttl); re-resolve at
+ *  half-life so peer connections opened hours into a session still relay.
+ *  A failed refresh keeps the current list and retries shortly — a blip must
+ *  not quietly downgrade the rest of the day to STUN. */
+const ICE_REFRESH_RETRY_MS = 60_000;
+let iceRefreshTimer = 0;
 
 // Loop bookkeeping.
 let rafId = 0;
@@ -991,12 +998,12 @@ function openConnection(values: JoinFormValues, signal: AbortSignal): Promise<{ 
 async function connectSession(
   values: JoinFormValues,
   signal: AbortSignal,
-): Promise<{ net: HirobaNet; msg: WelcomeMsg; iceServers: RTCIceServer[] }> {
+): Promise<{ net: HirobaNet; msg: WelcomeMsg; ice: IceResolution }> {
   // Resolve ICE before opening the WebSocket so a slow /ice response cannot
   // leave post-welcome events arriving before session handlers are installed.
-  const iceServers = await resolveIceServers(values.serverUrl, values.token, signal);
+  const ice = await resolveIceServers(values.serverUrl, values.token, signal);
   const { net, msg } = await openConnection(values, signal);
-  return { net, msg, iceServers };
+  return { net, msg, ice };
 }
 
 async function handleJoin(values: JoinFormValues): Promise<void> {
@@ -1012,12 +1019,12 @@ async function handleJoin(values: JoinFormValues): Promise<void> {
   connectAbort?.abort();
   connectAbort = controller;
   try {
-    const { net, msg, iceServers } = await connectSession(values, controller.signal);
+    const { net, msg, ice } = await connectSession(values, controller.signal);
     if (controller.signal.aborted || connectAbort !== controller) {
       net.close();
       return;
     }
-    startSession(net, msg, iceServers);
+    startSession(net, msg, ice);
     if (!localStorage.getItem(LS_MOVE_HINT_SEEN)) {
       moveHintActive = true;
       ui.showMoveHint();
@@ -1066,11 +1073,12 @@ function isPermanentConnectionError(code: string): boolean {
   return ["auth_failed", "org_suspended", "space_full", "space_limit", "unknown_space", "forbidden"].includes(code);
 }
 
-function startSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[]): void {
+function startSession(net: HirobaNet, msg: WelcomeMsg, ice: IceResolution): void {
   net.onClose(onSessionDropped);
   net.onError(onSessionDropped);
 
-  initSession(net, msg, iceServers);
+  initSession(net, msg, ice.iceServers);
+  scheduleIceRefresh(ice.ttlSeconds);
   bindServerMessages(net);
   startHeartbeat(msg.heartbeat === true);
   reconnectAttempts = 0;
@@ -1084,6 +1092,26 @@ function startSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[
   }
   resetIdleTimer();
   wake();
+}
+
+function scheduleIceRefresh(
+  ttlSeconds: number | null,
+  delayMs = ttlSeconds === null ? 0 : (ttlSeconds * 1000) / 2,
+): void {
+  window.clearTimeout(iceRefreshTimer);
+  if (ttlSeconds === null) return;
+  const s = session;
+  iceRefreshTimer = window.setTimeout(async () => {
+    if (!s || session !== s || !lastJoin) return;
+    const ice = await resolveIceServers(lastJoin.serverUrl, lastJoin.token);
+    if (session !== s) return;
+    if (ice.ttlSeconds === null) {
+      scheduleIceRefresh(ttlSeconds, ICE_REFRESH_RETRY_MS);
+      return;
+    }
+    s.audio.setIceServers(ice.iceServers);
+    scheduleIceRefresh(ice.ttlSeconds);
+  }, delayMs);
 }
 
 function onSessionDropped(): void {
@@ -1147,12 +1175,12 @@ function scheduleReconnect(): void {
     const controller = new AbortController();
     connectAbort = controller;
     try {
-      const { net, msg, iceServers } = await connectSession(lastJoin, controller.signal);
+      const { net, msg, ice } = await connectSession(lastJoin, controller.signal);
       if (userLeaving || controller.signal.aborted || connectAbort !== controller) {
         net.close();
         return;
       }
-      startSession(net, msg, iceServers);
+      startSession(net, msg, ice);
     } catch (err) {
       const code = err instanceof Error ? err.message : "";
       if (userLeaving || code === "cancelled" || (err instanceof DOMException && err.name === "AbortError")) return;
@@ -2311,6 +2339,7 @@ function teardownSession(): void {
 
   window.clearTimeout(idleTimer);
   window.clearInterval(heartbeatTimer);
+  window.clearTimeout(iceRefreshTimer);
   if (rafId) cancelAnimationFrame(rafId);
   rafId = 0;
   rafScheduled = false;
