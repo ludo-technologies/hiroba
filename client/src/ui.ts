@@ -1460,6 +1460,9 @@ export class UIManager {
     add.setAttribute("aria-label", t.createTeam);
     add.addEventListener("click", () => this._beginCreateSpace(add));
     elTabs.appendChild(add);
+
+    // The row scrolls horizontally once it overflows; keep the current space visible.
+    elTabs.querySelector(".tab.active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }
 
   /** Swap the "+" button for an inline input to name a new space. */
