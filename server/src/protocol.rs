@@ -318,7 +318,7 @@ pub enum ServerMsg {
     Pong,
 
     /// A request failed. Codes: auth_failed, org_suspended, space_full,
-    /// space_limit, unknown_space, forbidden. On auth_failed or org_suspended
+    /// space_limit, space_exists, unknown_space, forbidden. On auth_failed or org_suspended
     /// the server closes the socket after this frame.
     Error { code: String, message: String },
 }

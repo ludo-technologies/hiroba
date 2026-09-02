@@ -1472,20 +1472,32 @@ export class UIManager {
     input.className = "tab-add-input";
     input.maxLength = 32;
     input.placeholder = t.teamName;
-    const commit = () => {
-      const name = input.value.trim();
+    // One-shot: removing the focused input fires `blur` synchronously in
+    // Chromium, so without the guard Enter would re-enter here and create the
+    // space twice. Blur cancels rather than commits — a catalog re-render
+    // while typing (someone else created a space) must not create one for us.
+    let done = false;
+    const close = () => {
+      if (done) return;
+      done = true;
       input.replaceWith(addBtn);
+    };
+    const commit = () => {
+      if (done) return;
+      const name = input.value.trim();
+      close();
       if (name) this.callbacks.onCreateSpace(name);
     };
     input.addEventListener("keydown", (e) => {
+      if (e.isComposing) return; // Enter confirming an IME candidate is not a submit
       if (e.key === "Enter") {
         e.preventDefault();
         commit();
       } else if (e.key === "Escape") {
-        input.replaceWith(addBtn);
+        close();
       }
     });
-    input.addEventListener("blur", commit);
+    input.addEventListener("blur", close);
     addBtn.replaceWith(input);
     input.focus();
   }

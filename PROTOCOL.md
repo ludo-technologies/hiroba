@@ -152,7 +152,8 @@ not hung up by moving rooms (see §`page`).
 { "t": "create_space", "name": "Design" }
 ```
 Server creates a team space, assigns a `spaceId`, and broadcasts the updated
-catalog via `spaces` to the org. (Permission to create may be restricted; see
+catalog via `spaces` to the org. A name already in use is rejected with
+`error` code `space_exists`. (Permission to create may be restricted; see
 requirements §9.)
 
 ### `move` — update own position within the current space (~tickHz, only when moving)
@@ -428,7 +429,7 @@ Tear down the page link to `from`, or dismiss a pending `page_offer` from
 { "t": "error", "code": "space_full", "message": "Team is full (5/5)." }
 ```
 Codes: `auth_failed`, `org_suspended`, `space_full`, `space_limit`,
-`unknown_space`, `forbidden`. On `auth_failed` or `org_suspended`, the server
+`space_exists`, `unknown_space`, `forbidden`. On `auth_failed` or `org_suspended`, the server
 closes the socket after sending this frame.
 
 ---

@@ -337,6 +337,7 @@ export interface ErrorMsg {
     | "org_suspended"
     | "space_full"
     | "space_limit"
+    | "space_exists"
     | "unknown_space"
     | "forbidden";
   message: string;

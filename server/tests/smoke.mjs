@@ -209,6 +209,10 @@ class Client {
   ok(!!spacesA && !!spacesB, "create_space broadcasts the new catalog to the whole org");
   const design = spacesA?.spaces?.find((s) => s.name === "Design");
   ok(design?.kind === "team" && design?.capacity === 5, "created space is a team (capacity 5)");
+  A.clear();
+  A.send({ t: "create_space", name: " Design " });
+  const dup = await A.wait((m) => m.t === "error" && m.code === "space_exists");
+  ok(!!dup, "create_space with an existing name is rejected with space_exists");
 
   // ── 6) set_status → presence ────────────────────────────────────────────
   A.clear(); B.clear();

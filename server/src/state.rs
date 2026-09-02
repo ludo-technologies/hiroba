@@ -368,6 +368,10 @@ pub enum CreateSpaceOutcome {
     /// The org already holds [`MAX_SPACES_PER_ORG`] spaces; nothing was
     /// created. The caller reports this to the requester.
     LimitReached,
+    /// A space with the same (trimmed) name already exists; nothing was
+    /// created. Guards against runaway duplicate creation from a misbehaving
+    /// client. The caller reports this to the requester.
+    Duplicate(String),
 }
 
 /// Outcome of a `page` request.
@@ -848,6 +852,9 @@ impl Org {
         } else {
             name
         };
+        if guard.spaces.values().any(|s| s.desc.name == name) {
+            return CreateSpaceOutcome::Duplicate(name);
+        }
 
         // Allocate a unique space id.
         let seq = guard.next_space_seq;

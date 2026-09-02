@@ -199,13 +199,19 @@ pub async fn handle_ws(
                     let _ = tx.send(msg).await;
                 }
                 Ok(ClientMsg::CreateSpace { name }) => {
-                    if let CreateSpaceOutcome::LimitReached = org.create_space(name).await {
-                        let _ = tx
-                            .send(ServerMsg::Error {
-                                code: "space_limit".to_string(),
-                                message: format!("Space limit reached ({MAX_SPACES_PER_ORG})."),
-                            })
-                            .await;
+                    let err = match org.create_space(name).await {
+                        CreateSpaceOutcome::Created => None,
+                        CreateSpaceOutcome::LimitReached => Some(ServerMsg::Error {
+                            code: "space_limit".to_string(),
+                            message: format!("Space limit reached ({MAX_SPACES_PER_ORG})."),
+                        }),
+                        CreateSpaceOutcome::Duplicate(name) => Some(ServerMsg::Error {
+                            code: "space_exists".to_string(),
+                            message: format!("A space named \"{name}\" already exists."),
+                        }),
+                    };
+                    if let Some(msg) = err {
+                        let _ = tx.send(msg).await;
                     }
                 }
                 Ok(ClientMsg::Page { to }) => {
