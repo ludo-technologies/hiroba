@@ -225,6 +225,24 @@
             />
           </label>
           <button id="org-setup-btn" type="button" class="setup-primary" data-i18n="createOrg">Create organization</button>
+          <!-- The invitee who signed in before pasting their code lands here
+               too; this is where they can still take the invite instead of
+               founding an org of their own. -->
+          <div class="org-setup-join">
+            <p class="auth-hint" data-i18n="orgSetupInvitedHint">Were you invited to an existing organization?</p>
+            <input
+              id="org-setup-invite"
+              type="text"
+              placeholder="Paste an invite code or link"
+              data-i18n-placeholder="invitePlaceholder"
+              data-i18n-arialabel="fieldInvite"
+              aria-label="Invite code"
+              spellcheck="false"
+              autocapitalize="off"
+              autocomplete="off"
+            />
+            <button id="org-setup-join" type="button" class="ghost-btn" data-i18n="joinWithInvite">Join with invite</button>
+          </div>
           <button id="org-setup-back" type="button" class="ghost-btn" data-i18n="backToLogin">Back to sign-in</button>
         </div>
 

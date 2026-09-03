@@ -2100,6 +2100,19 @@ body {
   align-self: center;
 }
 
+/* Invite escape hatch on the org-setup step. */
+.org-setup-join {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--edge);
+}
+
+.org-setup-join > .ghost-btn {
+  align-self: center;
+}
+
 /* ---------------------------------------------------------------------------
  * Invite management (admin): issue/list/revoke panel
  * --------------------------------------------------------------------------- */

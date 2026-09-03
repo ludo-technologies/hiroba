@@ -85,6 +85,10 @@ const EN = {
   createOrg: "Create organization",
   creatingOrg: "Creating…",
   backToLogin: "Back to sign-in",
+  orgSetupInvitedHint: "Were you invited to an existing organization?",
+  joinWithInvite: "Join with invite",
+  joiningWithInvite: "Joining…",
+  errInviteCodeMissing: "Paste the invite code or link you received.",
 
   // Invite step (right after the org is founded) + invite-by-e-mail
   inviteSetupTitle: "Invite your teammates",
@@ -367,6 +371,10 @@ const JA: typeof EN = {
   createOrg: "組織を作成",
   creatingOrg: "作成中…",
   backToLogin: "サインインに戻る",
+  orgSetupInvitedHint: "既存の組織に招待されていますか?",
+  joinWithInvite: "招待で参加",
+  joiningWithInvite: "参加中…",
+  errInviteCodeMissing: "受け取った招待コードまたはリンクを貼り付けてください。",
 
   // 招待ステップ(組織作成直後)+ メール招待
   inviteSetupTitle: "仲間を招待しましょう",

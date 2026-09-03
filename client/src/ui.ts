@@ -154,6 +154,8 @@ const elOrgSetup = $<HTMLDivElement>("org-setup");
 const elOrgSetupName = $<HTMLInputElement>("org-setup-name");
 const elOrgSetupBtn = $<HTMLButtonElement>("org-setup-btn");
 const elOrgSetupBack = $<HTMLButtonElement>("org-setup-back");
+const elOrgSetupInvite = $<HTMLInputElement>("org-setup-invite");
+const elOrgSetupJoin = $<HTMLButtonElement>("org-setup-join");
 const elAuthTrial = $<HTMLParagraphElement>("auth-trial");
 
 const elInviteSetup = $<HTMLDivElement>("invite-setup");
@@ -331,6 +333,8 @@ export interface UICallbacks {
   onCreateOrg(name: string): void;
   /** Abandon the org-setup step and return to the sign-in form. */
   onCancelOrgSetup(): void;
+  /** Redeem an invite from the org-setup step instead of founding an org. */
+  onJoinWithInvite(invite: string): void;
   /** Mail an invite to each address (invite step, or the admin panel). */
   onSendInviteEmails(emails: string[], role: "member" | "admin", source: InviteSource): void;
   /** Mint a member invite and put its link on the clipboard (invite step). */
@@ -465,6 +469,7 @@ export class UIManager {
   /** Address a code was mailed to, while the code step is on screen. */
   private codeSentTo: string | null = null;
   private lastOrgSetupBusy = false;
+  private lastOrgJoinBusy = false;
   private lastInviteIssueBusy = false;
   private lastInviteSendBusy = false;
   /** Org named on the invite step while it is on screen. */
@@ -817,6 +822,7 @@ export class UIManager {
   /** The invite field is single-use; clear it once consumed by a login. */
   clearInvite(): void {
     elJoinInvite.value = "";
+    elOrgSetupInvite.value = "";
   }
 
   /** Open the server-settings dialog (self-host connection details),
@@ -892,6 +898,7 @@ export class UIManager {
     this.setCodeBusy(this.lastCodeBusy);
     if (this.codeSentTo) elCodeSentMsg.textContent = t.codeSentTo(this.codeSentTo);
     this.setOrgSetupBusy(this.lastOrgSetupBusy);
+    this.setOrgJoinBusy(this.lastOrgJoinBusy);
     this.setInviteIssueBusy(this.lastInviteIssueBusy);
     this.setInviteSendBusy(this.lastInviteSendBusy);
     this._renderInviteSetup();
@@ -1037,6 +1044,8 @@ export class UIManager {
     elJoinForm.classList.add("org-setup-mode");
     elOrgSetup.removeAttribute("hidden");
     elJoinError.setAttribute("hidden", "");
+    // A code pasted on the join card before signing in travels along.
+    elOrgSetupInvite.value = elJoinInvite.value;
     elOrgSetupName.focus();
   }
 
@@ -1045,12 +1054,20 @@ export class UIManager {
     elJoinForm.classList.remove("org-setup-mode");
     elOrgSetup.setAttribute("hidden", "");
     this.setOrgSetupBusy(false);
+    this.setOrgJoinBusy(false);
   }
 
   setOrgSetupBusy(busy: boolean): void {
     this.lastOrgSetupBusy = busy;
     elOrgSetupBtn.disabled = busy;
     elOrgSetupBtn.textContent = busy ? t.creatingOrg : t.createOrg;
+  }
+
+  setOrgJoinBusy(busy: boolean): void {
+    this.lastOrgJoinBusy = busy;
+    elOrgSetupJoin.disabled = busy;
+    elOrgSetupInvite.disabled = busy;
+    elOrgSetupJoin.textContent = busy ? t.joiningWithInvite : t.joinWithInvite;
   }
 
   private _bindOrgSetup(): void {
@@ -1072,6 +1089,23 @@ export class UIManager {
       }
     });
     elOrgSetupBack.addEventListener("click", () => this.callbacks.onCancelOrgSetup());
+    const join = () => {
+      const invite = extractInviteCode(elOrgSetupInvite.value);
+      if (!invite) {
+        this.showError(t.errInviteCodeMissing);
+        elOrgSetupInvite.focus();
+        return;
+      }
+      elJoinError.setAttribute("hidden", "");
+      this.callbacks.onJoinWithInvite(invite);
+    };
+    elOrgSetupJoin.addEventListener("click", join);
+    elOrgSetupInvite.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        join();
+      }
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -1865,6 +1899,9 @@ export class UIManager {
    *  code rides along on the next OAuth sign-in (`onLogin`'s invite param). */
   applyInvite(code: string): void {
     elJoinInvite.value = code;
+    // Arriving on the org-setup step means the user signed in first; the
+    // code belongs in the escape hatch there, not on the hidden join card.
+    elOrgSetupInvite.value = code;
     this.showToast(t.inviteApplied);
   }
 

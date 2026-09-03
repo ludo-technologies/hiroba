@@ -59,6 +59,7 @@ import {
   saveSession,
   switchOrg,
   type AuthSession,
+  type SessionClaims,
   type OAuthResult,
   type OrgSummary,
   type RestoreResult,
@@ -234,6 +235,7 @@ const ui = new UIManager(
     onSwitchOrg: (orgSlug) => void handleSwitchOrg(orgSlug),
     onCreateOrg: handleCreateOrg,
     onCancelOrgSetup: handleCancelOrgSetup,
+    onJoinWithInvite: handleJoinWithInvite,
     onSendInviteEmails: handleSendInviteEmails,
     onCopyInviteLink: handleCopyInviteLink,
     onOpenInvitePanel: handleOpenInvitePanel,
@@ -671,6 +673,37 @@ function handleLogout(): void {
 // Org setup (first sign-in without an invite)
 // ---------------------------------------------------------------------------
 
+/** Trade the provisional token for a full session via `path` (`/orgs` to
+ *  found one, `/orgs/join` to take an invite). Both answer with the same
+ *  session shape; `reject` maps the status codes that differ. Returns the
+ *  session claims, with the org-setup step already gone. */
+async function upgradeProvisional(
+  path: string,
+  body: Record<string, string>,
+  reject: (status: number) => string,
+): Promise<SessionClaims> {
+  const resp = await fetch(`${ui.getAuthUrl()}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${pendingProvisionalToken}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) throw new Error(reject(resp.status));
+  const data: { token: string; refresh_token: string } = await resp.json();
+  const claims = decodeClaims(data.token);
+  if (!claims || !data.refresh_token) throw new Error(reject(resp.status));
+  pendingProvisionalToken = null;
+  const session: AuthSession = { token: data.token, claims, refreshToken: data.refresh_token };
+  cancelRestoreRetry();
+  authSession = session;
+  ui.hideOrgSetup();
+  reflectAuthSession();
+  if ((await saveSession(session)) === "failed") ui.showError(t.errSessionNotSaved);
+  return claims;
+}
+
 async function handleCreateOrg(name: string): Promise<void> {
   if (!pendingProvisionalToken) {
     ui.hideOrgSetup();
@@ -678,41 +711,49 @@ async function handleCreateOrg(name: string): Promise<void> {
   }
   ui.setOrgSetupBusy(true);
   try {
-    const resp = await fetch(`${ui.getAuthUrl()}/orgs`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${pendingProvisionalToken}`,
-      },
-      // Billing currency follows the UI locale, mirroring the pricing the user
-      // was shown (¥300 on the ja site, $2 elsewhere). Stripe pins it for the
-      // org's lifetime; self-host auth backends just ignore the field.
-      body: JSON.stringify({ name, currency: locale === "ja" ? "jpy" : "usd" }),
-    });
-    if (resp.status === 403) throw new Error(t.errAlreadyInOrg);
-    if (resp.status === 401) throw new Error(t.errSessionExpired);
-    if (!resp.ok) throw new Error(t.errOrgCreate);
-    const data: { token: string; refresh_token: string } = await resp.json();
-    const claims = decodeClaims(data.token);
-    if (!claims || !data.refresh_token) throw new Error(t.errOrgCreate);
-    pendingProvisionalToken = null;
-    const session: AuthSession = {
-      token: data.token,
-      claims,
-      refreshToken: data.refresh_token,
-    };
-    cancelRestoreRetry();
-    authSession = session;
-    ui.hideOrgSetup();
-    reflectAuthSession();
+    // Billing currency follows the UI locale, mirroring the pricing the user
+    // was shown (¥300 on the ja site, $2 elsewhere). Stripe pins it for the
+    // org's lifetime; self-host auth backends just ignore the field.
+    const claims = await upgradeProvisional(
+      "/orgs",
+      { name, currency: locale === "ja" ? "jpy" : "usd" },
+      (status) =>
+        status === 403 ? t.errAlreadyInOrg : status === 401 ? t.errSessionExpired : t.errOrgCreate,
+    );
     // The org exists and its founder is alone in it. Bringing people in is
     // the next step, not something to discover later behind a gear icon.
     ui.showInviteSetup(claims.org_name || claims.org);
-    if ((await saveSession(session)) === "failed") ui.showError(t.errSessionNotSaved);
   } catch (err) {
     ui.showError(err instanceof Error ? err.message : t.errOrgCreate);
   } finally {
     ui.setOrgSetupBusy(false);
+  }
+}
+
+/** The invitee who signed in before pasting their code: take the invite from
+ *  the org-setup step. They land on the join card as a member, like an
+ *  invited sign-in would have. */
+async function handleJoinWithInvite(invite: string): Promise<void> {
+  if (!pendingProvisionalToken) {
+    ui.hideOrgSetup();
+    return;
+  }
+  ui.setOrgJoinBusy(true);
+  try {
+    await upgradeProvisional("/orgs/join", { invite }, (status) =>
+      status === 409
+        ? t.errInvite
+        : status === 403
+          ? t.errAlreadyInOrg
+          : status === 401
+            ? t.errSessionExpired
+            : t.errConnect,
+    );
+    ui.clearInvite();
+  } catch (err) {
+    ui.showError(err instanceof Error ? err.message : t.errConnect);
+  } finally {
+    ui.setOrgJoinBusy(false);
   }
 }
 
