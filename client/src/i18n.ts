@@ -108,6 +108,7 @@ const EN = {
   inviteSentTo: (email: string) => `sent to ${email}`,
   errInviteEmails: "Enter at least one email address.",
   errSendInvites: "Couldn't send the invites. Please try again.",
+  errInvitesTooMany: "Too many invites sent recently. Please wait a while and try again.",
   errEmailInvitesUnavailable: "This server can't send email — share an invite link instead.",
 
   // Trial countdown (hosted; the org's subscription is trialing)
@@ -394,6 +395,7 @@ const JA: typeof EN = {
   inviteSentTo: (email: string) => `${email} 宛`,
   errInviteEmails: "メールアドレスを1つ以上入力してください。",
   errSendInvites: "招待を送れませんでした。もう一度お試しください。",
+  errInvitesTooMany: "短時間に送った招待が多すぎます。しばらく待ってからお試しください。",
   errEmailInvitesUnavailable: "このサーバーはメールを送れません。招待リンクを共有してください。",
 
   // トライアル残日数(ホスト版)

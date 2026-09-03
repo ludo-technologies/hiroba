@@ -257,6 +257,9 @@ const elUpdateLater = $<HTMLButtonElement>("update-later");
 // Public interface
 // ---------------------------------------------------------------------------
 
+/** Which org-setup request is in flight, if any. */
+export type OrgSetupBusy = "create" | "join" | null;
+
 export interface JoinFormValues {
   name: string;
   color: string;
@@ -468,8 +471,7 @@ export class UIManager {
   private lastCodeBusy = false;
   /** Address a code was mailed to, while the code step is on screen. */
   private codeSentTo: string | null = null;
-  private lastOrgSetupBusy = false;
-  private lastOrgJoinBusy = false;
+  private lastOrgSetupBusy: OrgSetupBusy = null;
   private lastInviteIssueBusy = false;
   private lastInviteSendBusy = false;
   /** Org named on the invite step while it is on screen. */
@@ -898,7 +900,6 @@ export class UIManager {
     this.setCodeBusy(this.lastCodeBusy);
     if (this.codeSentTo) elCodeSentMsg.textContent = t.codeSentTo(this.codeSentTo);
     this.setOrgSetupBusy(this.lastOrgSetupBusy);
-    this.setOrgJoinBusy(this.lastOrgJoinBusy);
     this.setInviteIssueBusy(this.lastInviteIssueBusy);
     this.setInviteSendBusy(this.lastInviteSendBusy);
     this._renderInviteSetup();
@@ -1053,21 +1054,24 @@ export class UIManager {
   hideOrgSetup(): void {
     elJoinForm.classList.remove("org-setup-mode");
     elOrgSetup.setAttribute("hidden", "");
-    this.setOrgSetupBusy(false);
-    this.setOrgJoinBusy(false);
+    this.setOrgSetupBusy(null);
   }
 
-  setOrgSetupBusy(busy: boolean): void {
+  /** Freeze the whole step while one of its requests is in flight. Create,
+   *  join, and back all act on the same provisional token: a second request
+   *  alongside the first could land the account in two orgs, and going back
+   *  mid-flight would let the late answer sign the user in behind a screen
+   *  that no longer expects it. */
+  setOrgSetupBusy(busy: OrgSetupBusy): void {
     this.lastOrgSetupBusy = busy;
-    elOrgSetupBtn.disabled = busy;
-    elOrgSetupBtn.textContent = busy ? t.creatingOrg : t.createOrg;
-  }
-
-  setOrgJoinBusy(busy: boolean): void {
-    this.lastOrgJoinBusy = busy;
-    elOrgSetupJoin.disabled = busy;
-    elOrgSetupInvite.disabled = busy;
-    elOrgSetupJoin.textContent = busy ? t.joiningWithInvite : t.joinWithInvite;
+    const frozen = busy !== null;
+    elOrgSetupName.disabled = frozen;
+    elOrgSetupBtn.disabled = frozen;
+    elOrgSetupInvite.disabled = frozen;
+    elOrgSetupJoin.disabled = frozen;
+    elOrgSetupBack.disabled = frozen;
+    elOrgSetupBtn.textContent = busy === "create" ? t.creatingOrg : t.createOrg;
+    elOrgSetupJoin.textContent = busy === "join" ? t.joiningWithInvite : t.joinWithInvite;
   }
 
   private _bindOrgSetup(): void {

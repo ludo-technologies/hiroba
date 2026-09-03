@@ -709,7 +709,7 @@ async function handleCreateOrg(name: string): Promise<void> {
     ui.hideOrgSetup();
     return;
   }
-  ui.setOrgSetupBusy(true);
+  ui.setOrgSetupBusy("create");
   try {
     // Billing currency follows the UI locale, mirroring the pricing the user
     // was shown (¥300 on the ja site, $2 elsewhere). Stripe pins it for the
@@ -726,7 +726,7 @@ async function handleCreateOrg(name: string): Promise<void> {
   } catch (err) {
     ui.showError(err instanceof Error ? err.message : t.errOrgCreate);
   } finally {
-    ui.setOrgSetupBusy(false);
+    ui.setOrgSetupBusy(null);
   }
 }
 
@@ -738,7 +738,7 @@ async function handleJoinWithInvite(invite: string): Promise<void> {
     ui.hideOrgSetup();
     return;
   }
-  ui.setOrgJoinBusy(true);
+  ui.setOrgSetupBusy("join");
   try {
     await upgradeProvisional("/orgs/join", { invite }, (status) =>
       status === 409
@@ -753,7 +753,7 @@ async function handleJoinWithInvite(invite: string): Promise<void> {
   } catch (err) {
     ui.showError(err instanceof Error ? err.message : t.errConnect);
   } finally {
-    ui.setOrgJoinBusy(false);
+    ui.setOrgSetupBusy(null);
   }
 }
 
@@ -794,7 +794,7 @@ async function handleSendInviteEmails(
       report(t.errEmailInvitesUnavailable, "error");
       return;
     }
-    if (!resp.ok) throw new Error(t.errSendInvites);
+    if (!resp.ok) throw new Error(resp.status === 429 ? t.errInvitesTooMany : t.errSendInvites);
     const data: { sent: { email: string }[]; failed: string[] } = await resp.json();
     const sent = data.sent.map((s) => s.email);
     if (source === "setup") {
@@ -805,8 +805,8 @@ async function handleSendInviteEmails(
       if (data.failed.length > 0) report(t.invitesFailedFor(data.failed.join(", ")), "error");
       await refreshInviteList();
     }
-  } catch {
-    report(t.errSendInvites, "error");
+  } catch (err) {
+    report(err instanceof Error ? err.message : t.errSendInvites, "error");
   } finally {
     ui.setInviteSendBusy(false);
   }
@@ -1067,10 +1067,10 @@ function scheduleBillingRecheck(): void {
   billingLockTimer = window.setTimeout(() => void syncBillingLock(), BILLING_LOCK_POLL_MS);
 }
 
-// Coming back from Stripe's page is the moment the answer most likely changed.
-window.addEventListener("focus", () => {
-  if (billingLockStatus !== null) void syncBillingLock();
-});
+// Coming back to the window is when the answer most likely changed: from
+// Stripe's page after adding a card, or simply on a later day, when the trial
+// countdown shown since launch has aged.
+window.addEventListener("focus", () => void syncBillingLock());
 
 /** The token a new connection should present: a manual (Advanced) token wins,
  *  then a live OAuth session; otherwise guest. Expired sessions are dropped
