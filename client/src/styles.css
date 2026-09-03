@@ -340,7 +340,8 @@ body {
   color: var(--ink-mute);
 }
 
-.card input[type="text"] {
+.card input[type="text"],
+.card textarea {
   width: 100%;
   background: #fffdf8;
   border: 1px solid var(--edge);
@@ -353,11 +354,19 @@ body {
   transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
 }
 
-.card input[type="text"]::placeholder {
+.card textarea {
+  resize: vertical;
+  min-height: 72px;
+  line-height: 1.5;
+}
+
+.card input[type="text"]::placeholder,
+.card textarea::placeholder {
   color: var(--ink-mute);
 }
 
-.card input[type="text"]:focus {
+.card input[type="text"]:focus,
+.card textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
@@ -1009,6 +1018,41 @@ body {
 
 /* Invite entry point pinned under the roster (admin only): a lonely member
    list and the way to fix it belong in the same place. */
+/* Trial countdown bar under the sidebar header (admins only). Quiet while
+ * there is time, warm once the last days arrive. */
+.trial-pill {
+  display: block;
+  width: calc(100% - 16px);
+  margin: 8px 8px 0;
+  padding: 7px 10px;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: var(--paper-2);
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.trial-pill:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-lo);
+}
+
+.trial-pill.urgent {
+  border-color: rgba(181, 79, 44, 0.45);
+  background: var(--accent-soft);
+  color: var(--accent-lo);
+}
+
+.trial-pill[hidden] {
+  display: none;
+}
+
 .roster-invite-btn {
   display: flex;
   align-items: center;
@@ -1931,13 +1975,49 @@ body {
   display: none;
 }
 
-/* While naming the org, the rest of the join form steps aside (the brand
- * header and error area stay). */
+/* While naming the org or inviting the first teammates, the rest of the join
+ * form steps aside (the brand header and error area stay). */
 #join-form.org-setup-mode > .auth-block,
 #join-form.org-setup-mode > .identity,
 #join-form.org-setup-mode > .field,
 #join-form.org-setup-mode > .join-settings-btn,
-#join-form.org-setup-mode > #join-btn {
+#join-form.org-setup-mode > #join-btn,
+#join-form.invite-setup-mode > .auth-block,
+#join-form.invite-setup-mode > .identity,
+#join-form.invite-setup-mode > .field,
+#join-form.invite-setup-mode > .join-settings-btn,
+#join-form.invite-setup-mode > #join-btn {
+  display: none;
+}
+
+/* The invite step's e-mail form goes away when the backend can't mail
+ * (self-host without a mailer); the copy-link button then takes the lead. */
+#invite-setup.no-email > #invite-setup-emails-field,
+#invite-setup.no-email > #invite-setup-send {
+  display: none;
+}
+
+#invite-setup-status[hidden] {
+  display: none;
+}
+
+#invite-setup-copy,
+#invite-setup-enter {
+  align-self: center;
+}
+
+/* Whichever of them leads takes the full row, like the other primaries. */
+#invite-setup-copy.setup-primary,
+#invite-setup-enter.setup-primary {
+  align-self: stretch;
+}
+
+/* Trial countdown under the signed-in chip. */
+.auth-trial {
+  margin-top: 8px;
+}
+
+.auth-trial[hidden] {
   display: none;
 }
 
@@ -1987,8 +2067,7 @@ body {
   color: var(--ink-soft);
 }
 
-#org-setup-btn,
-#billing-lock-cta {
+.setup-primary {
   padding: 14px;
   background: linear-gradient(180deg, var(--accent-hi), var(--accent));
   color: #fff;
@@ -2003,17 +2082,15 @@ body {
   transition: filter 0.15s, transform 0.08s;
 }
 
-#org-setup-btn:hover:not(:disabled),
-#billing-lock-cta:hover:not(:disabled) {
+.setup-primary:hover:not(:disabled) {
   filter: brightness(1.05);
 }
 
-#org-setup-btn:active:not(:disabled),
-#billing-lock-cta:active:not(:disabled) {
+.setup-primary:active:not(:disabled) {
   transform: translateY(1px);
 }
 
-#org-setup-btn:disabled {
+.setup-primary:disabled {
   opacity: 0.6;
   cursor: progress;
   filter: saturate(0.75);
@@ -2049,6 +2126,26 @@ body {
   display: flex;
   align-items: flex-end;
   gap: 10px;
+}
+
+/* Invite by address: the input takes the row, the send button sits beside it. */
+.invite-email-row {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.invite-email-row > input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.invite-email-row > button {
+  flex: 0 0 auto;
+}
+
+.invite-email-row[hidden] {
+  display: none;
 }
 
 .invite-role-field {
@@ -2205,7 +2302,8 @@ body {
   transition: width 90ms linear;
 }
 
-#invite-issue-btn {
+#invite-issue-btn,
+#invite-email-send {
   flex: 1 1 auto;
   padding: 10px 18px;
   background: linear-gradient(180deg, var(--accent-hi), var(--accent));
@@ -2220,11 +2318,13 @@ body {
   transition: filter 0.15s, transform 0.08s;
 }
 
-#invite-issue-btn:hover:not(:disabled) {
+#invite-issue-btn:hover:not(:disabled),
+#invite-email-send:hover:not(:disabled) {
   filter: brightness(1.05);
 }
 
-#invite-issue-btn:disabled {
+#invite-issue-btn:disabled,
+#invite-email-send:disabled {
   opacity: 0.6;
   cursor: progress;
 }

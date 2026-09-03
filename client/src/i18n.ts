@@ -86,6 +86,31 @@ const EN = {
   creatingOrg: "Creating…",
   backToLogin: "Back to sign-in",
 
+  // Invite step (right after the org is founded) + invite-by-e-mail
+  inviteSetupTitle: "Invite your teammates",
+  inviteSetupDesc: (org: string) =>
+    `An office comes alive with people in it. Add a few addresses and we'll send them a link to join ${org}.`,
+  inviteSetupDescNoEmail: (org: string) =>
+    `An office comes alive with people in it. Copy an invite link and share it with the people you'll be in ${org} with.`,
+  fieldInviteEmails: "Email addresses",
+  inviteEmailsPlaceholder: "aoi@example.com, ren@example.com",
+  sendInvites: "Send invites",
+  sendingInvites: "Sending…",
+  invitesSentTo: (list: string) => `Invites sent to ${list}.`,
+  invitesFailedFor: (list: string) => `Couldn't send to ${list}.`,
+  copyInviteLinkInstead: "Copy an invite link instead",
+  inviteLinkCopied: "Invite link copied — share it with your teammate.",
+  inviteSetupEnter: "Enter the office",
+  inviteSentTo: (email: string) => `sent to ${email}`,
+  errInviteEmails: "Enter at least one email address.",
+  errSendInvites: "Couldn't send the invites. Please try again.",
+  errEmailInvitesUnavailable: "This server can't send email — share an invite link instead.",
+
+  // Trial countdown (hosted; the org's subscription is trialing)
+  trialDaysLeft: (n: number) => (n === 1 ? "Free trial: 1 day left" : `Free trial: ${n} days left`),
+  trialEndsToday: "Free trial ends today",
+  trialPillTitle: "Add a payment method to keep Hiroba after the trial",
+
   // Admin menu (gear in the sidebar header)
   adminMenuTitle: "Admin settings",
   manageInvitesTitle: "Manage invitations",
@@ -342,6 +367,31 @@ const JA: typeof EN = {
   createOrg: "組織を作成",
   creatingOrg: "作成中…",
   backToLogin: "サインインに戻る",
+
+  // 招待ステップ(組織作成直後)+ メール招待
+  inviteSetupTitle: "仲間を招待しましょう",
+  inviteSetupDesc: (org: string) =>
+    `オフィスは人がいてこそです。メールアドレスを入力すると、${org} への参加リンクを送ります。`,
+  inviteSetupDescNoEmail: (org: string) =>
+    `オフィスは人がいてこそです。招待リンクをコピーして、${org} で一緒に働く仲間に共有してください。`,
+  fieldInviteEmails: "メールアドレス",
+  inviteEmailsPlaceholder: "aoi@example.com, ren@example.com",
+  sendInvites: "招待を送る",
+  sendingInvites: "送信中…",
+  invitesSentTo: (list: string) => `${list} に招待を送りました。`,
+  invitesFailedFor: (list: string) => `${list} には送れませんでした。`,
+  copyInviteLinkInstead: "代わりに招待リンクをコピー",
+  inviteLinkCopied: "招待リンクをコピーしました。仲間に共有してください。",
+  inviteSetupEnter: "オフィスに入る",
+  inviteSentTo: (email: string) => `${email} 宛`,
+  errInviteEmails: "メールアドレスを1つ以上入力してください。",
+  errSendInvites: "招待を送れませんでした。もう一度お試しください。",
+  errEmailInvitesUnavailable: "このサーバーはメールを送れません。招待リンクを共有してください。",
+
+  // トライアル残日数(ホスト版)
+  trialDaysLeft: (n: number) => `無料トライアル: 残り${n}日`,
+  trialEndsToday: "無料トライアルは今日で終了",
+  trialPillTitle: "トライアル後も使うにはお支払い方法を登録してください",
 
   // Admin menu (gear in the sidebar header)
   adminMenuTitle: "管理メニュー",

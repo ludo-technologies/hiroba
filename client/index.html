@@ -136,6 +136,9 @@
             <div id="auth-org-select" class="auth-org-select" hidden></div>
             <button id="auth-logout" type="button" class="ghost-btn" data-i18n="signOut">Sign out</button>
           </div>
+          <!-- Hosted trial countdown; copy set from ui.ts. Hidden unless the
+               org's subscription is trialing. -->
+          <p id="auth-trial" class="auth-hint auth-trial" hidden></p>
         </div>
 
         <div class="identity">
@@ -221,8 +224,32 @@
               data-i18n-placeholder="orgNamePlaceholder"
             />
           </label>
-          <button id="org-setup-btn" type="button" data-i18n="createOrg">Create organization</button>
+          <button id="org-setup-btn" type="button" class="setup-primary" data-i18n="createOrg">Create organization</button>
           <button id="org-setup-back" type="button" class="ghost-btn" data-i18n="backToLogin">Back to sign-in</button>
+        </div>
+
+        <!-- Invite step: follows org creation. An office with one person in it
+             shows nothing, so the first thing a founder does is bring people —
+             by mail here, or with a link when the backend has no mailer. -->
+        <div id="invite-setup" class="org-setup" hidden>
+          <h2 class="org-setup-title" data-i18n="inviteSetupTitle">Invite your teammates</h2>
+          <p id="invite-setup-desc" class="org-setup-desc"></p>
+          <label id="invite-setup-emails-field" class="field">
+            <span class="field-label" data-i18n="fieldInviteEmails">Email addresses</span>
+            <textarea
+              id="invite-setup-emails"
+              rows="3"
+              placeholder="aoi@example.com, ren@example.com"
+              data-i18n-placeholder="inviteEmailsPlaceholder"
+              spellcheck="false"
+              autocapitalize="off"
+              autocomplete="off"
+            ></textarea>
+          </label>
+          <button id="invite-setup-send" type="button" class="setup-primary" data-i18n="sendInvites">Send invites</button>
+          <p id="invite-setup-status" class="auth-hint" hidden></p>
+          <button id="invite-setup-copy" type="button" class="ghost-btn" data-i18n="copyInviteLinkInstead">Copy an invite link instead</button>
+          <button id="invite-setup-enter" type="button" class="ghost-btn" data-i18n="inviteSetupEnter">Enter the office</button>
         </div>
 
         <!-- Billing lock: the org's trial ended (or its subscription lapsed)
@@ -232,7 +259,7 @@
         <div id="billing-lock" class="org-setup" hidden>
           <h2 id="billing-lock-title" class="org-setup-title"></h2>
           <p id="billing-lock-desc" class="org-setup-desc"></p>
-          <button id="billing-lock-cta" type="button" hidden></button>
+          <button id="billing-lock-cta" type="button" class="setup-primary" hidden></button>
           <!-- Way out of a locked org: the user's other memberships, one
                button each. Hidden unless they belong to 2+ orgs. -->
           <div id="billing-lock-orgs" class="billing-lock-orgs" hidden>
@@ -370,6 +397,8 @@
           </div>
         </div>
       </header>
+      <!-- Admin-only trial countdown; opens billing (add a card) on click. -->
+      <button id="trial-pill" class="trial-pill" type="button" data-i18n-title="trialPillTitle" hidden></button>
       <ul id="roster" class="roster" aria-label="Members" data-i18n-arialabel="ariaMembers"></ul>
       <!-- Admin only, same gate as the gear menu; opens the same invite panel
            but sits where a lonely roster makes the need for it obvious. -->
@@ -429,6 +458,22 @@
           <span id="invite-panel-title" class="invite-title" data-i18n="manageInvitesTitle">Manage invitations</span>
           <button id="invite-panel-close" type="button" class="ghost-btn" data-i18n="closePanel">Close</button>
         </header>
+
+        <div id="invite-email-row" class="invite-email-row">
+          <input
+            id="invite-email"
+            type="text"
+            inputmode="email"
+            placeholder="aoi@example.com, ren@example.com"
+            data-i18n-placeholder="inviteEmailsPlaceholder"
+            data-i18n-arialabel="fieldInviteEmails"
+            aria-label="Email addresses"
+            spellcheck="false"
+            autocapitalize="off"
+            autocomplete="off"
+          />
+          <button id="invite-email-send" type="button" data-i18n="sendInvites">Send invites</button>
+        </div>
 
         <div class="invite-issue">
           <label class="field invite-role-field">

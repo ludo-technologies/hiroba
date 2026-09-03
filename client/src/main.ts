@@ -27,6 +27,7 @@ import { AudioEngine } from "./audio.js";
 import {
   UIManager,
   type InviteEntry,
+  type InviteSource,
   type JoinFormValues,
   type MemberEntry,
   type RosterEntry,
@@ -233,6 +234,8 @@ const ui = new UIManager(
     onSwitchOrg: (orgSlug) => void handleSwitchOrg(orgSlug),
     onCreateOrg: handleCreateOrg,
     onCancelOrgSetup: handleCancelOrgSetup,
+    onSendInviteEmails: handleSendInviteEmails,
+    onCopyInviteLink: handleCopyInviteLink,
     onOpenInvitePanel: handleOpenInvitePanel,
     onIssueInvite: handleIssueInvite,
     onRevokeInvite: handleRevokeInvite,
@@ -488,6 +491,28 @@ function reflectAuthSession(): void {
   // lock screen carries the fix — the admin's subscribe CTA).
   void syncBillingLock();
   void syncOrgList();
+  if (authSession) void syncEmailInviteAvailability();
+}
+
+/** Auth URL the last `GET /providers` answered for; the answer is static per
+ *  backend, so one probe per URL is enough. */
+let emailInviteProbedFor: string | null = null;
+
+/** Can this backend mail invites? It can when it offers e-mail login — both
+ *  ride the same mailer. Unreachable → keep the optimistic default; the
+ *  send itself reports a real failure. */
+async function syncEmailInviteAvailability(): Promise<void> {
+  const authUrl = ui.getAuthUrl();
+  if (!authUrl || emailInviteProbedFor === authUrl) return;
+  try {
+    const resp = await fetch(`${authUrl}/providers`);
+    if (!resp.ok) return;
+    const data: { providers?: string[] } = await resp.json();
+    emailInviteProbedFor = authUrl;
+    ui.setEmailInvitesAvailable(data.providers?.includes("email") ?? false);
+  } catch {
+    /* offline — leave the default */
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -680,11 +705,90 @@ async function handleCreateOrg(name: string): Promise<void> {
     authSession = session;
     ui.hideOrgSetup();
     reflectAuthSession();
+    // The org exists and its founder is alone in it. Bringing people in is
+    // the next step, not something to discover later behind a gear icon.
+    ui.showInviteSetup(claims.org_name || claims.org);
     if ((await saveSession(session)) === "failed") ui.showError(t.errSessionNotSaved);
   } catch (err) {
     ui.showError(err instanceof Error ? err.message : t.errOrgCreate);
   } finally {
     ui.setOrgSetupBusy(false);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Invite by e-mail (invite step + admin panel) and the copy-link shortcut
+// ---------------------------------------------------------------------------
+
+/** Ask the backend to mint and mail one invite per address. The outcome goes
+ *  back to wherever the request came from; a 404 means this deployment has
+ *  no mailer, in which case the link path is the answer. */
+async function handleSendInviteEmails(
+  emails: string[],
+  role: "member" | "admin",
+  source: InviteSource,
+): Promise<void> {
+  if (!authSession) return;
+  const report = (msg: string, kind: "info" | "error") => {
+    if (source === "setup") {
+      if (kind === "error") ui.showError(msg);
+    } else if (kind === "error") {
+      ui.showInvitePanelError(msg);
+    } else {
+      ui.showToast(msg);
+    }
+  };
+  ui.setInviteSendBusy(true);
+  try {
+    const resp = await fetch(`${ui.getAuthUrl()}/invites/email`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${authSession.token}`,
+      },
+      body: JSON.stringify({ emails, role, locale }),
+    });
+    if (resp.status === 404) {
+      ui.setEmailInvitesAvailable(false);
+      report(t.errEmailInvitesUnavailable, "error");
+      return;
+    }
+    if (!resp.ok) throw new Error(t.errSendInvites);
+    const data: { sent: { email: string }[]; failed: string[] } = await resp.json();
+    const sent = data.sent.map((s) => s.email);
+    if (source === "setup") {
+      ui.showInviteSetupOutcome(sent, data.failed);
+    } else {
+      ui.showInvitePanelSendOutcome(sent, data.failed);
+      if (sent.length > 0) report(t.invitesSentTo(sent.join(", ")), "info");
+      if (data.failed.length > 0) report(t.invitesFailedFor(data.failed.join(", ")), "error");
+      await refreshInviteList();
+    }
+  } catch {
+    report(t.errSendInvites, "error");
+  } finally {
+    ui.setInviteSendBusy(false);
+  }
+}
+
+/** Mint a member invite and put its landing-page link on the clipboard. */
+async function handleCopyInviteLink(): Promise<void> {
+  if (!authSession) return;
+  try {
+    const resp = await fetch(`${ui.getAuthUrl()}/invites`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${authSession.token}`,
+      },
+      body: JSON.stringify({ role: "member" }),
+    });
+    if (!resp.ok) throw new Error(t.errIssueInvite);
+    const data: { invite: string } = await resp.json();
+    await navigator.clipboard.writeText(`${ui.getAuthUrl()}/invite/${data.invite}`);
+    ui.showToast(t.inviteLinkCopied);
+  } catch {
+    ui.showError(t.errIssueInvite);
   }
 }
 
@@ -710,13 +814,20 @@ async function refreshInviteList(): Promise<void> {
     });
     if (!resp.ok) throw new Error(t.errLoadInvites);
     const data: {
-      invites: { token: string; role: string; expires_at: number; creator: string }[];
+      invites: {
+        token: string;
+        role: string;
+        expires_at: number;
+        creator: string;
+        email?: string | null;
+      }[];
     } = await resp.json();
     const entries: InviteEntry[] = data.invites.map((i) => ({
       token: i.token,
       role: i.role,
       expiresAt: i.expires_at,
       creator: i.creator,
+      email: i.email ?? null,
     }));
     ui.renderInviteList(entries);
   } catch {
@@ -857,7 +968,10 @@ const BILLING_LOCK_POLL_MS = 10_000;
 async function syncBillingLock(): Promise<void> {
   const org = authSession?.claims.org;
   const authUrl = ui.getAuthUrl();
-  if (!org || !authUrl) return applyBillingLock(null);
+  if (!org || !authUrl) {
+    ui.setTrialStatus(null);
+    return applyBillingLock(null);
+  }
   // A lock belongs to the org it was computed for. After an org switch the
   // fail-open branches below would otherwise keep the previous org's lock
   // covering the join controls when the new org's status can't be fetched.
@@ -865,12 +979,19 @@ async function syncBillingLock(): Promise<void> {
   try {
     const resp = await fetch(`${authUrl}/billing/status/${encodeURIComponent(org)}`);
     if (resp.ok) {
-      const data: { status?: string; locked?: boolean } = await resp.json();
+      const data: { status?: string; locked?: boolean; period_end?: number | null } =
+        await resp.json();
       // The session may have changed (sign-out, org switch) while in flight;
       // whatever triggered that change owns the state now.
       if (authSession?.claims.org !== org) return;
       billingLockOrg = org;
       applyBillingLock(data.locked ? (data.status ?? "paused") : null);
+      // While trialing, `period_end` is the trial's end (INFRA §6).
+      ui.setTrialStatus(
+        data.status === "trialing" && typeof data.period_end === "number"
+          ? { daysLeft: Math.max(0, Math.ceil((data.period_end * 1000 - Date.now()) / 86_400_000)) }
+          : null,
+      );
       return;
     }
   } catch {

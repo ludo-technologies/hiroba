@@ -154,6 +154,16 @@ const elOrgSetup = $<HTMLDivElement>("org-setup");
 const elOrgSetupName = $<HTMLInputElement>("org-setup-name");
 const elOrgSetupBtn = $<HTMLButtonElement>("org-setup-btn");
 const elOrgSetupBack = $<HTMLButtonElement>("org-setup-back");
+const elAuthTrial = $<HTMLParagraphElement>("auth-trial");
+
+const elInviteSetup = $<HTMLDivElement>("invite-setup");
+const elInviteSetupDesc = $<HTMLParagraphElement>("invite-setup-desc");
+const elInviteSetupEmails = $<HTMLTextAreaElement>("invite-setup-emails");
+const elInviteSetupSend = $<HTMLButtonElement>("invite-setup-send");
+const elInviteSetupStatus = $<HTMLParagraphElement>("invite-setup-status");
+const elInviteSetupCopy = $<HTMLButtonElement>("invite-setup-copy");
+const elInviteSetupEnter = $<HTMLButtonElement>("invite-setup-enter");
+const elTrialPill = $<HTMLButtonElement>("trial-pill");
 
 const elBillingLock = $<HTMLDivElement>("billing-lock");
 const elBillingLockTitle = $<HTMLHeadingElement>("billing-lock-title");
@@ -171,6 +181,9 @@ const elInvitePanelBtn = $<HTMLButtonElement>("invite-panel-btn");
 const elRosterInviteBtn = $<HTMLButtonElement>("roster-invite-btn");
 const elInvitePanelClose = $<HTMLButtonElement>("invite-panel-close");
 const elInviteRoleHost = $<HTMLElement>("invite-role");
+const elInviteEmailRow = $<HTMLDivElement>("invite-email-row");
+const elInviteEmail = $<HTMLInputElement>("invite-email");
+const elInviteEmailSend = $<HTMLButtonElement>("invite-email-send");
 const elInviteIssueBtn = $<HTMLButtonElement>("invite-issue-btn");
 const elInviteResult = $<HTMLDivElement>("invite-result");
 const elInviteResultCode = $<HTMLDivElement>("invite-result-code");
@@ -260,12 +273,34 @@ export interface AuthDisplay {
 }
 
 /** An unused invite row shown in the admin panel (mirrors GET /invites). */
+/** Split what someone pasted into an address list: commas, semicolons,
+ *  whitespace and newlines all separate; duplicates collapse. */
+export function parseEmailList(raw: string): string[] {
+  const seen = new Set<string>();
+  for (const part of raw.split(/[\s,;]+/)) {
+    const email = part.trim().toLowerCase();
+    if (email) seen.add(email);
+  }
+  return [...seen];
+}
+
 export interface InviteEntry {
   token: string;
   role: string;
   /** Unix seconds. */
   expiresAt: number;
   creator: string;
+  /** Address the invite was mailed to, when it was issued by e-mail. */
+  email: string | null;
+}
+
+/** Where an invite-by-e-mail request came from, so the outcome lands there. */
+export type InviteSource = "setup" | "panel";
+
+/** The hosted trial as the join card and sidebar show it. */
+export interface TrialDisplay {
+  /** Whole days until the trial ends (0 = ends today). */
+  daysLeft: number;
 }
 
 /** An org member shown in the admin panel (mirrors GET /members). */
@@ -296,6 +331,10 @@ export interface UICallbacks {
   onCreateOrg(name: string): void;
   /** Abandon the org-setup step and return to the sign-in form. */
   onCancelOrgSetup(): void;
+  /** Mail an invite to each address (invite step, or the admin panel). */
+  onSendInviteEmails(emails: string[], role: "member" | "admin", source: InviteSource): void;
+  /** Mint a member invite and put its link on the clipboard (invite step). */
+  onCopyInviteLink(): void;
   /** Admin opened the invite panel — load the current invite list. */
   onOpenInvitePanel(): void;
   /** Admin issues a new invite with the chosen role. */
@@ -427,6 +466,16 @@ export class UIManager {
   private codeSentTo: string | null = null;
   private lastOrgSetupBusy = false;
   private lastInviteIssueBusy = false;
+  private lastInviteSendBusy = false;
+  /** Org named on the invite step while it is on screen. */
+  private inviteSetupOrg: string | null = null;
+  /** Outcome shown on the invite step after a send, kept for re-rendering. */
+  private inviteSetupOutcome: { sent: string[]; failed: string[] } | null = null;
+  /** Whether the auth backend can mail invites (`email` in GET /providers).
+   *  Optimistic until told otherwise: the hosted service always can. */
+  private emailInvitesAvailable = true;
+  private lastTrial: TrialDisplay | null = null;
+  private isAdmin = false;
   /** Billing-lock notice currently shown on the join card, if any. */
   private lastBillingLock: { trial: boolean; admin: boolean } | null = null;
   /** What the signed-in chip shows, kept for re-rendering when the org list
@@ -472,6 +521,7 @@ export class UIManager {
     this._bindLangSwitch();
     this._bindAuth();
     this._bindOrgSetup();
+    this._bindInviteSetup();
     this._bindBillingLock();
     this._bindInvitePanel();
     this._bindMembersPanel();
@@ -503,6 +553,7 @@ export class UIManager {
     elSidebar.setAttribute("hidden", "");
     elTabs.setAttribute("hidden", "");
     this.hideOrgSetup();
+    this.hideInviteSetup();
     this.hideInvitePanel();
     this.setCall(null);
     this.hideMoveHint();
@@ -842,7 +893,10 @@ export class UIManager {
     if (this.codeSentTo) elCodeSentMsg.textContent = t.codeSentTo(this.codeSentTo);
     this.setOrgSetupBusy(this.lastOrgSetupBusy);
     this.setInviteIssueBusy(this.lastInviteIssueBusy);
+    this.setInviteSendBusy(this.lastInviteSendBusy);
+    this._renderInviteSetup();
     this.setBillingLock(this.lastBillingLock);
+    this._renderTrial();
 
     // HUD chrome that UI owns directly.
     this.setMuted(this.lastMuted);
@@ -1021,6 +1075,131 @@ export class UIManager {
   }
 
   // -------------------------------------------------------------------------
+  // Invite step (right after the org is founded)
+  // -------------------------------------------------------------------------
+
+  /** Swap the join form body for the invite step. `org` names the org the
+   *  invitees will land in. */
+  showInviteSetup(org: string): void {
+    this.inviteSetupOrg = org;
+    this.inviteSetupOutcome = null;
+    elInviteSetupEmails.value = "";
+    elJoinForm.classList.add("invite-setup-mode");
+    elInviteSetup.removeAttribute("hidden");
+    elJoinError.setAttribute("hidden", "");
+    this._renderInviteSetup();
+    if (this.emailInvitesAvailable) elInviteSetupEmails.focus();
+  }
+
+  hideInviteSetup(): void {
+    this.inviteSetupOrg = null;
+    elJoinForm.classList.remove("invite-setup-mode");
+    elInviteSetup.setAttribute("hidden", "");
+    this.setInviteSendBusy(false);
+  }
+
+  /** Whether the invite step and the admin panel offer sending by e-mail.
+   *  Without a mailer the link/code path is the only one, so it takes the lead. */
+  setEmailInvitesAvailable(available: boolean): void {
+    this.emailInvitesAvailable = available;
+    elInviteSetup.classList.toggle("no-email", !available);
+    if (available) elInviteEmailRow.removeAttribute("hidden");
+    else elInviteEmailRow.setAttribute("hidden", "");
+    this._renderInviteSetup();
+  }
+
+  /** Both e-mail send buttons share one busy state: there is one request. */
+  setInviteSendBusy(busy: boolean): void {
+    this.lastInviteSendBusy = busy;
+    elInviteSetupSend.disabled = busy;
+    elInviteSetupEmails.disabled = busy;
+    elInviteEmailSend.disabled = busy;
+    elInviteEmail.disabled = busy;
+    elInviteSetupSend.textContent = busy ? t.sendingInvites : t.sendInvites;
+    elInviteEmailSend.textContent = busy ? t.sendingInvites : t.sendInvites;
+  }
+
+  /** Report a send from the invite step: what went out, what didn't. Once
+   *  something was sent, entering the office becomes the primary action. */
+  showInviteSetupOutcome(sent: string[], failed: string[]): void {
+    this.inviteSetupOutcome = { sent, failed };
+    if (sent.length > 0) elInviteSetupEmails.value = failed.join(", ");
+    this._renderInviteSetup();
+  }
+
+  private _renderInviteSetup(): void {
+    if (this.inviteSetupOrg === null) return;
+    elInviteSetupDesc.textContent = this.emailInvitesAvailable
+      ? t.inviteSetupDesc(this.inviteSetupOrg)
+      : t.inviteSetupDescNoEmail(this.inviteSetupOrg);
+    // Which button leads: sending, until something has been sent; the copy
+    // button when the backend can't mail at all.
+    const sentSome = (this.inviteSetupOutcome?.sent.length ?? 0) > 0;
+    const copyLeads = !this.emailInvitesAvailable && !sentSome;
+    elInviteSetupCopy.classList.toggle("setup-primary", copyLeads);
+    elInviteSetupCopy.classList.toggle("ghost-btn", !copyLeads);
+    elInviteSetupEnter.classList.toggle("setup-primary", sentSome);
+    elInviteSetupEnter.classList.toggle("ghost-btn", !sentSome);
+    const outcome = this.inviteSetupOutcome;
+    if (!outcome) {
+      elInviteSetupStatus.setAttribute("hidden", "");
+      return;
+    }
+    const lines: string[] = [];
+    if (outcome.sent.length > 0) lines.push(t.invitesSentTo(outcome.sent.join(", ")));
+    if (outcome.failed.length > 0) lines.push(t.invitesFailedFor(outcome.failed.join(", ")));
+    elInviteSetupStatus.textContent = lines.join(" ");
+    elInviteSetupStatus.removeAttribute("hidden");
+  }
+
+  private _bindInviteSetup(): void {
+    elInviteSetupSend.addEventListener("click", () => {
+      const emails = parseEmailList(elInviteSetupEmails.value);
+      if (emails.length === 0) {
+        this.showError(t.errInviteEmails);
+        elInviteSetupEmails.focus();
+        return;
+      }
+      elJoinError.setAttribute("hidden", "");
+      this.callbacks.onSendInviteEmails(emails, "member", "setup");
+    });
+    elInviteSetupCopy.addEventListener("click", () => this.callbacks.onCopyInviteLink());
+    // Leaving the step is entering the office: the join form still holds the
+    // name/color the founder chose, and its submit handler does the rest.
+    elInviteSetupEnter.addEventListener("click", () => {
+      this.hideInviteSetup();
+      elJoinForm.requestSubmit();
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Trial countdown (hosted; shown on the join card and, to admins, in the
+  // sidebar where a click opens billing)
+  // -------------------------------------------------------------------------
+
+  setTrialStatus(trial: TrialDisplay | null): void {
+    this.lastTrial = trial;
+    this._renderTrial();
+  }
+
+  private _renderTrial(): void {
+    const trial = this.lastTrial;
+    if (!trial) {
+      elAuthTrial.setAttribute("hidden", "");
+      elTrialPill.setAttribute("hidden", "");
+      return;
+    }
+    const text = trial.daysLeft <= 0 ? t.trialEndsToday : t.trialDaysLeft(trial.daysLeft);
+    elAuthTrial.textContent = text;
+    elAuthTrial.removeAttribute("hidden");
+    elTrialPill.textContent = text;
+    elTrialPill.classList.toggle("urgent", trial.daysLeft <= 3);
+    // Only an admin can act on it (the pill opens the Stripe portal).
+    if (this.isAdmin) elTrialPill.removeAttribute("hidden");
+    else elTrialPill.setAttribute("hidden", "");
+  }
+
+  // -------------------------------------------------------------------------
   // Billing lock (org's trial ended / subscription lapsed; hosted only)
   // -------------------------------------------------------------------------
 
@@ -1086,6 +1265,8 @@ export class UIManager {
    *  deployment has no billing configured (self-host), so the client needn't
    *  know whether billing is on. */
   setAdminVisible(isAdmin: boolean): void {
+    this.isAdmin = isAdmin;
+    this._renderTrial();
     if (isAdmin) {
       elAdminMenuBtn.removeAttribute("hidden");
       elRosterInviteBtn.removeAttribute("hidden");
@@ -1128,6 +1309,11 @@ export class UIManager {
     elInvitePanelError.removeAttribute("hidden");
   }
 
+  /** After a send from the panel: keep only the addresses that failed. */
+  showInvitePanelSendOutcome(sent: string[], failed: string[]): void {
+    if (sent.length > 0) elInviteEmail.value = failed.join(", ");
+  }
+
   /** Show the freshly issued invite with copy-link / copy-code actions. */
   showInviteResult(token: string, authBase: string): void {
     this.inviteToken = token;
@@ -1166,9 +1352,10 @@ export class UIManager {
         hour: "2-digit",
         minute: "2-digit",
       });
-      meta.textContent = inv.creator
-        ? `${t.inviteExpiresAt(expiry)} · ${t.inviteByCreator(inv.creator)}`
-        : t.inviteExpiresAt(expiry);
+      const parts = [t.inviteExpiresAt(expiry)];
+      if (inv.email) parts.push(t.inviteSentTo(inv.email));
+      if (inv.creator) parts.push(t.inviteByCreator(inv.creator));
+      meta.textContent = parts.join(" · ");
       // The row truncates on narrow panels; the tooltip repeats what is shown
       // rather than leaking the invite token into a hover.
       meta.title = meta.textContent;
@@ -1274,6 +1461,25 @@ export class UIManager {
     elBillingBtn.addEventListener("click", () => {
       this._setAdminMenuOpen(false);
       this.callbacks.onOpenBilling();
+    });
+    elTrialPill.addEventListener("click", () => this.callbacks.onOpenBilling());
+    const sendFromPanel = () => {
+      const emails = parseEmailList(elInviteEmail.value);
+      if (emails.length === 0) {
+        this.showInvitePanelError(t.errInviteEmails);
+        elInviteEmail.focus();
+        return;
+      }
+      elInvitePanelError.setAttribute("hidden", "");
+      const role = this.inviteRoleSelect.value === "admin" ? "admin" : "member";
+      this.callbacks.onSendInviteEmails(emails, role, "panel");
+    };
+    elInviteEmailSend.addEventListener("click", sendFromPanel);
+    elInviteEmail.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        sendFromPanel();
+      }
     });
     elInvitePanelClose.addEventListener("click", () => this.hideInvitePanel());
     bindOverlayDismiss(elInvitePanel, () => this.hideInvitePanel());
