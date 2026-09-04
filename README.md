@@ -19,12 +19,10 @@ See who's around. Walk over. Start talking.
 
 ## Why Hiroba
 
-Remote teams already have tools for scheduled meetings. What they lose is the
+Remote teams have plenty of tools for scheduled meetings. What they lose is the
 small moment before a conversation: seeing that someone is around, walking over,
-and asking, "Got a sec?"
-
-Most virtual offices try to replace meeting software and grow heavy with video,
-recording, and integrations. Hiroba goes the other way:
+and asking, "Got a sec?" Hiroba brings that moment back without trying to
+replace your meeting software.
 
 - **Presence at a glance** — see who is active, away, busy, or already in a call.
 - **Conversation without ceremony** — walk over for spatial voice, or page
@@ -33,48 +31,6 @@ recording, and integrations. Hiroba goes the other way:
   Electron meeting suite.
 - **Open and self-hostable** — run the Rust server yourself with no seat limits
   or feature gating, or use the managed hosted edition.
-
-Keep your existing meeting tool. Hiroba is for everything between the meetings.
-
-## How It Works
-
-1. Join your organization's floor and see where everyone is.
-2. Move through the lobby or switch to a small team space.
-3. Walk near someone to talk, or call any teammate with one click.
-4. Leave Hiroba running so the floor is there when your team needs it.
-
-Voice is WebRTC peer-to-peer. There is no always-on video, recording, or SFU.
-During a 1:1 page call, you can optionally share your screen directly with that
-peer.
-
-## Architecture
-
-```
-        ┌──────────────────────────────┐        WebRTC P2P (Opus)
-        │  Rust signaling/state server │      ┌───────────────────────┐
-        │  axum + tokio + WebSocket    │      ▼                       ▼
-        │  • org roster / presence     │   ┌──────┐  audio only   ┌──────┐
-        │  • per-space position relay  │   │client│◀────mesh─────▶│client│
-        │  • per-space proximity       │   │Tauri │               │Tauri │
-        │  • WebRTC signaling relay    │   └──────┘               └──────┘
-        │  • paging (cross-space 1:1)  │       ▲                     ▲
-        │  NEVER touches media         │       │  WebSocket (control)│
-        └──────────────┬───────────────┘       └─────────────────────┘
-                       └──────────────────────────────────────────────┘
-```
-
-The server only moves *control* data: the org roster, per-space positions,
-proximity decisions, and the WebRTC handshake. **Audio never flows through the
-server** — peers connect directly (P2P mesh). A team room or lobby of ≤5 is
-comfortable on a mesh. State is split into two scopes — an **org roster**
-sent to everyone, and **per-space** position/proximity/audio sent only to those
-in that space. The wire format is specified in [`PROTOCOL.md`](PROTOCOL.md).
-
-- **Server** (`server/`) — Rust, axum, tokio. Single static binary. Holds no
-  media, so it stays tiny and idle-cheap.
-- **Client** (`client/`) — Tauri (Rust shell + OS WebView) with a vanilla
-  TypeScript + Canvas 2D frontend. Uses the OS WebView's built-in WebRTC, so the
-  binary is far smaller and lighter than an Electron app.
 
 ## Install
 
@@ -95,46 +51,71 @@ Windows:
 winget install LudoTechnologies.Hiroba
 ```
 
-Or download the installer directly from the
+Or download the installer from the
 [latest release](https://github.com/ludo-technologies/hiroba/releases/latest).
-Hiroba updates itself in place, so either command is only needed once — see
-[Update Checks](#update-checks).
+Hiroba updates itself in place, so you only install once.
 
-## Quick Start (Development)
+## How It Works
+
+1. Join your organization's floor and see where everyone is.
+2. Move through the lobby or switch to a small team space.
+3. Walk near someone to talk, or call any teammate with one click.
+4. Leave Hiroba running so the floor is there when your team needs it.
+
+Voice is peer-to-peer over WebRTC. There is no always-on video, recording, or
+media server. During a 1:1 call you can share your screen with that peer.
+
+## Architecture
+
+```
+        ┌──────────────────────────────┐        WebRTC P2P (Opus)
+        │  Rust signaling/state server │      ┌───────────────────────┐
+        │  axum + tokio + WebSocket    │      ▼                       ▼
+        │  • org roster / presence     │   ┌──────┐  audio only   ┌──────┐
+        │  • per-space position relay  │   │client│◀────mesh─────▶│client│
+        │  • per-space proximity       │   │Tauri │               │Tauri │
+        │  • WebRTC signaling relay    │   └──────┘               └──────┘
+        │  • paging (cross-space 1:1)  │       ▲                     ▲
+        │  NEVER touches media         │       │  WebSocket (control)│
+        └──────────────┬───────────────┘       └─────────────────────┘
+                       └──────────────────────────────────────────────┘
+```
+
+The server relays control data only; audio goes directly between peers. The
+wire format is specified in [`PROTOCOL.md`](PROTOCOL.md).
+
+- **Server** (`server/`) — Rust, axum, tokio. A single static binary with no
+  required external services.
+- **Client** (`client/`) — Tauri (Rust shell + OS WebView) with a vanilla
+  TypeScript + Canvas 2D frontend, using the WebView's built-in WebRTC.
+
+## Development
 
 Prerequisites: **Rust** (stable), **Node** 18+, and the
 [Tauri v2 system dependencies](https://tauri.app/start/prerequisites/) for your OS.
 
 ```bash
-# 1. Start the server (listens on 0.0.0.0:8787 by default)
-cd server
-cargo run                      # or: HIROBA_ADDR=0.0.0.0:9000 cargo run
+# Server (listens on 0.0.0.0:8787 by default; override with HIROBA_ADDR)
+cd server && cargo run
 
-# 2. Start the client (in another terminal)
-cd client
-npm install
-npm run tauri:dev   # dev identifier (org.hiroba.app.dev) keeps WebView
-                    # storage isolated from an installed release build
+# Client, in another terminal
+cd client && npm install && npm run tauri:dev
 ```
 
-In the client's join screen, enter a display name, pick an avatar color, and
-point it at your server (`ws://127.0.0.1:8787/ws` for local dev). Open a second
-client instance to see two avatars; walk them together in the lobby to hear
-spatial voice fade in, or switch both to the same team tab for a group call.
-**You start muted** — click the mic button to go live.
+In the join screen, point the client at `ws://127.0.0.1:8787/ws`. Open a second
+client to see two avatars; walk them together to hear spatial voice fade in.
+You start muted — click the mic button to go live. Move with **WASD / arrow
+keys**, switch spaces with the **tabs**, and page a teammate with **Call** in
+the sidebar.
 
-Controls: **WASD / arrow keys** to move; the **tabs** (top) switch spaces; the
-**sidebar** lists the org — hit **Call** next to a member to page them.
-
-## Building Release Artifacts
+Release builds:
 
 ```bash
-# Server: a single optimized binary at server/target/release/hiroba-server
+# Server binary: server/target/release/hiroba-server
 cd server && cargo build --release
 
-# Client: native installers/bundles under client/src-tauri/target/release/bundle/
-# The server URLs to bake in are required — the build fails without them
-# (there is intentionally no loopback fallback in release bundles).
+# Client bundles: client/src-tauri/target/release/bundle/
+# Both server URLs are required; the build fails without them.
 cd client && npm install
 VITE_HIROBA_SERVER="wss://hiroba.example/ws" \
 VITE_HIROBA_AUTH_SERVER="https://auth.hiroba.example" \
@@ -142,41 +123,30 @@ npm run tauri build
 ```
 
 Tagged releases build these on CI and publish them to GitHub Releases, the
-Homebrew tap, and winget — see **[docs/PACKAGING.md](docs/PACKAGING.md)**.
+Homebrew tap, and winget — see [docs/PACKAGING.md](docs/PACKAGING.md).
 
 ## Self-Hosting
 
-The server is a single binary with no required external services (no media
-server; optional SQLite via `HIROBA_DB`). See
-**[docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)** for deployment, configuration,
-firewall/NAT notes, and when you might need a TURN server.
+The server needs no media server and no database (SQLite is optional via
+`HIROBA_DB`). See [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md) for deployment,
+configuration, firewall/NAT notes, and when you might need a TURN server.
 
 A managed hosted edition (OAuth sign-in, invites, billing) is offered separately
 and is not part of this repository.
 
 ## Update Checks
 
-Official builds check for updates shortly after launch and every four hours
-while the app stays open. The check is a plain `GET` to
-
-```
-https://update.hirobaoffice.com/v1/{{target}}/{{arch}}/{{current_version}}
-```
-
-which returns the same signed `latest.json` that GitHub Releases serves, and
-the update itself still downloads from GitHub. We log one row per day per
-device from those requests: platform, architecture, installed version, and the
-country Cloudflare derives from the IP. The device is recorded as a hash of IP
-and user agent salted with the current date, so rows cannot be linked across
-days, and they are deleted after 90 days.
+Official builds check `update.hirobaoffice.com` for a new version shortly after
+launch and every four hours while open; the update itself downloads from GitHub
+Releases. From those requests we keep one row per device per day: platform,
+architecture, installed version, and the country Cloudflare derives from the
+IP. The device is a hash of IP and user agent salted with the date, so rows
+cannot be linked across days, and they are deleted after 90 days.
 
 There is no other telemetry: nothing about your org, floor, teammates, calls,
-or usage of the app is collected, and the server ships no analytics SDK.
-
-To turn the check off, remove `plugins.updater.endpoints` from
-`client/src-tauri/tauri.conf.json` and build from source — see
-[docs/SELF_HOSTING.md](docs/SELF_HOSTING.md#auto-update). Self-hosted
-deployments that build their own client never contact us at all.
+or usage is collected, and the server ships no analytics SDK. Self-hosted
+builds can disable the check entirely — see
+[docs/SELF_HOSTING.md](docs/SELF_HOSTING.md#auto-update).
 
 ## License
 

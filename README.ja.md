@@ -11,54 +11,20 @@
 [![Latest release](https://img.shields.io/github/v/release/ludo-technologies/hiroba?label=release)](https://github.com/ludo-technologies/hiroba/releases/latest)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-<img src="docs/hiroba-demo.gif" width="900" alt="Hirobaでアバターが同僚に近づき、音声会話を始める様子">
+<img src="docs/hiroba-demo.gif" width="900" alt="Hirobaでアバターが同僚のもとへ歩いていき、音声会話を始める様子">
 
-[**Hirobaをダウンロード**](https://github.com/ludo-technologies/hiroba/releases/latest) · [公式サイト](https://hirobaoffice.com/) · [ブログ](https://hirobaoffice.com/blog/) · [セルフホストガイド](docs/SELF_HOSTING.md) · [プロトコル仕様](PROTOCOL.md)
+[**Hirobaをダウンロード**](https://github.com/ludo-technologies/hiroba/releases/latest) · [Webサイト](https://hirobaoffice.com/) · [ブログ](https://hirobaoffice.com/blog/) · [セルフホストガイド](docs/SELF_HOSTING.md) · [プロトコル](PROTOCOL.md)
 
 </div>
 
-## Hirobaを作った理由
+## なぜHirobaなのか
 
-リモートチームには、予定された会議のためのツールはすでにあります。一方で失われたのは、相手がいることに気づき、近づいて「今ちょっといい？」と声をかける、会話が始まる前の小さな瞬間です。
+リモートチームには、予定された会議のためのツールはすでに十分あります。失われているのは、会話が始まる前の小さな瞬間です。誰かがいることに気づき、近づいて「ちょっといい？」と声をかける。Hirobaは会議ツールを置き換えることなく、その瞬間を取り戻します。
 
-多くのバーチャルオフィスは会議ツールを置き換えようとして、ビデオ、録画、インテグレーションなどの機能を増やし、重くなっていきます。Hirobaは逆の方向を目指します。
-
-- **ひと目で分かる在席状況** — アクティブ、離席中、取り込み中、通話中のメンバーを確認できます。
-- **構えずに始められる会話** — 近づいて空間音声で話すか、メンバー一覧から直接呼び出せます。
-- **軽さを重視した設計** — Electron製の会議スイートではなく、一日中開いておくためのネイティブTauriクライアントです。
-- **オープンでセルフホスト可能** — Rustサーバーを自分で運用すれば、席数制限も機能制限もありません。運用不要のホスト版も利用できます。
-
-今使っている会議ツールはそのままで。Hirobaは、会議と会議の間にある時間のための場所です。
-
-## 仕組み
-
-1. 組織のフロアに入り、誰がどこにいるか確認します。
-2. ロビーを移動するか、小さなチームスペースへ切り替えます。
-3. 誰かに近づいて話すか、チームメンバーをワンクリックで呼び出します。
-4. Hirobaを起動したままにして、必要なときにいつでもチームが集まれる状態にします。
-
-音声はWebRTCによるピアツーピア通信です。常時接続のビデオ、録画、SFUはありません。1対1の呼び出し通話では、その相手にだけ画面を共有することもできます。
-
-## アーキテクチャ
-
-```
-        ┌──────────────────────────────┐        WebRTC P2P (Opus)
-        │  Rust signaling/state server │      ┌───────────────────────┐
-        │  axum + tokio + WebSocket    │      ▼                       ▼
-        │  • org roster / presence     │   ┌──────┐  audio only   ┌──────┐
-        │  • per-space position relay  │   │client│◀────mesh─────▶│client│
-        │  • per-space proximity       │   │Tauri │               │Tauri │
-        │  • WebRTC signaling relay    │   └──────┘               └──────┘
-        │  • paging (cross-space 1:1)  │       ▲                     ▲
-        │  NEVER touches media         │       │  WebSocket (control)│
-        └──────────────┬───────────────┘       └─────────────────────┘
-                       └──────────────────────────────────────────────┘
-```
-
-サーバーが扱うのは、組織のメンバー一覧、スペースごとの位置、近接判定、WebRTCハンドシェイクといった制御データだけです。**音声がサーバーを経由することはありません。** ピア同士がP2Pメッシュで直接接続します。チームスペースやロビーは5人以下での利用に適しています。状態は、全員へ送る**組織のメンバー一覧**と、そのスペースにいる人だけへ送る**スペースごとの位置・近接・音声情報**の2つのスコープに分かれています。通信形式は[`PROTOCOL.md`](PROTOCOL.md)に記載しています。
-
-- **サーバー**（`server/`）— Rust、axum、tokio。単一の静的バイナリです。メディアを扱わないため、小さく低負荷に動作します。
-- **クライアント**（`client/`）— RustシェルとOS WebViewからなるTauri、Vanilla TypeScript、Canvas 2Dで構成されています。OS WebView内蔵のWebRTCを使うため、Electronアプリよりもバイナリを小さく軽量にできます。
+- **一目で分かるプレゼンス** — アクティブ、離席、取り込み中、通話中が分かります。
+- **気軽に始まる会話** — 近づけば空間音声で話せます。メンバー一覧から直接呼び出すこともできます。
+- **軽さを前提とした設計** — 一日中開いたままにできるネイティブTauriクライアントです。Electron製の会議スイートではありません。
+- **オープンでセルフホスト可能** — Rust製サーバーを自分で運用できます。席数制限や機能制限はありません。マネージドホスト版も利用できます。
 
 ## インストール
 
@@ -78,65 +44,79 @@ Windows：
 winget install LudoTechnologies.Hiroba
 ```
 
-[最新リリース](https://github.com/ludo-technologies/hiroba/releases/latest)からインストーラーを直接ダウンロードすることもできます。Hirobaはアプリ自身が更新されるため、これらのコマンドが必要なのは最初の1回だけです。詳しくは[アップデート確認](#アップデート確認)をご覧ください。
+[最新リリース](https://github.com/ludo-technologies/hiroba/releases/latest)からインストーラーを直接ダウンロードすることもできます。Hirobaはアプリ自身が更新されるため、インストールは最初の1回だけです。
 
-## クイックスタート（開発）
+## 使い方
+
+1. 組織のフロアに参加すると、全員の居場所が分かります。
+2. ロビーを歩き回るか、少人数のチームスペースに切り替えます。
+3. 誰かに近づけば話せます。ワンクリックで任意のメンバーを呼び出すこともできます。
+4. Hirobaを起動したままにしておけば、チームが必要なときにいつでもフロアがあります。
+
+音声はWebRTCによるピアツーピア通信です。常時接続のビデオ、録画、メディアサーバーはありません。1対1の通話では、その相手に画面を共有できます。
+
+## アーキテクチャ
+
+```
+        ┌──────────────────────────────┐        WebRTC P2P (Opus)
+        │  Rust signaling/state server │      ┌───────────────────────┐
+        │  axum + tokio + WebSocket    │      ▼                       ▼
+        │  • org roster / presence     │   ┌──────┐  audio only   ┌──────┐
+        │  • per-space position relay  │   │client│◀────mesh─────▶│client│
+        │  • per-space proximity       │   │Tauri │               │Tauri │
+        │  • WebRTC signaling relay    │   └──────┘               └──────┘
+        │  • paging (cross-space 1:1)  │       ▲                     ▲
+        │  NEVER touches media         │       │  WebSocket (control)│
+        └──────────────┬───────────────┘       └─────────────────────┘
+                       └──────────────────────────────────────────────┘
+```
+
+サーバーが中継するのは制御データだけで、音声はピア同士が直接やり取りします。通信形式は[`PROTOCOL.md`](PROTOCOL.md)に記載しています。
+
+- **サーバー**（`server/`）— Rust、axum、tokio。必須の外部サービスがない、単一の静的バイナリです。
+- **クライアント**（`client/`）— RustシェルとOS WebViewからなるTauriに、Vanilla TypeScriptとCanvas 2Dのフロントエンド。WebRTCはWebView内蔵のものを使います。
+
+## 開発
 
 必要なもの：**Rust**（stable）、**Node.js 18以降**、利用するOS向けの[Tauri v2システム依存パッケージ](https://tauri.app/start/prerequisites/)。
 
 ```bash
-# 1. サーバーを起動（デフォルトでは0.0.0.0:8787で待ち受け）
-cd server
-cargo run                      # または HIROBA_ADDR=0.0.0.0:9000 cargo run
+# サーバー（デフォルトでは0.0.0.0:8787で待ち受け。HIROBA_ADDRで変更可）
+cd server && cargo run
 
-# 2. 別のターミナルでクライアントを起動
-cd client
-npm install
-npm run tauri:dev   # 開発用identifier（org.hiroba.app.dev）により、WebViewの
-                    # ストレージをインストール済みリリース版から分離します
+# クライアント（別のターミナルで）
+cd client && npm install && npm run tauri:dev
 ```
 
-クライアントの参加画面で表示名とアバターの色を選び、サーバーを指定します。ローカル開発では`ws://127.0.0.1:8787/ws`です。2つ目のクライアントを開くと、2人のアバターを確認できます。ロビーで互いに近づけると空間音声が次第に聞こえ、同じチームタブへ切り替えるとグループ通話になります。**参加時はミュート状態です。** マイクボタンをクリックすると発話できます。
+参加画面でサーバーに`ws://127.0.0.1:8787/ws`を指定します。2つ目のクライアントを開くと2人のアバターを確認でき、互いに近づけると空間音声が次第に聞こえます。参加時はミュート状態なので、マイクボタンをクリックすると発話できます。移動は**WASDキーまたは矢印キー**、スペースの切り替えは**タブ**、メンバーの呼び出しはサイドバーの**Call**です。
 
-操作方法：**WASDキーまたは矢印キー**で移動し、上部の**タブ**でスペースを切り替えます。**サイドバー**には組織のメンバーが表示され、メンバー横の**Call**から相手を呼び出せます。
-
-## リリース成果物のビルド
+リリースビルド：
 
 ```bash
-# サーバー：最適化済みの単一バイナリをserver/target/release/hiroba-serverに生成
+# サーバーバイナリ：server/target/release/hiroba-server
 cd server && cargo build --release
 
-# クライアント：ネイティブインストーラー／バンドルを
-# client/src-tauri/target/release/bundle/に生成
-# 組み込むサーバーURLは必須です。指定しない場合、ビルドは失敗します
-# （リリースバンドルがループバックへフォールバックすることはありません）。
+# クライアントバンドル：client/src-tauri/target/release/bundle/
+# 2つのサーバーURLは必須です。指定しない場合、ビルドは失敗します。
 cd client && npm install
 VITE_HIROBA_SERVER="wss://hiroba.example/ws" \
 VITE_HIROBA_AUTH_SERVER="https://auth.hiroba.example" \
 npm run tauri build
 ```
 
-タグを打つとCIがこれらをビルドし、GitHub Releases、Homebrew tap、wingetへ公開します。詳しくは**[docs/PACKAGING.md](docs/PACKAGING.md)**をご覧ください。
+タグを打つとCIがこれらをビルドし、GitHub Releases、Homebrew tap、wingetへ公開します。詳しくは[docs/PACKAGING.md](docs/PACKAGING.md)をご覧ください。
 
 ## セルフホスト
 
-サーバーは単一バイナリで、必須の外部サービスはありません。メディアサーバーは不要で、`HIROBA_DB`を指定するとSQLiteを任意で利用できます。デプロイ、設定、ファイアウォール／NAT、TURNサーバーが必要になる条件については、**[docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)**を参照してください。
+サーバーにメディアサーバーもデータベースも必要ありません（`HIROBA_DB`を指定するとSQLiteを任意で利用できます）。デプロイ、設定、ファイアウォール／NAT、TURNサーバーが必要になる条件については、[docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)を参照してください。
 
 OAuthログイン、招待、課金を含むマネージドホスト版は別途提供しており、このリポジトリには含まれていません。
 
 ## アップデート確認
 
-公式ビルドは、起動直後と、アプリを開いている間は4時間ごとにアップデートを確認します。確認は次のURLへの単純な`GET`です。
+公式ビルドは、起動直後と、アプリを開いている間は4時間ごとに`update.hirobaoffice.com`へ新バージョンの有無を確認します。アップデート本体のダウンロード元はGitHub Releasesです。このリクエストから、1日1端末につき1行だけ記録します。プラットフォーム、アーキテクチャ、インストール済みバージョン、そしてCloudflareがIPから判定した国です。端末は、IPとユーザーエージェントをその日の日付でソルトしたハッシュとして記録するため、日をまたいで同一端末を追跡することはできません。記録は90日で削除されます。
 
-```
-https://update.hirobaoffice.com/v1/{{target}}/{{arch}}/{{current_version}}
-```
-
-返るのはGitHub Releasesが配信しているものと同じ署名済み`latest.json`で、アップデート本体のダウンロード元もGitHubのままです。このリクエストから、1日1端末につき1行だけ記録します。プラットフォーム、アーキテクチャ、インストール済みバージョン、そしてCloudflareがIPから判定した国です。端末は、IPとユーザーエージェントをその日の日付でソルトしたハッシュとして記録するため、日をまたいで同一端末を追跡することはできません。記録は90日で削除されます。
-
-これ以外のテレメトリはありません。組織、フロア、メンバー、通話、アプリの使用状況は一切収集せず、サーバーにも解析SDKは入っていません。
-
-確認を無効にするには、`client/src-tauri/tauri.conf.json`から`plugins.updater.endpoints`を削除してソースからビルドしてください（[docs/SELF_HOSTING.md](docs/SELF_HOSTING.md#auto-update)参照）。クライアントを自前でビルドするセルフホスト環境は、そもそも我々に一切接続しません。
+これ以外のテレメトリはありません。組織、フロア、メンバー、通話、アプリの使用状況は一切収集せず、サーバーにも解析SDKは入っていません。セルフホスト用のビルドでは確認自体を無効にできます。[docs/SELF_HOSTING.md](docs/SELF_HOSTING.md#auto-update)を参照してください。
 
 ## ライセンス
 
