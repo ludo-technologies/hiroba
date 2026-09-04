@@ -67,8 +67,8 @@ The release action only adds versions to a package that already exists in
      --author "Ludo Technologies" \
      --license Apache-2.0 \
      --license-url https://github.com/ludo-technologies/hiroba/blob/main/LICENSE \
-     --short-description "Always-on presence app for remote teams" \
-     --description "Hiroba is an open-source, always-on presence app for remote teams. See who is around on a shared 2D floor, walk over for spatial voice, or page a teammate directly. Voice is WebRTC peer-to-peer, so audio never passes through the server. Use the hosted edition or self-host the Rust server." \
+     --short-description "Lightweight open-source virtual office for remote teams" \
+     --description "Hiroba is a lightweight, open-source virtual office for remote teams. See who is around on a shared 2D floor, walk over for spatial voice, or page a teammate directly. Voice is WebRTC peer-to-peer, so audio never passes through the server. Use the hosted edition or self-host the Rust server." \
      --release-notes-url https://github.com/ludo-technologies/hiroba/releases/tag/v0.1.31 \
      --token <classic PAT> \
      --submit

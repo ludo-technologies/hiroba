@@ -4,7 +4,7 @@
 
 # Hiroba
 
-**An open-source, always-on presence app for remote teams.**
+**A lightweight, open-source virtual office for remote teams.**
 
 See who's around. Walk over. Start talking.
 
