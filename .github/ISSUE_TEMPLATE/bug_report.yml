@@ -1,0 +1,44 @@
+name: Bug report
+description: Something in Hiroba does not work as expected
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Hiroba version
+      placeholder: v0.1.34
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS and version
+      placeholder: macOS 15.3 (Apple Silicon) / Windows 11 24H2
+    validations:
+      required: true
+  - type: dropdown
+    id: server
+    attributes:
+      label: Server
+      options:
+        - Hosted (hirobaoffice.com)
+        - Self-hosted
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened instead
+    validations:
+      required: true
+  - type: textarea
+    id: network
+    attributes:
+      label: Network details (voice or screen-share issues only)
+      description: Are both peers on the same network? Is a TURN server configured? Any VPN or corporate firewall?

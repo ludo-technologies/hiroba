@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/ludo-technologies/hiroba/discussions
+    about: Ask about self-hosting, setup, or anything that is not a bug.
+  - name: Security vulnerability
+    url: https://github.com/ludo-technologies/hiroba/security/advisories/new
+    about: Report privately. Do not open a public issue.
