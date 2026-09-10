@@ -41,7 +41,7 @@ Homebrew 6以降は、公式以外のtapのcaskを信頼するまで読み込み
 Windows：
 
 ```powershell
-winget install LudoTechnologies.Hiroba
+winget install hiroba
 ```
 
 [最新リリース](https://github.com/ludo-technologies/hiroba/releases/latest)からインストーラーを直接ダウンロードすることもできます。Hirobaはアプリ自身が更新されるため、インストールは最初の1回だけです。

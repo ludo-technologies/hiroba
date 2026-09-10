@@ -48,7 +48,7 @@ older versions the `brew trust` line is unnecessary.
 Windows:
 
 ```powershell
-winget install LudoTechnologies.Hiroba
+winget install hiroba
 ```
 
 Or download the installer from the
