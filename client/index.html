@@ -59,6 +59,9 @@
             <span class="brand-latin" data-i18n="brandTag">Your team's virtual office</span>
           </span>
         </header>
+        <!-- Browser guest: the web build opened from an invite link
+             (?invite=…). Copy set from ui.ts; hidden otherwise. -->
+        <p id="guest-hint" class="auth-hint guest-hint" hidden></p>
         <!-- OAuth login (FR-13 / AUTH_PLAN). Hidden in plain-browser builds,
              where the manual token field below stays the fallback. -->
         <div id="auth-block" class="auth-block">
@@ -188,7 +191,7 @@
           <input id="join-color" type="color" value="#b54f2c" hidden />
         </div>
 
-        <label class="field">
+        <label id="join-invite-field" class="field">
           <span class="field-label" data-i18n="fieldInvite">Invite code (optional)</span>
           <input
             id="join-invite"
@@ -635,7 +638,11 @@
         </button>
         <span id="count" class="hud-pill" data-i18n="justYou">Just you</span>
       </div>
-      <button id="leave" class="hud-btn" title="Leave the office" data-i18n="leave" data-i18n-title="leaveTitle">Leave</button>
+      <div class="hud-group">
+        <!-- Browser sessions only: the way from "tried it" to "installed it". -->
+        <a id="hud-get-app" class="hud-pill" href="https://hirobaoffice.com/#download" target="_blank" rel="noopener noreferrer" data-i18n="guestGetApp" hidden>Get the desktop app</a>
+        <button id="leave" class="hud-btn" title="Leave the office" data-i18n="leave" data-i18n-title="leaveTitle">Leave</button>
+      </div>
     </div>
 
     <!-- Audio settings (mic/speaker device selection + input level meter) -->

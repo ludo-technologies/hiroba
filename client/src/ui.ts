@@ -114,6 +114,9 @@ const elJoinServer = $<HTMLInputElement>("join-server");
 const elJoinToken = $<HTMLInputElement>("join-token");
 const elJoinAuth = $<HTMLInputElement>("join-auth");
 const elJoinInvite = $<HTMLInputElement>("join-invite");
+const elJoinInviteField = $<HTMLLabelElement>("join-invite-field");
+const elGuestHint = $<HTMLParagraphElement>("guest-hint");
+const elHudGetApp = $<HTMLAnchorElement>("hud-get-app");
 const elAuthBlock = $<HTMLDivElement>("auth-block");
 const elAuthActions = $<HTMLDivElement>("auth-actions");
 const elAuthRestoring = $<HTMLDivElement>("auth-restoring");
@@ -542,7 +545,23 @@ export class UIManager {
     // Under Tauri a stored session may still be on its way in, so the sign-in
     // buttons wait rather than greet a signed-in user with a login form.
     if (this.tauri) this.setAuthRestoring(true);
-    else elAuthBlock.setAttribute("hidden", "");
+    else {
+      elAuthBlock.setAttribute("hidden", "");
+      elHudGetApp.removeAttribute("hidden");
+    }
+  }
+
+  /** Browser guest entry (web build opened from an invite link): the invite
+   *  is fixed by the URL, so the field goes and a hint says what will happen. */
+  setGuestMode(on: boolean): void {
+    if (on) {
+      elGuestHint.textContent = t.guestJoinHint;
+      elGuestHint.removeAttribute("hidden");
+      elJoinInviteField.setAttribute("hidden", "");
+    } else {
+      elGuestHint.setAttribute("hidden", "");
+      elJoinInviteField.removeAttribute("hidden");
+    }
   }
 
   // -------------------------------------------------------------------------

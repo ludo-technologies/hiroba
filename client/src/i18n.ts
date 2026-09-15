@@ -218,6 +218,11 @@ const EN = {
   // Invite deep link (hiroba://invite/<token>)
   inviteApplied: "Invite code applied — sign in to join the org.",
 
+  // Browser guest (web build opened from an invite link)
+  guestJoinHint: "You're joining as a guest from an invite link. Enter a name and you're in.",
+  guestGetApp: "Get the desktop app",
+  errGuestInvite: "This invite link has expired or was revoked. Ask your teammate for a new one.",
+
   // HUD
   muted: "Muted",
   live: "Live",
@@ -504,6 +509,11 @@ const JA: typeof EN = {
 
   // Invite deep link (hiroba://invite/<token>)
   inviteApplied: "招待コードを受け取りました。サインインすると参加できます。",
+
+  // Browser guest (web build opened from an invite link)
+  guestJoinHint: "招待リンクからゲストとして参加します。名前を入れるだけで入室できます。",
+  guestGetApp: "デスクトップ版を入手",
+  errGuestInvite: "この招待リンクは期限切れか取り消されています。招待した人に新しいリンクをもらってください。",
 
   // HUD
   muted: "ミュート中",

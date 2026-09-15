@@ -10,11 +10,22 @@
  *     (`onOpenUrl`); on Windows/Linux the single-instance plugin forwards
  *     the second process's URL there first.
  *
- * Runs only under Tauri — a plain browser tab never receives scheme URLs.
+ * Runs only under Tauri — a plain browser tab never receives scheme URLs; the
+ * browser build takes its invite from the page URL instead
+ * (`inviteFromLocation`, the landing page's "join in browser" link).
  */
 
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
-import { isTauri, parseInviteDeepLink } from "./auth.js";
+import { extractInviteCode, isTauri, parseInviteDeepLink } from "./auth.js";
+
+/** The invite a browser tab was opened with (`?invite=<token or link>`), or
+ *  `""`. Always `""` under Tauri, where invites arrive as deep links. */
+export function inviteFromLocation(): string {
+  if (isTauri()) return "";
+  const raw = new URLSearchParams(window.location.search).get("invite") ?? "";
+  const code = extractInviteCode(raw);
+  return /^[A-Za-z0-9_-]{1,128}$/.test(code) ? code : "";
+}
 
 /** Start listening; `onInvite` fires with the bare token for each invite link. */
 export function startDeepLinkListener(onInvite: (code: string) => void): void {

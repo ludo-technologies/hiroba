@@ -18,6 +18,7 @@ import {
   emailStart,
   emailVerify,
   extractInviteCode,
+  guestLogin,
   listOrgs,
   loadSession,
   parseInviteDeepLink,
@@ -417,4 +418,37 @@ test("saveSession reports failure instead of throwing away a completed sign-in",
   }
   // No shell at all (plain-browser build): nothing to persist, nothing to warn about.
   assert.equal(await saveSession(session), "skipped");
+});
+
+test("guestLogin trades an invite and a name for a refresh-less session", async () => {
+  const token = jwt(3600);
+  const { result, calls } = await withFetch(
+    () => jsonResponse(200, { token }),
+    () => guestLogin("https://auth.example.com", "inv-1", "Gen"),
+  );
+  assert.equal(calls[0].url, "https://auth.example.com/guest");
+  assert.deepEqual(calls[0].body, { invite: "inv-1", name: "Gen" });
+  assert.equal(result.token, token);
+  assert.equal(result.refreshToken, "");
+  assert.equal(typeof result.claims.exp, "number");
+});
+
+test("guestLogin reports a dead invite as InviteRejectedError", async () => {
+  await assert.rejects(
+    withFetch(
+      () => new Response("invite invalid or expired", { status: 409 }),
+      () => guestLogin("https://auth.example.com", "inv-1", "Gen"),
+    ),
+    InviteRejectedError,
+  );
+});
+
+test("guestLogin surfaces other failures as plain errors", async () => {
+  await assert.rejects(
+    withFetch(
+      () => new Response("storage error", { status: 500 }),
+      () => guestLogin("https://auth.example.com", "inv-1", "Gen"),
+    ),
+    (err) => !(err instanceof InviteRejectedError),
+  );
 });

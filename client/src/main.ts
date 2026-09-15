@@ -39,7 +39,7 @@ import {
   shouldKeepAwake,
 } from "./loop.js";
 import { startUpdateChecks } from "./updater.js";
-import { startDeepLinkListener } from "./deeplink.js";
+import { inviteFromLocation, startDeepLinkListener } from "./deeplink.js";
 import { resolveIceServers, type IceResolution } from "./config.js";
 import { locale, spaceLabel, t } from "./i18n.js";
 import {
@@ -49,6 +49,7 @@ import {
   decodeClaims,
   emailStart,
   emailVerify,
+  guestLogin,
   InviteRejectedError,
   isLive,
   isTauri,
@@ -281,6 +282,12 @@ startUpdateChecks(ui);
 // Invite deep links (hiroba://invite/<token>): prefill the join form so the
 // invited user only has to pick a sign-in provider. No-op outside Tauri.
 startDeepLinkListener((code) => ui.applyInvite(code));
+
+// Browser guest: the web build opened from an invite link (?invite=…). The
+// invite stands in for a sign-in — `effectiveToken` trades it for a guest
+// session on every connect, so a re-entry hours later needs no new link.
+const webInvite = inviteFromLocation();
+if (webInvite) ui.setGuestMode(true);
 
 if (isTauri()) {
   const appWindow = getCurrentWindow();
@@ -1077,6 +1084,17 @@ window.addEventListener("focus", () => void syncBillingLock());
  *  on the spot so we don't knock on the server with a dead JWT. */
 async function effectiveToken(manual: string): Promise<string> {
   if (manual) return manual;
+  if (webInvite) {
+    if (!authSession || !isLive(authSession.claims)) {
+      try {
+        authSession = await guestLogin(ui.getAuthUrl(), webInvite, lastJoin?.name ?? "");
+      } catch (err) {
+        throw new Error(err instanceof InviteRejectedError ? "guest_invite" : "connect");
+      }
+      reflectAuthSession();
+    }
+    return authSession.token;
+  }
   // An org switch in flight owns the session: connecting with the pre-switch
   // token would put the user in the org the chip no longer shows.
   if (orgSwitchPending) await orgSwitchPending;
@@ -1229,12 +1247,13 @@ function connectionErrorCopy(code: string): string {
     case "space_limit": return t.errSpaceLimit;
     case "unknown_space": return t.errUnknownSpace;
     case "forbidden": return t.errForbidden;
+    case "guest_invite": return t.errGuestInvite;
     default: return t.errConnect;
   }
 }
 
 function isPermanentConnectionError(code: string): boolean {
-  return ["auth_failed", "org_suspended", "space_full", "space_limit", "unknown_space", "forbidden"].includes(code);
+  return ["auth_failed", "org_suspended", "space_full", "space_limit", "unknown_space", "forbidden", "guest_invite"].includes(code);
 }
 
 function startSession(net: HirobaNet, msg: WelcomeMsg, ice: IceResolution): void {

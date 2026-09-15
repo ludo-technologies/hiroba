@@ -708,6 +708,18 @@ body {
   box-shadow: var(--shadow-hud);
 }
 
+a.hud-pill {
+  text-decoration: none;
+}
+
+.guest-hint {
+  margin: 0 0 14px;
+}
+
+.field[hidden] {
+  display: none;
+}
+
 .hud-btn {
   display: inline-flex;
   align-items: center;

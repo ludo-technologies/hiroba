@@ -241,6 +241,30 @@ export async function emailVerify(
   };
 }
 
+/**
+ * Browser guest entry: an invite link plus a display name buys a session for
+ * the invite's org (`POST /guest`) — no account, no refresh token. Any
+ * unexpired invite works, consumed or not; a 409 means it expired or the
+ * admin revoked it.
+ */
+export async function guestLogin(
+  authBase: string,
+  invite: string,
+  name: string,
+): Promise<AuthSession> {
+  const resp = await fetch(authEndpoint(authBase, "/guest"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ invite, name }),
+  });
+  if (resp.status === 409) throw new InviteRejectedError();
+  if (!resp.ok) throw new Error(await resp.text());
+  const data: { token?: string } = await resp.json();
+  const claims = data.token ? decodeClaims(data.token) : null;
+  if (!data.token || !claims) throw new Error("auth backend returned a malformed token");
+  return { token: data.token, claims, refreshToken: "" };
+}
+
 /** Keep only the digits a code is made of, so pasted text ("code: 012 345")
  *  still lands in the field. */
 export function sanitizeCode(raw: string): string {
