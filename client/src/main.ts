@@ -1082,18 +1082,25 @@ window.addEventListener("focus", () => void syncBillingLock());
 /** The token a new connection should present: a manual (Advanced) token wins,
  *  then a live OAuth session; otherwise guest. Expired sessions are dropped
  *  on the spot so we don't knock on the server with a dead JWT. */
-async function effectiveToken(manual: string): Promise<string> {
+async function effectiveToken(manual: string, signal?: AbortSignal): Promise<string> {
   if (manual) return manual;
   if (webInvite) {
-    if (!authSession || !isLive(authSession.claims)) {
-      try {
-        authSession = await guestLogin(ui.getAuthUrl(), webInvite, lastJoin?.name ?? "");
-      } catch (err) {
-        throw new Error(err instanceof InviteRejectedError ? "guest_invite" : "connect");
-      }
-      reflectAuthSession();
+    // Minted afresh for every connect and ICE renewal, never reused: the
+    // invite is the credential, and a revoked one must stop the next entry
+    // even from a tab that already got in once.
+    let session: AuthSession;
+    try {
+      session = await guestLogin(ui.getAuthUrl(), webInvite, lastJoin?.name ?? "", signal);
+    } catch (err) {
+      if (signal?.aborted) throw new Error("cancelled");
+      throw new Error(err instanceof InviteRejectedError ? "guest_invite" : "connect");
     }
-    return authSession.token;
+    // A response that outlived its attempt must not overwrite the session a
+    // newer attempt owns.
+    if (signal?.aborted) throw new Error("cancelled");
+    authSession = session;
+    reflectAuthSession();
+    return session.token;
   }
   // An org switch in flight owns the session: connecting with the pre-switch
   // token would put the user in the org the chip no longer shows.
@@ -1181,7 +1188,7 @@ async function connectSession(
 ): Promise<{ net: HirobaNet; msg: WelcomeMsg; ice: IceResolution }> {
   // The credential is resolved per attempt, not once per join: a reconnect
   // hours in must not carry a JWT that has since expired.
-  values = { ...values, token: await effectiveToken(values.token) };
+  values = { ...values, token: await effectiveToken(values.token, signal) };
   // Resolve ICE before opening the WebSocket so a slow /ice response cannot
   // leave post-welcome events arriving before session handlers are installed.
   const ice = await resolveIceServers(values.serverUrl, values.token, signal);
@@ -1289,7 +1296,23 @@ function scheduleIceRefresh(
     // The JWT is good for 12h and `/ice` refuses an expired one, so a session
     // that outlives it has to renew the token before every re-resolve —
     // otherwise each retry from here on would 401 and the day ends on STUN.
-    const token = await effectiveToken(lastJoin.token);
+    let token: string;
+    try {
+      token = await effectiveToken(lastJoin.token);
+    } catch (err) {
+      if (session !== s) return;
+      const code = err instanceof Error ? err.message : "";
+      if (isPermanentConnectionError(code)) {
+        // The credential itself is gone (a revoked guest invite): the floor
+        // is closed to us, and the next relay would fail anyway.
+        leaveSession();
+        ui.showJoin(connectionErrorCopy(code));
+        return;
+      }
+      // A blip at the auth server must not end the renewals for the day.
+      scheduleIceRefresh(ttlSeconds, ICE_REFRESH_RETRY_MS);
+      return;
+    }
     if (session !== s) return;
     const ice = await resolveIceServers(lastJoin.serverUrl, token);
     if (session !== s) return;

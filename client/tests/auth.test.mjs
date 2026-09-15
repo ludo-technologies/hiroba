@@ -33,7 +33,7 @@ async function withFetch(handler, body) {
   const calls = [];
   globalThis.fetch = async (url, init) => {
     calls.push({ url, init, body: init?.body ? JSON.parse(init.body) : null });
-    return handler();
+    return handler(url, init);
   };
   try {
     return { result: await body(), calls };
@@ -450,5 +450,20 @@ test("guestLogin surfaces other failures as plain errors", async () => {
       () => guestLogin("https://auth.example.com", "inv-1", "Gen"),
     ),
     (err) => !(err instanceof InviteRejectedError),
+  );
+});
+
+test("guestLogin gives up when its attempt is aborted", async () => {
+  const controller = new AbortController();
+  await assert.rejects(
+    withFetch(
+      (_url, init) =>
+        new Promise((_resolve, reject) => {
+          init.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+          controller.abort();
+        }),
+      () => guestLogin("https://auth.example.com", "inv-1", "Gen", controller.signal),
+    ),
+    (err) => err.name === "AbortError",
   );
 });

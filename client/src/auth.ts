@@ -148,6 +148,8 @@ export class CodeThrottledError extends Error {
 
 /** Thrown when the backend rejects the code itself (HTTP 401) — as opposed to
  *  the request never arriving, which must not be reported as a bad code. */
+const GUEST_LOGIN_TIMEOUT_MS = 12_000;
+
 export class CodeRejectedError extends Error {
   constructor() {
     super("code invalid or expired");
@@ -251,12 +253,27 @@ export async function guestLogin(
   authBase: string,
   invite: string,
   name: string,
+  signal?: AbortSignal,
 ): Promise<AuthSession> {
-  const resp = await fetch(authEndpoint(authBase, "/guest"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ invite, name }),
-  });
+  // Bounded like the ICE and WebSocket steps that follow it: a request left
+  // hanging here would hold a reconnect in "connecting" for good.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), GUEST_LOGIN_TIMEOUT_MS);
+  const abort = () => controller.abort();
+  signal?.addEventListener("abort", abort, { once: true });
+  if (signal?.aborted) controller.abort();
+  let resp: Response;
+  try {
+    resp = await fetch(authEndpoint(authBase, "/guest"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ invite, name }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+    signal?.removeEventListener("abort", abort);
+  }
   if (resp.status === 409) throw new InviteRejectedError();
   if (!resp.ok) throw new Error(await resp.text());
   const data: { token?: string } = await resp.json();
