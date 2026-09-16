@@ -1907,6 +1907,7 @@ a.hud-pill {
 /* Signed-in chip: who you are + which org the token pins you to. */
 .auth-session {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 9px;
   padding: 9px 12px;
@@ -2057,9 +2058,13 @@ a.hud-pill {
  * form rows; here it shares the row with the name and the sign-out button. */
 .auth-session .auth-org-select {
   width: auto;
-  flex: 0 1 auto;
+  flex: 1 1 140px;
   min-width: 0;
-  max-width: 55%;
+  max-width: 100%;
+}
+
+.auth-session > .ghost-btn {
+  flex: none;
 }
 
 .auth-session .cselect-trigger {
