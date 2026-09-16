@@ -680,11 +680,20 @@ function handleLogout(): void {
 // Org setup (first sign-in without an invite)
 // ---------------------------------------------------------------------------
 
-/** Trade the provisional token for a full session via `path` (`/orgs` to
- *  found one, `/orgs/join` to take an invite). Both answer with the same
- *  session shape; `reject` maps the status codes that differ. Returns the
- *  session claims, with the org-setup step already gone. */
+/** The token that may found or join an org right now: the provisional one
+ *  of a pending sign-in, else the live session (a member founding another
+ *  org). Null when neither exists and the org-setup step has no business
+ *  being on screen. */
+function orgSetupToken(): string | null {
+  return pendingProvisionalToken ?? authSession?.token ?? null;
+}
+
+/** Trade `token` for a full session via `path` (`/orgs` to found an org,
+ *  `/orgs/join` to take an invite). Both answer with the same session shape;
+ *  `reject` maps the status codes that differ. Returns the session claims,
+ *  with the org-setup step already gone. */
 async function upgradeProvisional(
+  token: string,
   path: string,
   body: Record<string, string>,
   reject: (status: number) => string,
@@ -693,7 +702,7 @@ async function upgradeProvisional(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${pendingProvisionalToken}`,
+      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(body),
   });
@@ -712,7 +721,8 @@ async function upgradeProvisional(
 }
 
 async function handleCreateOrg(name: string): Promise<void> {
-  if (!pendingProvisionalToken) {
+  const token = orgSetupToken();
+  if (!token) {
     ui.hideOrgSetup();
     return;
   }
@@ -722,10 +732,11 @@ async function handleCreateOrg(name: string): Promise<void> {
     // was shown (¥300 on the ja site, $2 elsewhere). Stripe pins it for the
     // org's lifetime; self-host auth backends just ignore the field.
     const claims = await upgradeProvisional(
+      token,
       "/orgs",
       { name, currency: locale === "ja" ? "jpy" : "usd" },
       (status) =>
-        status === 403 ? t.errAlreadyInOrg : status === 401 ? t.errSessionExpired : t.errOrgCreate,
+        status === 401 ? t.errSessionExpired : t.errOrgCreate,
     );
     // The org exists and its founder is alone in it. Bringing people in is
     // the next step, not something to discover later behind a gear icon.
@@ -747,7 +758,7 @@ async function handleJoinWithInvite(invite: string): Promise<void> {
   }
   ui.setOrgSetupBusy("join");
   try {
-    await upgradeProvisional("/orgs/join", { invite }, (status) =>
+    await upgradeProvisional(pendingProvisionalToken, "/orgs/join", { invite }, (status) =>
       status === 409
         ? t.errInvite
         : status === 403

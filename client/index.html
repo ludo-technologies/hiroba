@@ -137,6 +137,7 @@
             <span id="auth-user" class="auth-user"></span>
             <!-- Org switcher; stays hidden unless the user belongs to 2+ orgs. -->
             <div id="auth-org-select" class="auth-org-select" hidden></div>
+            <button id="auth-new-org" type="button" class="ghost-btn" data-i18n="newOrg">New organization</button>
             <button id="auth-logout" type="button" class="ghost-btn" data-i18n="signOut">Sign out</button>
           </div>
           <!-- Hosted trial countdown; copy set from ui.ts. Hidden unless the
@@ -213,7 +214,7 @@
              before a full session is minted; AUTH_PLAN org-setup flow). -->
         <div id="org-setup" class="org-setup" hidden>
           <h2 class="org-setup-title" data-i18n="orgSetupTitle">Name your organization</h2>
-          <p class="org-setup-desc" data-i18n="orgSetupDesc">
+          <p id="org-setup-desc" class="org-setup-desc" data-i18n="orgSetupDesc">
             You're almost in. Give your organization a name — teammates you invite will join it.
           </p>
           <label class="field">
@@ -231,7 +232,7 @@
           <!-- The invitee who signed in before pasting their code lands here
                too; this is where they can still take the invite instead of
                founding an org of their own. -->
-          <div class="org-setup-join">
+          <div id="org-setup-join-block" class="org-setup-join">
             <p class="auth-hint" data-i18n="orgSetupInvitedHint">Were you invited to an existing organization?</p>
             <input
               id="org-setup-invite"

@@ -40,6 +40,8 @@ const EN = {
   signInGoogle: "Sign in with Google",
   signInGithub: "Sign in with GitHub",
   signOut: "Sign out",
+  newOrg: "New organization",
+  orgSetupAnotherDesc: "Name the new organization. You stay a member of your current ones and can switch any time.",
   waitingBrowser: "Waiting for browser…",
   restoringSession: "Restoring your session…",
 
@@ -332,6 +334,8 @@ const JA: typeof EN = {
   signInGoogle: "Google でサインイン",
   signInGithub: "GitHub でサインイン",
   signOut: "サインアウト",
+  newOrg: "新しい組織",
+  orgSetupAnotherDesc: "新しい組織の名前を入力してください。今の組織にも引き続き所属し、いつでも切り替えられます。",
   waitingBrowser: "ブラウザで認証中…",
   restoringSession: "セッションを復元中…",
 

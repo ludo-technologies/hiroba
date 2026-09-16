@@ -141,6 +141,7 @@ const elAuthSession = $<HTMLDivElement>("auth-session");
 const elAuthUser = $<HTMLSpanElement>("auth-user");
 const elAuthOrgSelect = $<HTMLDivElement>("auth-org-select");
 const elAuthLogout = $<HTMLButtonElement>("auth-logout");
+const elAuthNewOrg = $<HTMLButtonElement>("auth-new-org");
 const elJoinBtn = $<HTMLButtonElement>("join-btn");
 const elJoinError = $<HTMLParagraphElement>("join-error");
 const elJoinSettingsBtn = $<HTMLButtonElement>("join-settings-btn");
@@ -159,6 +160,8 @@ const elOrgSetupBtn = $<HTMLButtonElement>("org-setup-btn");
 const elOrgSetupBack = $<HTMLButtonElement>("org-setup-back");
 const elOrgSetupInvite = $<HTMLInputElement>("org-setup-invite");
 const elOrgSetupJoin = $<HTMLButtonElement>("org-setup-join");
+const elOrgSetupJoinBlock = $<HTMLDivElement>("org-setup-join-block");
+const elOrgSetupDesc = $<HTMLParagraphElement>("org-setup-desc");
 const elAuthTrial = $<HTMLParagraphElement>("auth-trial");
 
 const elInviteSetup = $<HTMLDivElement>("invite-setup");
@@ -996,6 +999,7 @@ export class UIManager {
     elLoginGoogle.addEventListener("click", () => start("google"));
     elLoginGithub.addEventListener("click", () => start("github"));
     elAuthLogout.addEventListener("click", () => this.callbacks.onLogout());
+    elAuthNewOrg.addEventListener("click", () => this.showOrgSetup("another"));
 
     // ── E-mail one-time code ───────────────────────────────────────────────
     const sendCode = (email: string) => {
@@ -1059,13 +1063,22 @@ export class UIManager {
   // Org setup (first sign-in without an invite)
   // -------------------------------------------------------------------------
 
-  /** Swap the join form body for the org-name step. */
-  showOrgSetup(): void {
+  /** Swap the join form body for the org-name step. `"first"` is the
+   *  pending sign-in naming its org (an invite can still be taken instead);
+   *  `"another"` is a signed-in member founding one more, where the invite
+   *  route makes no sense and "back" just returns to the card. */
+  showOrgSetup(mode: "first" | "another" = "first"): void {
+    const another = mode === "another";
     elJoinForm.classList.add("org-setup-mode");
     elOrgSetup.removeAttribute("hidden");
     elJoinError.setAttribute("hidden", "");
+    elOrgSetupDesc.textContent = another ? t.orgSetupAnotherDesc : t.orgSetupDesc;
+    elOrgSetupBack.textContent = another ? t.cancel : t.backToLogin;
+    if (another) elOrgSetupJoinBlock.setAttribute("hidden", "");
+    else elOrgSetupJoinBlock.removeAttribute("hidden");
     // A code pasted on the join card before signing in travels along.
-    elOrgSetupInvite.value = elJoinInvite.value;
+    elOrgSetupInvite.value = another ? "" : elJoinInvite.value;
+    elOrgSetupName.value = "";
     elOrgSetupName.focus();
   }
 
