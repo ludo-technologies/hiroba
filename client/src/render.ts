@@ -27,7 +27,7 @@
  */
 
 import type { Peer, SpaceDescriptor, Status } from "./protocol.js";
-import { BOARD_MAX_NOTES, boardGeometry, type BoardGeometry } from "./board.js";
+import { boardGeometry, type BoardGeometry } from "./board.js";
 
 // ---------------------------------------------------------------------------
 // Per-frame voice levels handed in by main.ts (decoupled from the audio engine)
@@ -132,9 +132,9 @@ const WOOD_EDGE = "rgba(90,64,36,0.30)";
 const COUCH = "#aeb7bd"; // soft grey-blue upholstery
 const COUCH_HI = "#c2cace";
 const POT = "#b27a4f";
-const CORK = "#d2a679"; // bulletin board
-const BOARD_FRAME = "#8f6b43"; // darker than the tables, so it reads as hung on the wall
-const PAPER = ["#fff8e1", "#fde3c8", "#e6f0dc"]; // notes pinned to it
+const BOARD_FACE = "#fbf5ea"; // bulletin board: paper-light, so it is not one more table
+const BOARD_FRAME = "#8f6b43";
+const BOARD_BADGE = "#b54f2c"; // note count (the UI accent)
 const LEAF = "#7fa863";
 const LEAF_HI = "#93bd75";
 
@@ -767,19 +767,25 @@ export class Renderer {
           const x = X(it.x), y = Y(it.y), w = it.w * scale, h = it.h * scale;
           this._softShadow(x, y, w, h, false);
           roundRect(ctx, x, y, w, h, 4);
-          ctx.fillStyle = CORK;
+          ctx.fillStyle = BOARD_FACE;
           ctx.fill();
           ctx.lineWidth = Math.max(2, 3 * scale);
           ctx.strokeStyle = BOARD_FRAME;
           ctx.stroke();
-          // One slip of paper per note: the count reads without a number.
-          const cols = BOARD_MAX_NOTES / 2;
-          const cw = w / cols, ch = h / 2;
-          for (let i = 0; i < this.boardNotes; i++) {
-            const px = x + (i % cols) * cw + cw * 0.2;
-            const py = y + Math.floor(i / cols) * ch + ch * 0.22;
-            ctx.fillStyle = PAPER[i % PAPER.length];
-            ctx.fillRect(px, py, cw * 0.6, ch * 0.56);
+          // Named like the zones: unlabelled it read as one more table.
+          this._zoneLabel("Board", x + w / 2, y + h / 2, scale);
+          // Note count, as an unread-style badge on the top-right corner.
+          if (this.boardNotes > 0) {
+            const r = 9 * scale;
+            ctx.beginPath();
+            ctx.arc(x + w, y + r * 0.6, r, 0, Math.PI * 2);
+            ctx.fillStyle = BOARD_BADGE;
+            ctx.fill();
+            ctx.font = `700 ${Math.max(9, Math.round(11 * scale))}px ${FONT_FAMILY}`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillStyle = "#fff";
+            ctx.fillText(String(this.boardNotes), x + w, y + r * 0.6);
           }
           break;
         }
