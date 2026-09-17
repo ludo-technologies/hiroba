@@ -2033,7 +2033,7 @@ function bindServerMessages(net: HirobaNet): void {
   // --- Errors ---
 
   net.on("error", (e) => {
-    if (e.detail.code === "note_empty" || e.detail.code === "note_rate") ui.keepBoardDraft();
+    if (e.detail.code === "note_empty" || e.detail.code === "note_rate") ui.restoreBoardDraft();
     ui.showToast(e.detail.message, "error");
   });
 }

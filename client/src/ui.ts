@@ -480,8 +480,8 @@ export class UIManager {
   private lastScreenReopenVisible = false;
   private lastInvites: InviteEntry[] | null = null;
   private lastNotes: NoteInfo[] = [];
-  /** A note was sent and neither the new board nor a refusal has come back. */
-  private notePending = false;
+  /** The note last sent, to put back in the input if the server refuses it. */
+  private sentNote = "";
   private lastMembers: MemberEntry[] | null = null;
   private lastReconnect: { attempt: number; max: number; offline: boolean } | null = null;
   private lastUpdateVersion: string | null = null;
@@ -1943,17 +1943,14 @@ export class UIManager {
     if (!visible) elBoardInput.blur();
   }
 
-  /** The server refused the note: the draft stays, to fix or re-send. */
-  keepBoardDraft(): void {
-    this.notePending = false;
+  /** The server refused the note: hand it back to fix or re-send, unless
+   *  something newer is already being typed. */
+  restoreBoardDraft(): void {
+    if (!elBoardInput.value) elBoardInput.value = this.sentNote;
   }
 
   renderBoard(notes: NoteInfo[]): void {
     this.lastNotes = notes;
-    if (this.notePending) {
-      this.notePending = false;
-      elBoardInput.value = "";
-    }
     elBoardCount.textContent = `${notes.length} / ${BOARD_MAX_NOTES}`;
     elBoardNotes.replaceChildren();
     if (notes.length === 0) {
@@ -2313,7 +2310,10 @@ export class UIManager {
       e.preventDefault();
       const text = elBoardInput.value.trim();
       if (!text) return;
-      this.notePending = true;
+      // Cleared now rather than on the next `notes`: that may be someone
+      // else's change. A refusal reaches only us (restoreBoardDraft).
+      this.sentNote = text;
+      elBoardInput.value = "";
       this.callbacks.onPostNote(text);
     });
     // Escape hands the keyboard back to walking.
