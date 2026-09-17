@@ -50,6 +50,7 @@ import {
   emailStart,
   emailVerify,
   guestLogin,
+  loadGuestId,
   InviteRejectedError,
   isLive,
   isTauri,
@@ -65,7 +66,9 @@ import {
   type OrgSummary,
   type RestoreResult,
 } from "./auth.js";
+import { boardGeometry, boardOpen } from "./board.js";
 import type {
+  NoteInfo,
   Peer,
   RosterMember,
   SpaceDescriptor,
@@ -90,6 +93,10 @@ interface Session {
   space: SpaceDescriptor;
   /** Full space catalog (drives the tabs). */
   spaces: SpaceDescriptor[];
+  /** The current space's bulletin board; null until the server sends it. */
+  notes: NoteInfo[] | null;
+  /** The board panel is open (we are standing by the board). */
+  boardOpen: boolean;
 
   /** Org roster, excluding self (drives the sidebar). */
   roster: Map<string, RosterMember>;
@@ -242,6 +249,8 @@ const ui = new UIManager(
     onOpenInvitePanel: handleOpenInvitePanel,
     onIssueInvite: handleIssueInvite,
     onRevokeInvite: handleRevokeInvite,
+    onPostNote: (text) => session?.net.send({ t: "post_note", text }),
+    onRemoveNote: (id) => session?.net.send({ t: "remove_note", id }),
     onOpenMembersPanel: handleOpenMembersPanel,
     onRemoveMember: handleRemoveMember,
     onOpenBilling: handleOpenBilling,
@@ -332,6 +341,22 @@ function pointToWalk(e: PointerEvent): void {
 let seatClickAnchor: { x: number; y: number } | null = null;
 const SEAT_DRAG_SLOP_PX = 8;
 
+/**
+ * Open the bulletin board while we stand by it, close it when we walk off.
+ * Without a board (`notes` null: between spaces, or a server that has none)
+ * it stays closed.
+ */
+function updateBoardProximity(x: number, y: number): void {
+  if (!session) return;
+  const board = boardGeometry(session.space);
+  const open =
+    session.notes !== null &&
+    boardOpen(session.boardOpen, Math.hypot(x - board.standX, y - board.standY));
+  if (open === session.boardOpen) return;
+  session.boardOpen = open;
+  ui.setBoardVisible(open);
+}
+
 /** Whether a roster member can be paged (same rules as the sidebar button). */
 function canPagePeer(id: string): boolean {
   if (!session) return false;
@@ -352,11 +377,13 @@ canvas.addEventListener("pointerdown", (e) => {
     handlePage(peerId);
     renderer.setPageHover(null);
     renderer.setSeatHover(null);
-    canvas.classList.remove("can-page", "can-sit");
+    canvas.classList.remove("can-page", "can-sit", "can-read");
     return;
   }
 
-  const seat = renderer.seatAtScreen(e.clientX, e.clientY);
+  // The board and the seats are both "walk there": same snap, same drag slop.
+  const seat =
+    renderer.boardAtScreen(e.clientX, e.clientY) ?? renderer.seatAtScreen(e.clientX, e.clientY);
   if (seat) {
     session.input.setMoveTarget(seat.x, seat.y);
     seatClickAnchor = { x: e.clientX, y: e.clientY };
@@ -387,9 +414,11 @@ canvas.addEventListener("pointermove", (e) => {
 
   if (pageable) {
     renderer.setSeatHover(null);
-    canvas.classList.remove("can-sit");
+    canvas.classList.remove("can-sit", "can-read");
     return;
   }
+
+  canvas.classList.toggle("can-read", !!renderer.boardAtScreen(e.clientX, e.clientY));
 
   const seat = renderer.seatAtScreen(e.clientX, e.clientY);
   renderer.setSeatHover(seat);
@@ -1101,7 +1130,13 @@ async function effectiveToken(manual: string, signal?: AbortSignal): Promise<str
     // even from a tab that already got in once.
     let session: AuthSession;
     try {
-      session = await guestLogin(ui.getAuthUrl(), webInvite, lastJoin?.name ?? "", signal);
+      session = await guestLogin(
+        ui.getAuthUrl(),
+        webInvite,
+        lastJoin?.name ?? "",
+        loadGuestId(),
+        signal,
+      );
     } catch (err) {
       if (signal?.aborted) throw new Error("cancelled");
       throw new Error(err instanceof InviteRejectedError ? "guest_invite" : "connect");
@@ -1498,7 +1533,10 @@ function initSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[]
     msg.space,
     msg.you.x,
     msg.you.y,
-    (x, y) => renderer.setSelfPosition(x, y),
+    (x, y) => {
+      renderer.setSelfPosition(x, y);
+      updateBoardProximity(x, y);
+    },
     (x, y) => net.send({ t: "move", x, y }),
     onInputActivity,
   );
@@ -1511,6 +1549,8 @@ function initSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[]
     spaceId: msg.spaceId,
     space: msg.space,
     spaces: msg.spaces,
+    notes: null,
+    boardOpen: false,
     roster,
     offline: new Set(),
     peerPositions,
@@ -1867,6 +1907,8 @@ function bindServerMessages(net: HirobaNet): void {
       muted: session.audio.isMuted,
     };
     renderer.init(space, selfPeer);
+    // The old space's board is gone; the new one follows in its own `notes`.
+    session.notes = null;
     session.input.setSpace(space, you.x, you.y);
 
     session.peerPositions.clear();
@@ -1879,6 +1921,16 @@ function bindServerMessages(net: HirobaNet): void {
     rebuildRoster(); // our own spaceId label changed
     setPeerCount();
     wake();
+  });
+
+  net.on("notes", (e) => {
+    // A broadcast from the space we just left can still be in flight.
+    if (!session || e.detail.spaceId !== session.spaceId) return;
+    session.notes = e.detail.notes;
+    renderer.setBoardNotes(session.notes.length);
+    ui.renderBoard(session.notes);
+    const { x, y } = session.input.position;
+    updateBoardProximity(x, y);
   });
 
   // --- Org scope (sidebar) ---
@@ -1981,6 +2033,7 @@ function bindServerMessages(net: HirobaNet): void {
   // --- Errors ---
 
   net.on("error", (e) => {
+    if (e.detail.code === "note_empty" || e.detail.code === "note_rate") ui.keepBoardDraft();
     ui.showToast(e.detail.message, "error");
   });
 }
@@ -2578,7 +2631,8 @@ function teardownSession(): void {
   void requestWindowAttention(false);
   s.net.close();
 
-  canvas.classList.remove("walkable", "can-page", "can-sit");
+  canvas.classList.remove("walkable", "can-page", "can-sit", "can-read");
+  ui.setBoardVisible(false);
   renderer.setPageHover(null);
   renderer.reset();
   document.title = "Hiroba";

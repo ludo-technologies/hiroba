@@ -16,7 +16,8 @@
 //!     and cryptographically verified here.
 //!
 //! Claims consumed: `org` (tenant id; falls back to the configured default),
-//! `sub`, `name`, `color`, plus standard `exp` (always) and optional `iss`/`aud`
+//! `sub`, `name`, `color`, `role` (absent → member; an unrecognised value fails
+//! the token), plus standard `exp` (always) and optional `iss`/`aud`
 //! validation. The resolved `org_id` is what pins the connection to a tenant in
 //! [`crate::registry`] — the §7.6 "token → org, then fix the scope" rule.
 
@@ -35,6 +36,16 @@ use tracing::{debug, warn};
 /// bound on staleness, not the only refresh trigger.
 const JWKS_TTL: Duration = Duration::from_secs(3600);
 
+/// What a caller may do beyond the baseline every connection gets. Today that
+/// is only the bulletin board: admins remove any note, guests hold one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Role {
+    Admin,
+    Member,
+    Guest,
+}
+
 /// Resolved caller identity. `sub` is the OAuth subject (None for a guest);
 /// `name`/`color` are profile hints a client may still override in `hello`.
 #[derive(Debug, Clone)]
@@ -46,6 +57,7 @@ pub struct Identity {
     pub sub: Option<String>,
     pub name: Option<String>,
     pub color: Option<String>,
+    pub role: Role,
 }
 
 /// Why a token was rejected. Both map to the `auth_failed` wire error; the
@@ -81,6 +93,8 @@ struct Claims {
     name: Option<String>,
     #[serde(default)]
     color: Option<String>,
+    #[serde(default)]
+    role: Option<Role>,
 }
 
 /// The configured authenticator. Cheap to clone (everything shared is `Arc`).
@@ -182,6 +196,9 @@ impl Auth {
                 sub: None,
                 name: None,
                 color: None,
+                // No accounts in this mode: everyone is equally trusted, and
+                // with no `sub` to own a note, only an admin can ever remove one.
+                role: Role::Admin,
             }),
             Auth::Jwt {
                 keys,
@@ -200,6 +217,8 @@ impl Auth {
                     sub: claims.sub,
                     name: claims.name,
                     color: claims.color,
+                    // Third-party OIDC tokens carry no `role`.
+                    role: claims.role.unwrap_or(Role::Member),
                 })
             }
         }
@@ -432,6 +451,7 @@ mod tests {
         let id = auth.resolve(Some("whatever")).await.unwrap();
         assert_eq!(id.org_id, "ludo");
         assert!(id.sub.is_none());
+        assert_eq!(id.role, Role::Admin);
         // Absent token is fine for guest too.
         assert_eq!(auth.resolve(None).await.unwrap().org_id, "ludo");
     }
@@ -453,6 +473,48 @@ mod tests {
         assert_eq!(id.org_id, "acme");
         assert_eq!(id.sub.as_deref(), Some("user-1"));
         assert_eq!(id.name.as_deref(), Some("Aoi"));
+        assert_eq!(id.role, Role::Member); // no `role` claim
+    }
+
+    fn mint_with_role(secret: &str, role: &str) -> String {
+        #[derive(Serialize)]
+        struct WithRole<'a> {
+            sub: &'a str,
+            role: &'a str,
+            exp: u64,
+        }
+        encode(
+            &Header::new(Algorithm::HS256),
+            &WithRole {
+                sub: "u",
+                role,
+                exp: future_exp(),
+            },
+            &EncodingKey::from_secret(secret.as_bytes()),
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn role_claim_is_read_and_unknown_values_fail_the_token() {
+        let auth = hs256_auth("s");
+        for (claim, role) in [
+            ("admin", Role::Admin),
+            ("member", Role::Member),
+            ("guest", Role::Guest),
+        ] {
+            let id = auth
+                .resolve(Some(&mint_with_role("s", claim)))
+                .await
+                .unwrap();
+            assert_eq!(id.role, role);
+        }
+        for bad in ["", "owner"] {
+            assert!(matches!(
+                auth.resolve(Some(&mint_with_role("s", bad))).await,
+                Err(AuthError::Invalid(_))
+            ));
+        }
     }
 
     #[tokio::test]

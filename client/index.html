@@ -593,6 +593,20 @@
       </button>
     </div>
 
+    <!-- Bulletin board: opens while you stand by the board in the room -->
+    <section id="board-panel" class="board-panel" hidden aria-labelledby="board-title">
+      <header class="board-head">
+        <h2 id="board-title" data-i18n="boardTitle">Bulletin board</h2>
+        <span id="board-count" class="board-count"></span>
+      </header>
+      <ul id="board-notes" class="board-notes"></ul>
+      <form id="board-form" class="board-form">
+        <input id="board-input" type="text" maxlength="140" autocomplete="off"
+               data-i18n-placeholder="boardPlaceholder" data-i18n-arialabel="boardPlaceholder" />
+        <button id="board-post" type="submit" data-i18n="boardPost">Pin</button>
+      </form>
+    </section>
+
     <!-- Update banner: a newer signed release exists; one click installs + relaunches -->
     <div id="update-banner" class="update-banner" hidden role="status" aria-live="polite">
       <span id="update-text">Update available</span>

@@ -2,17 +2,20 @@
 //!
 //! Without `HIROBA_DB` the server is exactly as before: a single static binary
 //! holding everything in memory (the DB-less self-host profile). With it, the
-//! two durable things the signaling server owns survive a restart:
+//! three durable things the signaling server owns survive a restart:
 //!
-//!   - which orgs exist (id + display name), and
-//!   - each org's space catalog (`create_space` results would otherwise vanish).
+//!   - which orgs exist (id + display name),
+//!   - each org's space catalog (`create_space` results would otherwise vanish),
+//!   - each space's bulletin-board notes — the only user-authored content the
+//!     server stores.
 //!
 //! Members, positions, presence, and proximity are connection-lifetime state by
 //! design and are never written here.
 //!
 //! Bundled SQLite behind a mutex, same as `hiroba-auth`'s store and for the
-//! same reason: writes happen only on org creation and `create_space` — rare,
-//! single-row, sub-millisecond — so a pool or async wrapper would be overkill.
+//! same reason: writes happen only on org creation, `create_space` and note
+//! changes — rare (notes are rate-limited per member), a row or two,
+//! sub-millisecond — so a pool or async wrapper would be overkill.
 
 use std::path::Path;
 use std::sync::Mutex;
@@ -21,6 +24,19 @@ use rusqlite::{params, Connection};
 
 use crate::protocol::{SpaceDescriptor, SpaceKind};
 
+/// A note pinned to a space's bulletin board.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Note {
+    /// Unique within the org, monotonic: id order is posting order.
+    pub id: u64,
+    /// The author's token `sub`; None when the server runs without accounts.
+    pub author_sub: Option<String>,
+    pub author_name: String,
+    pub text: String,
+    /// Unix seconds.
+    pub ts: u64,
+}
+
 /// Everything needed to rebuild one org's in-memory state at startup.
 pub struct OrgCatalog {
     pub org_id: String,
@@ -28,6 +44,8 @@ pub struct OrgCatalog {
     /// In `space_order` (insertion) order.
     pub spaces: Vec<SpaceDescriptor>,
     pub next_space_seq: u64,
+    /// `(space_id, note)`, oldest first.
+    pub notes: Vec<(String, Note)>,
 }
 
 pub struct Store {
@@ -74,6 +92,17 @@ impl Store {
                capacity    INTEGER NOT NULL,
                ord         INTEGER NOT NULL,
                PRIMARY KEY (org_id, space_id)
+             );
+             CREATE TABLE IF NOT EXISTS notes (
+               org_id      TEXT NOT NULL,
+               space_id    TEXT NOT NULL,
+               id          INTEGER NOT NULL,
+               author_sub  TEXT,
+               author_name TEXT NOT NULL,
+               text        TEXT NOT NULL,
+               ts          INTEGER NOT NULL,
+               PRIMARY KEY (org_id, id),
+               FOREIGN KEY (org_id, space_id) REFERENCES spaces(org_id, space_id)
              );",
         )
         .expect("apply schema");
@@ -95,6 +124,12 @@ impl Store {
                  FROM spaces WHERE org_id = ?1 ORDER BY ord",
             )
             .expect("prepare spaces");
+        let mut notes_stmt = conn
+            .prepare(
+                "SELECT space_id, id, author_sub, author_name, text, ts
+                 FROM notes WHERE org_id = ?1 ORDER BY id",
+            )
+            .expect("prepare notes");
 
         let orgs: Vec<(String, String, u64)> = orgs_stmt
             .query_map([], |row| {
@@ -128,11 +163,28 @@ impl Store {
                     .expect("query spaces")
                     .collect::<Result<_, _>>()
                     .expect("read space row");
+                let notes = notes_stmt
+                    .query_map([&org_id], |row| {
+                        Ok((
+                            row.get(0)?,
+                            Note {
+                                id: row.get::<_, i64>(1)? as u64,
+                                author_sub: row.get(2)?,
+                                author_name: row.get(3)?,
+                                text: row.get(4)?,
+                                ts: row.get::<_, i64>(5)? as u64,
+                            },
+                        ))
+                    })
+                    .expect("query notes")
+                    .collect::<Result<_, _>>()
+                    .expect("read note row");
                 OrgCatalog {
                     org_id,
                     org_name,
                     spaces,
                     next_space_seq,
+                    notes,
                 }
             })
             .collect()
@@ -192,6 +244,37 @@ impl Store {
             params![org_id, next_space_seq as i64],
         )
         .expect("update next_space_seq");
+    }
+
+    /// Apply one board change atomically: the notes that came down (`removed`)
+    /// and the one that went up (`added`, with its space), if any.
+    pub fn apply_note_change(&self, org_id: &str, removed: &[u64], added: Option<(&str, &Note)>) {
+        let mut conn = self.conn.lock().expect("db lock");
+        let tx = conn.transaction().expect("begin note change");
+        for id in removed {
+            tx.execute(
+                "DELETE FROM notes WHERE org_id = ?1 AND id = ?2",
+                params![org_id, *id as i64],
+            )
+            .expect("delete note");
+        }
+        if let Some((space_id, note)) = added {
+            tx.execute(
+                "INSERT INTO notes (org_id, space_id, id, author_sub, author_name, text, ts)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    org_id,
+                    space_id,
+                    note.id as i64,
+                    note.author_sub,
+                    note.author_name,
+                    note.text,
+                    note.ts as i64,
+                ],
+            )
+            .expect("insert note");
+        }
+        tx.commit().expect("commit note change");
     }
 }
 
@@ -272,5 +355,50 @@ mod tests {
         let globex = catalogs.iter().find(|c| c.org_id == "globex").unwrap();
         assert_eq!(acme.spaces.len(), 1);
         assert!(globex.spaces.is_empty());
+    }
+
+    fn note(id: u64, text: &str) -> Note {
+        Note {
+            id,
+            author_sub: Some("u1".to_string()),
+            author_name: "Aoi".to_string(),
+            text: text.to_string(),
+            ts: 1_700_000_000,
+        }
+    }
+
+    #[test]
+    fn notes_round_trip_in_id_order_and_delete() {
+        let store = Store::open_in_memory();
+        store.upsert_org("acme", "Acme");
+        store.insert_space("acme", &SpaceDescriptor::lobby(), 0, 1);
+        store.apply_note_change("acme", &[], Some(("lobby", &note(2, "second"))));
+        store.apply_note_change("acme", &[], Some(("lobby", &note(1, "first"))));
+
+        let loaded = store.load_all().remove(0).notes;
+        assert_eq!(
+            loaded,
+            [
+                ("lobby".to_string(), note(1, "first")),
+                ("lobby".to_string(), note(2, "second")),
+            ]
+        );
+
+        // One change both takes a note down and puts one up.
+        store.apply_note_change("acme", &[1], Some(("lobby", &note(3, "third"))));
+        let ids: Vec<u64> = store.load_all()[0]
+            .notes
+            .iter()
+            .map(|(_, n)| n.id)
+            .collect();
+        assert_eq!(ids, [2, 3]);
+    }
+
+    #[test]
+    #[should_panic(expected = "insert note")]
+    fn note_for_unknown_space_is_refused() {
+        let store = Store::open_in_memory();
+        store.upsert_org("acme", "Acme");
+        store.apply_note_change("acme", &[], Some(("nowhere", &note(1, "x"))));
     }
 }

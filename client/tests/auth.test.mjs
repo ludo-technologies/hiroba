@@ -424,10 +424,10 @@ test("guestLogin trades an invite and a name for a refresh-less session", async 
   const token = jwt(3600);
   const { result, calls } = await withFetch(
     () => jsonResponse(200, { token }),
-    () => guestLogin("https://auth.example.com", "inv-1", "Gen"),
+    () => guestLogin("https://auth.example.com", "inv-1", "Gen", "g-1"),
   );
   assert.equal(calls[0].url, "https://auth.example.com/guest");
-  assert.deepEqual(calls[0].body, { invite: "inv-1", name: "Gen" });
+  assert.deepEqual(calls[0].body, { invite: "inv-1", name: "Gen", guestId: "g-1" });
   assert.equal(result.token, token);
   assert.equal(result.refreshToken, "");
   assert.equal(typeof result.claims.exp, "number");
@@ -437,7 +437,7 @@ test("guestLogin reports a dead invite as InviteRejectedError", async () => {
   await assert.rejects(
     withFetch(
       () => new Response("invite invalid or expired", { status: 409 }),
-      () => guestLogin("https://auth.example.com", "inv-1", "Gen"),
+      () => guestLogin("https://auth.example.com", "inv-1", "Gen", "g-1"),
     ),
     InviteRejectedError,
   );
@@ -447,7 +447,7 @@ test("guestLogin surfaces other failures as plain errors", async () => {
   await assert.rejects(
     withFetch(
       () => new Response("storage error", { status: 500 }),
-      () => guestLogin("https://auth.example.com", "inv-1", "Gen"),
+      () => guestLogin("https://auth.example.com", "inv-1", "Gen", "g-1"),
     ),
     (err) => !(err instanceof InviteRejectedError),
   );
@@ -462,7 +462,7 @@ test("guestLogin gives up when its attempt is aborted", async () => {
           init.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
           controller.abort();
         }),
-      () => guestLogin("https://auth.example.com", "inv-1", "Gen", controller.signal),
+      () => guestLogin("https://auth.example.com", "inv-1", "Gen", "g-1", controller.signal),
     ),
     (err) => err.name === "AbortError",
   );

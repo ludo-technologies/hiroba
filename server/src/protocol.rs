@@ -126,6 +126,20 @@ pub struct PeerPos {
     pub y: f64,
 }
 
+/// One note on a space's bulletin board, as seen by one recipient. The
+/// author's `sub` never goes on the wire; `removable` is the server's answer
+/// to "may *you* take this down" (author or admin).
+#[derive(Debug, Clone, Serialize)]
+pub struct NoteInfo {
+    pub id: u64,
+    #[serde(rename = "authorName")]
+    pub author_name: String,
+    pub text: String,
+    /// Unix seconds, server clock.
+    pub ts: u64,
+    pub removable: bool,
+}
+
 /// Roster (org-scoped) member descriptor — the sidebar view. Has `spaceId` +
 /// `status` instead of a position. Used in `welcome.roster` and `presence`.
 #[derive(Debug, Clone, Serialize)]
@@ -212,6 +226,12 @@ pub enum ClientMsg {
 
     /// End a page link, cancel an outgoing ring, or decline an incoming offer.
     PageEnd { to: String },
+
+    /// Pin a short note to the current space's bulletin board.
+    PostNote { text: String },
+
+    /// Take a note off the current space's board (author or admin only).
+    RemoveNote { id: u64 },
 
     /// Explicit leave (optional — closing the socket is equivalent).
     Bye,
@@ -314,11 +334,20 @@ pub enum ServerMsg {
     /// Relayed WebRTC signaling from another peer.
     Signal { from: String, data: Value },
 
+    /// The full bulletin board of a space, oldest first. Sent after `welcome`
+    /// and `space_snapshot`, and to everyone in the space on every change.
+    Notes {
+        #[serde(rename = "spaceId")]
+        space_id: String,
+        notes: Vec<NoteInfo>,
+    },
+
     /// Echo of a client `ping`.
     Pong,
 
     /// A request failed. Codes: auth_failed, org_suspended, space_full,
-    /// space_limit, space_exists, unknown_space, forbidden. On auth_failed or org_suspended
-    /// the server closes the socket after this frame.
+    /// space_limit, space_exists, unknown_space, forbidden, note_empty,
+    /// note_rate. On auth_failed or org_suspended the server closes the socket
+    /// after this frame.
     Error { code: String, message: String },
 }

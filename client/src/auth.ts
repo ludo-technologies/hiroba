@@ -243,16 +243,33 @@ export async function emailVerify(
   };
 }
 
+const LS_GUEST_ID = "hiroba_guest_id";
+
 /**
- * Browser guest entry: an invite link plus a display name buys a session for
- * the invite's org (`POST /guest`) — no account, no refresh token. Any
- * unexpired invite works, consumed or not; a 409 means it expired or the
- * admin revoked it.
+ * This browser's guest identity: a random id minted once and kept. A guest
+ * session lasts an hour and is re-minted on every connect; the id is what
+ * makes those the same guest, so a note they pinned is still theirs.
+ */
+export function loadGuestId(): string {
+  let id = localStorage.getItem(LS_GUEST_ID);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(LS_GUEST_ID, id);
+  }
+  return id;
+}
+
+/**
+ * Browser guest entry: an invite link, a display name and this browser's
+ * guest id ({@link loadGuestId}) buy a session for the invite's org
+ * (`POST /guest`) — no account, no refresh token. Any unexpired invite works,
+ * consumed or not; a 409 means it expired or the admin revoked it.
  */
 export async function guestLogin(
   authBase: string,
   invite: string,
   name: string,
+  guestId: string,
   signal?: AbortSignal,
 ): Promise<AuthSession> {
   // Bounded like the ICE and WebSocket steps that follow it: a request left
@@ -267,7 +284,7 @@ export async function guestLogin(
     resp = await fetch(authEndpoint(authBase, "/guest"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ invite, name }),
+      body: JSON.stringify({ invite, name, guestId }),
       signal: controller.signal,
     });
   } finally {
