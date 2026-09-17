@@ -90,6 +90,7 @@ impl Default for OrgRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth::Role;
     use crate::protocol::ServerMsg;
     use tokio::sync::mpsc;
 
@@ -101,7 +102,8 @@ mod tests {
         // Same underlying org: a member joined via one handle is visible via the
         // other (they share state).
         let (tx, _rx) = mpsc::channel::<ServerMsg>(8);
-        a1.join("Aoi".into(), "#fff".into(), None, tx).await;
+        a1.join("Aoi".into(), "#fff".into(), None, None, Role::Member, tx)
+            .await;
         // The second handle sees the member in its tick snapshot.
         let ticks = a2.tick_snapshot().await;
         let total: usize = ticks.iter().map(|t| t.members.len()).sum();
@@ -115,7 +117,8 @@ mod tests {
         let globex = reg.get_or_create("globex", "Globex").await;
 
         let (tx, _rx) = mpsc::channel::<ServerMsg>(8);
-        acme.join("Aoi".into(), "#fff".into(), None, tx).await;
+        acme.join("Aoi".into(), "#fff".into(), None, None, Role::Member, tx)
+            .await;
 
         // Globex must not observe Acme's member anywhere (NFR-12).
         let ticks = globex.tick_snapshot().await;
@@ -153,7 +156,9 @@ mod tests {
         let reg2 = OrgRegistry::with_store(store.clone(), store.load_all());
         let org2 = reg2.get_or_create("ludo", "IgnoredName").await;
         let (tx, _rx) = mpsc::channel::<ServerMsg>(8);
-        let welcome = org2.join("Aoi".into(), "#ffffff".into(), None, tx).await;
+        let welcome = org2
+            .join("Aoi".into(), "#ffffff".into(), None, None, Role::Member, tx)
+            .await;
         match welcome {
             ServerMsg::Welcome { org, spaces, .. } => {
                 assert_eq!(org.name, "Ludo", "persisted name wins over env/claim");

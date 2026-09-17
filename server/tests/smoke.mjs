@@ -84,6 +84,30 @@ class Client {
   ok(!!joinedBonA, "A receives space_joined for B (space scope)");
   ok(joinedBonA?.peer?.name === "Ren", "space_joined carries B's name");
 
+  // ── 2.5) Bulletin board: one per space, full list on every change ───────
+  const boardA = await A.wait((m) => m.t === "notes");
+  ok(boardA?.spaceId === "lobby" && boardA.notes.length === 0, "A receives the lobby's (empty) board after welcome");
+  A.clear(); B.clear();
+  A.send({ t: "post_note", text: "  back at 15:00\n " });
+  const postedA = await A.wait((m) => m.t === "notes" && m.notes.length === 1);
+  const postedB = await B.wait((m) => m.t === "notes" && m.notes.length === 1);
+  ok(postedA?.notes[0].text === "back at 15:00", "a posted note reaches its author, trimmed to one line");
+  ok(postedB?.notes[0].authorName === "Aoi", "…and everyone else in the space, with the author's name");
+  ok(postedA?.notes[0].removable && postedB?.notes[0].removable, "without accounts everyone may remove any note");
+  ok(!("authorSub" in (postedB?.notes[0] ?? {})), "the author's sub never goes on the wire");
+  A.clear();
+  A.send({ t: "post_note", text: "again" });
+  ok(!!(await A.wait((m) => m.t === "error" && m.code === "note_rate")), "a second post within the cooldown is refused with note_rate");
+  B.clear();
+  B.send({ t: "post_note", text: " \n " });
+  ok(!!(await B.wait((m) => m.t === "error" && m.code === "note_empty")), "a blank note is refused with note_empty");
+  A.clear(); B.clear();
+  B.send({ t: "remove_note", id: postedB.notes[0].id });
+  const removedA = await A.wait((m) => m.t === "notes");
+  ok(removedA?.notes.length === 0, "removing a note broadcasts the board again");
+  B.send({ t: "post_note", text: "lobby only" });
+  await B.wait((m) => m.t === "notes" && m.notes.length === 1);
+
   // ── 3) Lobby proximity (v1 mechanics, now space-scoped) ─────────────────
   const { width, height } = wA.space;
   A.send({ t: "move", x: 50, y: 50 });
@@ -180,6 +204,9 @@ class Client {
   ok(snapB?.spaceId === team.id, "B receives space_snapshot for the team space");
   ok(snapB?.space?.kind === "team", "snapshot carries the team space config");
   ok(Array.isArray(snapB?.peers) && snapB.peers.length === 0, "team space is empty for B");
+  const teamBoard = await B.wait((m) => m.t === "notes");
+  ok(teamBoard?.spaceId === team.id && teamBoard.notes.length === 0, "the team space has its own board, sent after the snapshot");
+  ok(B.msgs.indexOf(teamBoard) > B.msgs.indexOf(snapB), "notes follows space_snapshot");
   const leftBonA = await A.wait((m) => m.t === "space_left" && m.id === idB);
   ok(!!leftBonA, "A receives space_left for B (B left the lobby)");
   const switchDisc = await A.wait((m) => m.t === "proximity" && m.disconnect?.includes(idB));

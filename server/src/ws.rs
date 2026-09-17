@@ -29,7 +29,9 @@ use crate::auth::Auth;
 use crate::protocol::{ClientMsg, PeerPos, ServerMsg};
 use crate::proximity;
 use crate::registry::OrgRegistry;
-use crate::state::{CreateSpaceOutcome, EnterOutcome, PageOutcome, MAX_SPACES_PER_ORG};
+use crate::state::{
+    CreateSpaceOutcome, EnterOutcome, NoteError, PageOutcome, MAX_SPACES_PER_ORG, NOTE_COOLDOWN,
+};
 
 /// Capacity of the per-peer outbound channel.
 const CHANNEL_CAP: usize = 64;
@@ -134,7 +136,16 @@ pub async fn handle_ws(
     let color = color.or(identity.color).unwrap_or_default();
     // The avatar is validated (small base64 image data URL) inside `Org::join`,
     // same as the colour.
-    let welcome = org.join(name, color, avatar, tx.clone()).await;
+    let welcome = org
+        .join(
+            name,
+            color,
+            avatar,
+            identity.sub.clone(),
+            identity.role,
+            tx.clone(),
+        )
+        .await;
     let peer_id = match &welcome {
         ServerMsg::Welcome { id, .. } => id.clone(),
         _ => unreachable!("join returns Welcome"),
@@ -180,6 +191,10 @@ pub async fn handle_ws(
         }
     });
 
+    // The lobby's bulletin board. Its own message rather than part of
+    // `welcome`, so it always follows the space view it belongs to.
+    org.send_notes(&peer_id).await;
+
     // ── Phase 4: reader loop ──────────────────────────────────────────────
     let pid = peer_id.clone();
     'read: while let Some(frame) = ws_rx.next().await {
@@ -191,12 +206,16 @@ pub async fn handle_ws(
                 Ok(ClientMsg::Signal { to, data }) => org.route_signal(&pid, &to, data).await,
                 Ok(ClientMsg::EnterSpace { space_id }) => {
                     let outcome = org.enter_space(&pid, &space_id).await;
+                    let entered = matches!(outcome, EnterOutcome::Snapshot(_));
                     let msg = match outcome {
                         EnterOutcome::Snapshot(m) => m,
                         EnterOutcome::Error(m) => m,
                     };
                     // Deliver to the requester via their own channel.
                     let _ = tx.send(msg).await;
+                    if entered {
+                        org.send_notes(&pid).await;
+                    }
                 }
                 Ok(ClientMsg::CreateSpace { name }) => {
                     let err = match org.create_space(name).await {
@@ -212,6 +231,16 @@ pub async fn handle_ws(
                     };
                     if let Some(msg) = err {
                         let _ = tx.send(msg).await;
+                    }
+                }
+                Ok(ClientMsg::PostNote { text }) => {
+                    if let Err(e) = org.post_note(&pid, &text).await {
+                        let _ = tx.send(note_error(e)).await;
+                    }
+                }
+                Ok(ClientMsg::RemoveNote { id }) => {
+                    if let Err(e) = org.remove_note(&pid, id).await {
+                        let _ = tx.send(note_error(e)).await;
                     }
                 }
                 Ok(ClientMsg::Page { to }) => {
@@ -250,6 +279,24 @@ pub async fn handle_ws(
     org.leave(&peer_id).await;
     info!(peer_id = %peer_id, "member left");
     writer_handle.abort();
+}
+
+fn note_error(e: NoteError) -> ServerMsg {
+    let (code, message) = match e {
+        NoteError::Empty => ("note_empty", "A note needs some text.".to_string()),
+        NoteError::RateLimited => (
+            "note_rate",
+            format!("Wait {} seconds between notes.", NOTE_COOLDOWN.as_secs()),
+        ),
+        NoteError::Forbidden => (
+            "forbidden",
+            "Only its author or an admin can remove a note.".to_string(),
+        ),
+    };
+    ServerMsg::Error {
+        code: code.to_string(),
+        message,
+    }
 }
 
 // ---------------------------------------------------------------------------

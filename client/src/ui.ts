@@ -14,7 +14,8 @@
  * so the layers stay decoupled.
  */
 
-import type { SpaceDescriptor } from "./protocol.js";
+import type { NoteInfo, SpaceDescriptor } from "./protocol.js";
+import { BOARD_MAX_NOTES } from "./board.js";
 import {
   applyStaticI18n,
   locale,
@@ -198,6 +199,11 @@ const elInviteResultCode = $<HTMLDivElement>("invite-result-code");
 const elInviteCopyLink = $<HTMLButtonElement>("invite-copy-link");
 const elInviteCopyCode = $<HTMLButtonElement>("invite-copy-code");
 const elInviteList = $<HTMLUListElement>("invite-list");
+const elBoardPanel = $<HTMLElement>("board-panel");
+const elBoardCount = $<HTMLSpanElement>("board-count");
+const elBoardNotes = $<HTMLUListElement>("board-notes");
+const elBoardForm = $<HTMLFormElement>("board-form");
+const elBoardInput = $<HTMLInputElement>("board-input");
 const elInvitePanelError = $<HTMLParagraphElement>("invite-panel-error");
 
 const elScreenPerm = $<HTMLDivElement>("screen-perm");
@@ -376,6 +382,10 @@ export interface UICallbacks {
   onEnterSpace(spaceId: string): void;
   /** Create a new team space with the given name (FR-14). */
   onCreateSpace(name: string): void;
+  /** Pin a note to the current space's bulletin board. */
+  onPostNote(text: string): void;
+  /** Take a note off the board. */
+  onRemoveNote(id: number): void;
   /** Start a page (cross-space 1:1) with a roster member (FR-10). */
   onPage(memberId: string): void;
   /** Accept an incoming page offer. */
@@ -469,6 +479,9 @@ export class UIManager {
   private lastScreenFullscreen = false;
   private lastScreenReopenVisible = false;
   private lastInvites: InviteEntry[] | null = null;
+  private lastNotes: NoteInfo[] = [];
+  /** The note last sent, to put back in the input if the server refuses it. */
+  private sentNote = "";
   private lastMembers: MemberEntry[] | null = null;
   private lastReconnect: { attempt: number; max: number; offline: boolean } | null = null;
   private lastUpdateVersion: string | null = null;
@@ -956,6 +969,7 @@ export class UIManager {
     if (this.lastMembers && !elMembersPanel.hasAttribute("hidden")) {
       this.renderMemberList(this.lastMembers);
     }
+    this.renderBoard(this.lastNotes);
 
     if (this.lastReconnect && !elReconnect.hasAttribute("hidden")) {
       elReconnectMsg.textContent = reconnectCopy(this.lastReconnect);
@@ -1917,6 +1931,68 @@ export class UIManager {
   // -------------------------------------------------------------------------
 
   /** Pop a short-lived toast (e.g. "Sora is in do-not-disturb"). */
+  // -------------------------------------------------------------------------
+  // Bulletin board
+  // -------------------------------------------------------------------------
+
+  /** Open / close the board panel (main.ts: we walked up to / away from it). */
+  setBoardVisible(visible: boolean): void {
+    elBoardPanel.hidden = !visible;
+    // A hidden input cannot keep focus; say so explicitly so the movement
+    // keys are ours again the moment the panel closes.
+    if (!visible) elBoardInput.blur();
+  }
+
+  /** The server refused the note: hand it back to fix or re-send, unless
+   *  something newer is already being typed. */
+  restoreBoardDraft(): void {
+    if (!elBoardInput.value) elBoardInput.value = this.sentNote;
+  }
+
+  renderBoard(notes: NoteInfo[]): void {
+    this.lastNotes = notes;
+    elBoardCount.textContent = `${notes.length} / ${BOARD_MAX_NOTES}`;
+    elBoardNotes.replaceChildren();
+    if (notes.length === 0) {
+      const li = document.createElement("li");
+      li.className = "board-empty";
+      li.textContent = t.boardEmpty;
+      elBoardNotes.appendChild(li);
+      return;
+    }
+    // Newest on top: the list arrives oldest first.
+    for (const note of [...notes].reverse()) {
+      const li = document.createElement("li");
+      li.className = "board-note";
+
+      const text = document.createElement("span");
+      text.className = "board-note-text";
+      text.textContent = note.text;
+      li.appendChild(text);
+
+      const meta = document.createElement("span");
+      meta.className = "board-note-meta";
+      const when = new Date(note.ts * 1000).toLocaleString(locale, {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      meta.textContent = `${note.authorName} · ${when}`;
+      li.appendChild(meta);
+
+      if (note.removable) {
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "board-note-remove";
+        remove.textContent = t.boardRemove;
+        remove.addEventListener("click", () => this.callbacks.onRemoveNote(note.id));
+        li.appendChild(remove);
+      }
+      elBoardNotes.appendChild(li);
+    }
+  }
+
   showToast(message: string, kind: "info" | "error" = "info"): void {
     const el = document.createElement("div");
     el.className = "toast";
@@ -2229,6 +2305,21 @@ export class UIManager {
       if (file) void this._setAvatarFromFile(file);
     });
     elAvatarRemove.addEventListener("click", () => this._clearAvatar());
+
+    elBoardForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const text = elBoardInput.value.trim();
+      if (!text) return;
+      // Cleared now rather than on the next `notes`: that may be someone
+      // else's change. A refusal reaches only us (restoreBoardDraft).
+      this.sentNote = text;
+      elBoardInput.value = "";
+      this.callbacks.onPostNote(text);
+    });
+    // Escape hands the keyboard back to walking.
+    elBoardInput.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") elBoardInput.blur();
+    });
 
     elJoinForm.addEventListener("submit", (e) => {
       e.preventDefault();

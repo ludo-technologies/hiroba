@@ -70,6 +70,17 @@ export interface Peer {
   muted: boolean;
 }
 
+/** One note on a space's bulletin board, as the server shows it to *us*. */
+export interface NoteInfo {
+  id: number;
+  authorName: string;
+  text: string;
+  /** Unix seconds. */
+  ts: number;
+  /** We may take it down: it is ours, or we are an admin. */
+  removable: boolean;
+}
+
 /**
  * A roster (org-scoped) member — the sidebar view. Has `spaceId` + `status`
  * instead of a position. Used in `welcome.roster` and `presence.member`.
@@ -113,6 +124,18 @@ export interface EnterSpaceMsg {
 export interface CreateSpaceMsg {
   t: "create_space";
   name: string;
+}
+
+/** Pin a short note to the current space's bulletin board. */
+export interface PostNoteMsg {
+  t: "post_note";
+  text: string;
+}
+
+/** Take a note off the current space's board (author or admin only). */
+export interface RemoveNoteMsg {
+  t: "remove_note";
+  id: number;
 }
 
 /** Position update, sent at ~tickHz only when the position changed. */
@@ -180,6 +203,8 @@ export type ClientMsg =
   | HelloMsg
   | EnterSpaceMsg
   | CreateSpaceMsg
+  | PostNoteMsg
+  | RemoveNoteMsg
   | MoveMsg
   | MuteMsg
   | SetStatusMsg
@@ -230,6 +255,17 @@ export interface SpaceSnapshotMsg {
 export interface SpacesMsg {
   t: "spaces";
   spaces: SpaceDescriptor[];
+}
+
+/**
+ * A space's whole bulletin board, oldest first. Follows `welcome` and
+ * `space_snapshot`, and is re-sent to the space on every change. A server
+ * that never sends it has no boards.
+ */
+export interface NotesMsg {
+  t: "notes";
+  spaceId: string;
+  notes: NoteInfo[];
 }
 
 /** Org roster upsert (a member joined or changed). Upsert by `id`. */
@@ -339,7 +375,9 @@ export interface ErrorMsg {
     | "space_limit"
     | "space_exists"
     | "unknown_space"
-    | "forbidden";
+    | "forbidden"
+    | "note_empty"
+    | "note_rate";
   message: string;
 }
 
@@ -348,6 +386,7 @@ export type ServerMsg =
   | WelcomeMsg
   | SpaceSnapshotMsg
   | SpacesMsg
+  | NotesMsg
   | PresenceMsg
   | PresenceLeftMsg
   | SpaceJoinedMsg

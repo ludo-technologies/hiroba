@@ -14,18 +14,30 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::{mpsc, Mutex};
 
+use crate::auth::Role;
 use crate::protocol::{
-    OrgInfo, PeerInfo, PeerPos, RosterMember, ServerMsg, SpaceDescriptor, Status,
+    NoteInfo, OrgInfo, PeerInfo, PeerPos, RosterMember, ServerMsg, SpaceDescriptor, Status,
 };
-use crate::store::{OrgCatalog, Store};
+use crate::store::{Note, OrgCatalog, Store};
 
 /// Upper bound on spaces per org (lobby + team spaces). Caps unbounded
 /// `create_space` from guests; generous enough for legitimate team use.
 pub const MAX_SPACES_PER_ORG: usize = 64;
+
+/// Notes kept per bulletin board; posting past this takes the oldest down.
+/// The cap is the board's only expiry — it is a wall, not a feed.
+pub const MAX_NOTES_PER_BOARD: usize = 8;
+
+/// Max characters in a note.
+pub const MAX_NOTE_CHARS: usize = 140;
+
+/// Minimum gap between one member's posts. Every post is a DB write plus a
+/// space-wide broadcast, and a board you can post to at will is a chat.
+pub const NOTE_COOLDOWN: Duration = Duration::from_secs(5);
 
 /// Avatar colour used when a client supplies none, or one that fails
 /// validation.
@@ -77,6 +89,26 @@ fn is_valid_avatar(s: &str) -> bool {
     }
 }
 
+/// A note's text as it goes on the board: one line, trimmed, at most
+/// [`MAX_NOTE_CHARS`]. None when nothing is left. Like the colour, the text is
+/// relayed to every client, so it is shaped here, where it enters the state.
+fn sanitize_note(text: &str) -> Option<String> {
+    let line: String = text
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    let text: String = line.trim().chars().take(MAX_NOTE_CHARS).collect();
+    let text = text.trim_end();
+    (!text.is_empty()).then(|| text.to_string())
+}
+
+/// May `member` take `note` down? Its author or an admin. The one rule behind
+/// both `NoteInfo.removable` and `remove_note`. A note without a `sub` has no
+/// author to match, so only an admin can remove it.
+fn can_remove(member: &Member, note: &Note) -> bool {
+    member.role == Role::Admin || (note.author_sub.is_some() && note.author_sub == member.sub)
+}
+
 // ---------------------------------------------------------------------------
 // Per-member data
 // ---------------------------------------------------------------------------
@@ -94,6 +126,11 @@ pub struct Member {
     pub color: String,
     /// User-uploaded avatar (validated `data:image/...;base64,` URL), if any.
     pub avatar: Option<String>,
+    /// The token's `sub` — what makes a note "mine" across reconnects.
+    pub sub: Option<String>,
+    pub role: Role,
+    /// When this member last posted a note ([`NOTE_COOLDOWN`]).
+    pub last_note_at: Option<Instant>,
     /// The space the member is currently present in.
     pub space_id: String,
     pub x: f64,
@@ -191,6 +228,8 @@ pub struct SpaceTick {
 struct SpaceState {
     desc: SpaceDescriptor,
     member_ids: HashSet<String>,
+    /// The bulletin board, oldest first.
+    notes: Vec<Note>,
 }
 
 /// Interior of the org — always accessed through `Org`'s Mutex.
@@ -203,6 +242,8 @@ pub struct OrgInner {
     space_order: Vec<String>,
     /// Monotonic counter for auto-named team spaces (FR-14).
     next_space_seq: u64,
+    /// Monotonic note id, org-wide.
+    next_note_id: u64,
 }
 
 /// Choose a spawn position for the n-th member in a space. Index 0 lands
@@ -315,6 +356,35 @@ impl OrgInner {
         }
     }
 
+    /// The board of `member`'s current space, as `member` sees it.
+    fn notes_msg_for(&self, member: &Member) -> ServerMsg {
+        let notes = self.spaces[&member.space_id]
+            .notes
+            .iter()
+            .map(|n| NoteInfo {
+                id: n.id,
+                author_name: n.author_name.clone(),
+                text: n.text.clone(),
+                ts: n.ts,
+                removable: can_remove(member, n),
+            })
+            .collect();
+        ServerMsg::Notes {
+            space_id: member.space_id.clone(),
+            notes,
+        }
+    }
+
+    /// Send the board of `space_id` to everyone in it. Per recipient, because
+    /// `removable` differs.
+    fn broadcast_notes(&self, space_id: &str) {
+        for id in &self.spaces[space_id].member_ids {
+            if let Some(m) = self.members.get(id) {
+                let _ = m.tx.try_send(self.notes_msg_for(m));
+            }
+        }
+    }
+
     /// Broadcast the roster entry for `member_id` to the rest of the org.
     fn broadcast_presence(&self, member_id: &str) {
         if let Some(m) = self.members.get(member_id) {
@@ -374,6 +444,17 @@ pub enum CreateSpaceOutcome {
     Duplicate(String),
 }
 
+/// Why a `post_note` / `remove_note` was refused.
+#[derive(Debug, PartialEq)]
+pub enum NoteError {
+    /// Nothing left of the text after sanitising.
+    Empty,
+    /// Posted again within [`NOTE_COOLDOWN`].
+    RateLimited,
+    /// Neither the note's author nor an admin.
+    Forbidden,
+}
+
 /// Outcome of a `page` request.
 pub enum PageOutcome {
     /// Offer delivered; callee is ringing (messages already sent).
@@ -423,6 +504,7 @@ impl Org {
                 SpaceState {
                     desc,
                     member_ids: HashSet::new(),
+                    notes: Vec::new(),
                 },
             );
         }
@@ -436,6 +518,7 @@ impl Org {
                 spaces,
                 space_order,
                 next_space_seq: 1,
+                next_note_id: 1,
             })),
             next_id: Arc::new(AtomicU64::new(1)),
             store,
@@ -466,8 +549,19 @@ impl Org {
                 SpaceState {
                     desc,
                     member_ids: HashSet::new(),
+                    notes: Vec::new(),
                 },
             );
+        }
+
+        let mut next_note_id = 1;
+        for (space_id, note) in catalog.notes {
+            next_note_id = next_note_id.max(note.id + 1);
+            spaces
+                .get_mut(&space_id)
+                .expect("a note's space is in the catalog (foreign key)")
+                .notes
+                .push(note);
         }
 
         Self {
@@ -479,6 +573,7 @@ impl Org {
                 spaces,
                 space_order,
                 next_space_seq: catalog.next_space_seq,
+                next_note_id,
             })),
             next_id: Arc::new(AtomicU64::new(1)),
             store,
@@ -503,6 +598,8 @@ impl Org {
         name: String,
         color: String,
         avatar: Option<String>,
+        sub: Option<String>,
+        role: Role,
         tx: mpsc::Sender<ServerMsg>,
     ) -> ServerMsg {
         let num_id = self.next_id.fetch_add(1, Ordering::Relaxed);
@@ -544,6 +641,9 @@ impl Org {
             name: name.clone(),
             color: color.clone(),
             avatar,
+            sub,
+            role,
+            last_note_at: None,
             space_id: space_id.clone(),
             x,
             y,
@@ -886,6 +986,7 @@ impl Org {
             SpaceState {
                 desc,
                 member_ids: HashSet::new(),
+                notes: Vec::new(),
             },
         );
 
@@ -897,6 +998,110 @@ impl Org {
             });
         }
         CreateSpaceOutcome::Created
+    }
+
+    // -----------------------------------------------------------------------
+    // Bulletin board (one per space)
+    // -----------------------------------------------------------------------
+
+    /// Send `id` the board of the space they are in.
+    pub async fn send_notes(&self, id: &str) {
+        let guard = self.inner.lock().await;
+        if let Some(m) = guard.members.get(id) {
+            let _ = m.tx.try_send(guard.notes_msg_for(m));
+        }
+    }
+
+    /// Pin a note to the board of `id`'s current space and broadcast the board.
+    /// A guest holds one note per board, so theirs is replaced; past
+    /// [`MAX_NOTES_PER_BOARD`] the oldest comes down.
+    pub async fn post_note(&self, id: &str, text: &str) -> Result<(), NoteError> {
+        let mut guard = self.inner.lock().await;
+        let Some(member) = guard.members.get(id) else {
+            return Ok(()); // already gone
+        };
+        if member
+            .last_note_at
+            .is_some_and(|at| at.elapsed() < NOTE_COOLDOWN)
+        {
+            return Err(NoteError::RateLimited);
+        }
+        let text = sanitize_note(text).ok_or(NoteError::Empty)?;
+        let space_id = member.space_id.clone();
+        let note = Note {
+            id: guard.next_note_id,
+            author_sub: member.sub.clone(),
+            author_name: member.name.clone(),
+            text,
+            ts: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock after 1970")
+                .as_secs(),
+        };
+
+        let board = &guard.spaces[&space_id].notes;
+        let mut removed: Vec<u64> = Vec::new();
+        if member.role == Role::Guest {
+            removed.extend(
+                board
+                    .iter()
+                    .filter(|n| n.author_sub.is_some() && n.author_sub == member.sub)
+                    .map(|n| n.id),
+            );
+        }
+        let overflow = (board.len() - removed.len() + 1).saturating_sub(MAX_NOTES_PER_BOARD);
+        let oldest: Vec<u64> = board
+            .iter()
+            .map(|n| n.id)
+            .filter(|id| !removed.contains(id))
+            .take(overflow)
+            .collect();
+        removed.extend(oldest);
+
+        // Write-through before the in-memory change, as in `create_space`.
+        if let Some(s) = &self.store {
+            s.apply_note_change(&self.id, &removed, Some((&space_id, &note)));
+        }
+        guard.next_note_id += 1;
+        let board = &mut guard.spaces.get_mut(&space_id).unwrap().notes;
+        board.retain(|n| !removed.contains(&n.id));
+        board.push(note);
+        guard.members.get_mut(id).unwrap().last_note_at = Some(Instant::now());
+        guard.broadcast_notes(&space_id);
+        Ok(())
+    }
+
+    /// Take note `note_id` off the board of `id`'s current space. A note that
+    /// is already gone is not an error: the requester's view was stale, so
+    /// they get the board again.
+    pub async fn remove_note(&self, id: &str, note_id: u64) -> Result<(), NoteError> {
+        let mut guard = self.inner.lock().await;
+        let Some(member) = guard.members.get(id) else {
+            return Ok(()); // already gone
+        };
+        let space_id = member.space_id.clone();
+        let Some(note) = guard.spaces[&space_id]
+            .notes
+            .iter()
+            .find(|n| n.id == note_id)
+        else {
+            let _ = member.tx.try_send(guard.notes_msg_for(member));
+            return Ok(());
+        };
+        if !can_remove(member, note) {
+            return Err(NoteError::Forbidden);
+        }
+        if let Some(s) = &self.store {
+            s.apply_note_change(&self.id, &[note_id], None);
+        }
+        guard
+            .spaces
+            .get_mut(&space_id)
+            .unwrap()
+            .notes
+            .retain(|n| n.id != note_id);
+        guard.broadcast_notes(&space_id);
+        Ok(())
     }
 
     // -----------------------------------------------------------------------
@@ -1294,6 +1499,9 @@ mod tests {
                     name: format!("m{i}"),
                     color: DEFAULT_COLOR.to_string(),
                     avatar: None,
+                    sub: None,
+                    role: Role::Member,
+                    last_note_at: None,
                     space_id: desc.id.clone(),
                     x,
                     y,
@@ -1314,6 +1522,7 @@ mod tests {
             SpaceState {
                 desc: desc.clone(),
                 member_ids,
+                notes: Vec::new(),
             },
         );
         OrgInner {
@@ -1323,6 +1532,7 @@ mod tests {
             spaces,
             space_order: vec![desc.id.clone()],
             next_space_seq: 0,
+            next_note_id: 1,
         }
     }
 
@@ -1364,5 +1574,176 @@ mod tests {
             assert!(d < lobby.near_radius);
         }
         assert!(a != b, "past-capacity spawns must not stack");
+    }
+
+    // -- Bulletin board -----------------------------------------------------
+
+    #[test]
+    fn note_text_is_one_trimmed_line_capped_by_chars() {
+        assert_eq!(sanitize_note("  hi\nthere\t ").as_deref(), Some("hi there"));
+        assert_eq!(sanitize_note(" \n\t "), None);
+        // Counted in characters, not bytes.
+        let long = "あ".repeat(MAX_NOTE_CHARS + 10);
+        assert_eq!(
+            sanitize_note(&long).unwrap().chars().count(),
+            MAX_NOTE_CHARS
+        );
+    }
+
+    struct Conn {
+        id: String,
+        rx: mpsc::Receiver<ServerMsg>,
+    }
+
+    async fn connect(org: &Org, name: &str, sub: Option<&str>, role: Role) -> Conn {
+        let (tx, rx) = mpsc::channel(64);
+        let welcome = org
+            .join(
+                name.to_string(),
+                String::new(),
+                None,
+                sub.map(str::to_string),
+                role,
+                tx,
+            )
+            .await;
+        let ServerMsg::Welcome { id, .. } = welcome else {
+            unreachable!()
+        };
+        Conn { id, rx }
+    }
+
+    impl Conn {
+        /// The most recent `notes` message received, draining the channel.
+        fn board(&mut self) -> Vec<NoteInfo> {
+            let mut last = None;
+            while let Ok(msg) = self.rx.try_recv() {
+                if let ServerMsg::Notes { notes, .. } = msg {
+                    last = Some(notes);
+                }
+            }
+            last.expect("a notes message")
+        }
+    }
+
+    /// Post as if the member's cooldown had already passed.
+    async fn post(org: &Org, conn: &Conn, text: &str) {
+        org.inner
+            .lock()
+            .await
+            .members
+            .get_mut(&conn.id)
+            .unwrap()
+            .last_note_at = None;
+        org.post_note(&conn.id, text).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn posting_past_the_cap_takes_the_oldest_down() {
+        let org = Org::new("o", "O", None);
+        let mut a = connect(&org, "A", Some("a"), Role::Member).await;
+        for i in 0..=MAX_NOTES_PER_BOARD {
+            post(&org, &a, &format!("n{i}")).await;
+        }
+        let board = a.board();
+        assert_eq!(board.len(), MAX_NOTES_PER_BOARD);
+        assert_eq!(board[0].text, "n1");
+        assert_eq!(
+            board.last().unwrap().text,
+            format!("n{MAX_NOTES_PER_BOARD}")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_guest_holds_one_note_per_board_even_across_reconnects() {
+        let org = Org::new("o", "O", None);
+        let g = connect(&org, "G", Some("guest:1"), Role::Guest).await;
+        post(&org, &g, "first").await;
+        org.leave(&g.id).await;
+
+        let mut g = connect(&org, "G", Some("guest:1"), Role::Guest).await;
+        post(&org, &g, "second").await;
+        let texts: Vec<String> = g.board().into_iter().map(|n| n.text).collect();
+        assert_eq!(texts, ["second"]);
+
+        // The other space's board is its own.
+        assert!(matches!(
+            org.enter_space(&g.id, "dev").await,
+            EnterOutcome::Snapshot(_)
+        ));
+        post(&org, &g, "in dev").await;
+        assert_eq!(g.board().len(), 1);
+        org.enter_space(&g.id, "lobby").await;
+        org.send_notes(&g.id).await;
+        assert_eq!(g.board()[0].text, "second");
+    }
+
+    #[tokio::test]
+    async fn only_the_author_or_an_admin_removes_a_note() {
+        let org = Org::new("o", "O", None);
+        let mut author = connect(&org, "A", Some("a"), Role::Member).await;
+        let mut other = connect(&org, "B", Some("b"), Role::Member).await;
+        let mut admin = connect(&org, "C", Some("c"), Role::Admin).await;
+        post(&org, &author, "mine").await;
+
+        let mine = author.board().remove(0);
+        let id = mine.id;
+        assert!(mine.removable);
+        assert!(!other.board()[0].removable);
+        assert!(admin.board()[0].removable);
+
+        assert_eq!(
+            org.remove_note(&other.id, id).await,
+            Err(NoteError::Forbidden)
+        );
+        assert_eq!(org.remove_note(&admin.id, id).await, Ok(()));
+        assert!(other.board().is_empty());
+
+        // Already gone: not an error, the requester is resynced.
+        assert_eq!(org.remove_note(&author.id, id).await, Ok(()));
+        assert!(author.board().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_note_without_a_sub_belongs_to_nobody() {
+        let org = Org::new("o", "O", None);
+        let mut a = connect(&org, "A", None, Role::Member).await;
+        post(&org, &a, "anonymous").await;
+        let note = a.board().remove(0);
+        assert!(!note.removable);
+        assert_eq!(
+            org.remove_note(&a.id, note.id).await,
+            Err(NoteError::Forbidden)
+        );
+    }
+
+    #[tokio::test]
+    async fn posts_are_rate_limited_and_empty_ones_refused() {
+        let org = Org::new("o", "O", None);
+        let a = connect(&org, "A", Some("a"), Role::Member).await;
+        assert_eq!(org.post_note(&a.id, "   ").await, Err(NoteError::Empty));
+        assert_eq!(org.post_note(&a.id, "one").await, Ok(()));
+        assert_eq!(
+            org.post_note(&a.id, "two").await,
+            Err(NoteError::RateLimited)
+        );
+    }
+
+    #[tokio::test]
+    async fn notes_survive_a_restart() {
+        let store = Arc::new(Store::open_in_memory());
+        let org = Org::new("o", "O", Some(store.clone()));
+        let a = connect(&org, "A", Some("a"), Role::Member).await;
+        post(&org, &a, "keep me").await;
+
+        let org = Org::from_catalog(store.load_all().remove(0), Some(store));
+        let mut a = connect(&org, "A", Some("a"), Role::Member).await;
+        org.send_notes(&a.id).await;
+        let board = a.board();
+        assert_eq!(board[0].text, "keep me");
+        assert!(board[0].removable);
+        // Ids carry on after the reload instead of colliding.
+        post(&org, &a, "next").await;
+        assert!(a.board()[1].id > board[0].id);
     }
 }

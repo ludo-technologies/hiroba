@@ -27,6 +27,7 @@
  */
 
 import type { Peer, SpaceDescriptor, Status } from "./protocol.js";
+import { BOARD_MAX_NOTES, boardGeometry, type BoardGeometry } from "./board.js";
 
 // ---------------------------------------------------------------------------
 // Per-frame voice levels handed in by main.ts (decoupled from the audio engine)
@@ -75,7 +76,8 @@ type FloorItem =
   | { kind: "table"; x: number; y: number; w: number; h: number; round: boolean }
   | { kind: "couch"; x: number; y: number; w: number; h: number }
   | { kind: "plant"; x: number; y: number; r: number }
-  | { kind: "stool"; x: number; y: number; r: number };
+  | { kind: "stool"; x: number; y: number; r: number }
+  | { kind: "board"; x: number; y: number; w: number; h: number };
 
 /** A sit target in world units. Click-to-sit walks here; tokens near a seat
  *  draw slightly smaller so idle people read as "at a desk / chair". */
@@ -89,6 +91,7 @@ interface Seat {
 interface FloorPlan {
   items: FloorItem[];
   seats: Seat[];
+  board: BoardGeometry;
 }
 
 // Visual constants — tuned for a calm, legible, warm office.
@@ -129,6 +132,9 @@ const WOOD_EDGE = "rgba(90,64,36,0.30)";
 const COUCH = "#aeb7bd"; // soft grey-blue upholstery
 const COUCH_HI = "#c2cace";
 const POT = "#b27a4f";
+const CORK = "#d2a679"; // bulletin board
+const BOARD_FRAME = "#8f6b43"; // darker than the tables, so it reads as hung on the wall
+const PAPER = ["#fff8e1", "#fde3c8", "#e6f0dc"]; // notes pinned to it
 const LEAF = "#7fa863";
 const LEAF_HI = "#93bd75";
 
@@ -192,6 +198,12 @@ export class Renderer {
   /** Seat under the pointer (drives a soft hover ring on the stool). */
   private seatHover: Seat | null = null;
 
+  /** Where this space's bulletin board hangs. */
+  private board: BoardGeometry | null = null;
+  /** Notes on it; null until the server sends a board (an older server never
+   *  does), and the board is not drawn. */
+  private boardNotes: number | null = null;
+
   /** Name chips queued during the token pass, flushed on a top layer so a
    *  nearby token can cover a body but never hide who someone is. */
   private chipQueue: Array<{
@@ -253,6 +265,8 @@ export class Renderer {
     this.floor = plan.items;
     this.seats = plan.seats;
     this.seatHover = null;
+    this.board = plan.board;
+    this.boardNotes = null;
   }
 
   /** Return to the un-initialized state and paint the idle screen. */
@@ -264,6 +278,8 @@ export class Renderer {
     this.seats = [];
     this.walkTarget = null;
     this.seatHover = null;
+    this.board = null;
+    this.boardNotes = null;
     this.avatarImages.clear();
     this.paintIdle();
   }
@@ -336,6 +352,22 @@ export class Renderer {
       if (d <= s.hitR && (!best || d < best.d)) best = { seat: s, d };
     }
     return best ? { x: best.seat.x, y: best.seat.y } : null;
+  }
+
+  /** How many notes the board holds, or null for "this space has no board". */
+  setBoardNotes(count: number | null): void {
+    this.boardNotes = count;
+    this.onWake?.();
+  }
+
+  /** Hit-test the bulletin board. Returns where to stand to read it. */
+  boardAtScreen(clientX: number, clientY: number): { x: number; y: number } | null {
+    const world = this.screenToWorld(clientX, clientY);
+    const b = this.board;
+    if (!world || !b || this.boardNotes === null) return null;
+    const hit =
+      world.x >= b.x && world.x <= b.x + b.w && world.y >= b.y && world.y <= b.y + b.h;
+    return hit ? { x: b.standX, y: b.standY } : null;
   }
 
   /** Highlight a pageable peer under the pointer, or clear the hover ring. */
@@ -728,6 +760,27 @@ export class Renderer {
           ctx.beginPath();
           ctx.arc(x, y, r, 0, Math.PI * 2);
           ctx.stroke();
+          break;
+        }
+        case "board": {
+          if (this.boardNotes === null) break;
+          const x = X(it.x), y = Y(it.y), w = it.w * scale, h = it.h * scale;
+          this._softShadow(x, y, w, h, false);
+          roundRect(ctx, x, y, w, h, 4);
+          ctx.fillStyle = CORK;
+          ctx.fill();
+          ctx.lineWidth = Math.max(2, 3 * scale);
+          ctx.strokeStyle = BOARD_FRAME;
+          ctx.stroke();
+          // One slip of paper per note: the count reads without a number.
+          const cols = BOARD_MAX_NOTES / 2;
+          const cw = w / cols, ch = h / 2;
+          for (let i = 0; i < this.boardNotes; i++) {
+            const px = x + (i % cols) * cw + cw * 0.2;
+            const py = y + Math.floor(i / cols) * ch + ch * 0.22;
+            ctx.fillStyle = PAPER[i % PAPER.length];
+            ctx.fillRect(px, py, cw * 0.6, ch * 0.56);
+          }
           break;
         }
         case "plant": {
@@ -1179,6 +1232,12 @@ function seatHitR(stoolR: number): number {
   return Math.max(stoolR * 2.4, 28);
 }
 
+function pushBoard(items: FloorItem[], space: SpaceDescriptor): BoardGeometry {
+  const board = boardGeometry(space);
+  items.push({ kind: "board", x: board.x, y: board.y, w: board.w, h: board.h });
+  return board;
+}
+
 function pushStool(
   items: FloorItem[],
   seats: Seat[],
@@ -1322,7 +1381,7 @@ function buildLobbyFloor(space: SpaceDescriptor): FloorPlan {
     });
   }
 
-  return { items, seats };
+  return { items, seats, board: pushBoard(items, space) };
 }
 
 /**
@@ -1375,7 +1434,7 @@ function buildTeamFloor(space: SpaceDescriptor): FloorPlan {
   items.push({ kind: "plant", x: 0.08 * W, y: 0.1 * H, r: 0.038 * W });
   items.push({ kind: "plant", x: 0.92 * W, y: 0.9 * H, r: 0.038 * W });
 
-  return { items, seats };
+  return { items, seats, board: pushBoard(items, space) };
 }
 
 // ---------------------------------------------------------------------------

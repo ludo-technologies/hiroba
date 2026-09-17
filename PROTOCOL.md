@@ -58,6 +58,16 @@ The `token` carried in `hello` is resolved by the server to an org + identity:
   client in its single configured org as a guest, using the supplied
   `name`/`color`.
 
+A token MAY carry a `role` claim, which today governs only the bulletin board
+(`post_note` / `remove_note`):
+
+| Mode | Role |
+|---|---|
+| Hosted, `role` = `admin` / `member` / `guest` | as claimed |
+| Hosted, no `role` claim (e.g. a third-party OIDC token) | `member` |
+| Hosted, any other `role` value | the token is rejected (`auth_failed`) |
+| Self-host (guest) | `admin` for everyone — there are no accounts to tell apart |
+
 The OAuth flow itself is out of scope for the wire protocol; only the resulting
 `token` crosses the wire. Auth failure closes the socket after an `error` frame.
 
@@ -155,6 +165,25 @@ Server creates a team space, assigns a `spaceId`, and broadcasts the updated
 catalog via `spaces` to the org. A name already in use is rejected with
 `error` code `space_exists`. (Permission to create may be restricted; see
 requirements §9.)
+
+### `post_note` — pin a note to the current space's bulletin board
+```json
+{ "t": "post_note", "text": "Back at 15:00" }
+```
+Every space has one board. The server flattens `text` to one line, trims it and
+cuts it at 140 characters; nothing left is `error` code `note_empty`. A board
+keeps its newest 8 notes — posting past that takes the oldest down, and that is
+the only expiry. A `guest` holds one note per board: posting again replaces
+theirs. One post per member per 5 seconds, else `note_rate`. On success the
+board is sent to everyone in the space via `notes` (sender included).
+
+### `remove_note` — take a note off the current space's board
+```json
+{ "t": "remove_note", "id": 12 }
+```
+Allowed for the note's author (same token `sub`) and for an `admin`; anyone
+else gets `error` code `forbidden`. An `id` that is not on the board is not an
+error: the requester is re-sent `notes`. On success `notes` goes to the space.
 
 ### `move` — update own position within the current space (~tickHz, only when moving)
 ```json
@@ -303,6 +332,19 @@ new space. `peers` is that space's current roster (excluding self).
 ```
 Broadcast to the whole org. Clients replace their catalog.
 
+### `notes` — a space's bulletin board
+```json
+{ "t": "notes", "spaceId": "lobby", "notes": [
+  { "id": 12, "authorName": "Aoi", "text": "Back at 15:00", "ts": 1789651200, "removable": true }
+] }
+```
+Always the whole board, oldest first; clients replace theirs. Sent to a client
+right after `welcome` and after each `space_snapshot`, and to everyone in the
+space whenever the board changes. `ts` is Unix seconds. `removable` is computed
+per recipient (their own note, or they are an admin) — the author's `sub` never
+crosses the wire. A client MUST ignore a `notes` whose `spaceId` is not its
+current space, and a client that never receives one shows no board.
+
 ### `presence` — org roster upsert (a member joined or changed)
 ```json
 { "t": "presence", "member": { "id": "9", "name": "Sora", "color": "#7ac77a", "spaceId": "dev", "status": "away", "muted": true } }
@@ -429,7 +471,8 @@ Tear down the page link to `from`, or dismiss a pending `page_offer` from
 { "t": "error", "code": "space_full", "message": "Team is full (5/5)." }
 ```
 Codes: `auth_failed`, `org_suspended`, `space_full`, `space_limit`,
-`space_exists`, `unknown_space`, `forbidden`. On `auth_failed` or `org_suspended`, the server
+`space_exists`, `unknown_space`, `forbidden`, `note_empty`, `note_rate`. On
+`auth_failed` or `org_suspended`, the server
 closes the socket after sending this frame.
 
 ---
@@ -501,6 +544,7 @@ client                         server
   |  ── WS connect ──────────────▶ |
   |  ── hello{token,name,color,avatar} ─▶ |  (validate token → org + identity)
   |  ◀──────── welcome{...}        |  (current space + catalog + org roster)
+  |  ◀──────── notes{...}          |  (the current space's bulletin board)
   |                                |  (broadcast presence to the org)
   |  ── move/mute/signal ────────▶ |  (within current space)
   |  ◀── state (every tick) ────── |
@@ -510,6 +554,10 @@ client                         server
   |                                |
   |  ── enter_space{spaceId} ────▶ |
   |  ◀── space_snapshot{...}       |  (+ presence broadcast: new spaceId)
+  |  ◀── notes{...}                |  (the new space's board)
+  |                                |
+  |  ── post_note / remove_note ─▶ |
+  |  ◀── notes{...}                |  (to everyone in the space)
   |                                |
   |  ── page{to} ────────────────▶ |  (DND/offline → page_rejected)
   |  ◀── page_ringing{to}          |  (caller)

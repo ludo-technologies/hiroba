@@ -28,8 +28,9 @@ default):
   creates) its tenant; tenants are fully isolated. Guest mode is single-org.
 - **TURN credential issuance** — `GET /ice` mints short-lived coturn credentials.
   See [§5](#configuring-ice--turn-servers-on-the-client).
-- **Org / space catalog persistence** — set `HIROBA_DB` to a SQLite path so orgs
-  and space catalogs survive restarts (see [§4](#4-configuration)). Live
+- **Org / space catalog / bulletin board persistence** — set `HIROBA_DB` to a
+  SQLite path so orgs, space catalogs and the notes pinned to each space's
+  board survive restarts (see [§4](#4-configuration)). Live
   presence (online status, positions) is always ephemeral.
 
 Org invites, billing, and admin roles are part of the managed hosted edition and
@@ -100,7 +101,7 @@ sudo systemctl enable --now hiroba
 | `HIROBA_ADDR`     | `0.0.0.0:8787` | Address:port the server binds to.             |
 | `HIROBA_ORG`      | `ludo`         | Default/guest org (tenant) id. Also the fallback tenant for tokens with no `org` claim. |
 | `HIROBA_ORG_NAME` | `Ludo`         | Org display name shown atop the roster.       |
-| `HIROBA_DB`       | *(unset → in-memory)* | Path to a SQLite file persisting orgs + space catalogs across restarts (created on first boot). Unset keeps the fully DB-less profile; spaces created at runtime are then lost on restart. |
+| `HIROBA_DB`       | *(unset → in-memory)* | Path to a SQLite file persisting orgs, space catalogs and bulletin-board notes across restarts (created on first boot). Unset keeps the fully DB-less profile; spaces created and notes pinned at runtime are then lost on restart. |
 | `HIROBA_CORS_ALLOW_ORIGINS` | *(unset → any)* | Comma-separated CORS origin allow-list for the HTTP endpoints (`/ice`, `/health`). See below. |
 | `RUST_LOG`        | `info`         | Log verbosity (`error`/`warn`/`info`/…).      |
 
@@ -320,9 +321,13 @@ tenant, and tenants are **fully isolated** — one org never sees another's rost
 positions, or signaling (NFR-12). A `hello` may still override `name`/`color`.
 
 Without `HIROBA_DB`, tenants live **in memory** for the server process lifetime
-and reset on restart. With `HIROBA_DB`, org ids and space catalogs are stored in
-SQLite; live presence (who is online, positions, status) is still ephemeral and
+and reset on restart. With `HIROBA_DB`, org ids, space catalogs and
+bulletin-board notes are stored in SQLite; live presence (who is online, positions, status) is still ephemeral and
 clears on restart.
+
+In guest mode there are no accounts, so anyone in the office can remove any
+note from a bulletin board; with JWT/OIDC auth only a note's author and tokens
+carrying `role: "admin"` can (PROTOCOL.md §Authentication).
 
 ### Bringing a login edge
 
