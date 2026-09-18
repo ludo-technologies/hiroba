@@ -1077,6 +1077,11 @@ export class UIManager {
     return elJoinAuth.value.trim().replace(/\/+$/, "");
   }
 
+  /** The signaling WebSocket URL as currently configured (Advanced field). */
+  getServerUrl(): string {
+    return elJoinServer.value.trim();
+  }
+
   // -------------------------------------------------------------------------
   // Org setup (first sign-in without an invite)
   // -------------------------------------------------------------------------

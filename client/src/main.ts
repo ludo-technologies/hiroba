@@ -298,6 +298,30 @@ startDeepLinkListener((code) => ui.applyInvite(code));
 const webInvite = inviteFromLocation();
 if (webInvite) ui.setGuestMode(true);
 
+// Warm the connections a join will open — auth (`/guest`, session restore)
+// and the signaling host (`/ice`) — while the user is still typing a name.
+// A cold origin otherwise pays DNS + TCP + TLS in front of its first request,
+// and the join chain is sequential, so that showed up as ~1s of the wait.
+// A hint only: an unparseable Advanced URL just goes without one (the join
+// itself reports it).
+function preconnect(url: string): void {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return;
+  }
+  // The hint wants the HTTP(S) origin; `/ice` lives on the WS host anyway.
+  if (u.protocol === "wss:") u.protocol = "https:";
+  else if (u.protocol === "ws:") u.protocol = "http:";
+  const link = document.createElement("link");
+  link.rel = "preconnect";
+  link.href = u.origin;
+  document.head.append(link);
+}
+preconnect(ui.getAuthUrl());
+preconnect(ui.getServerUrl());
+
 if (isTauri()) {
   const appWindow = getCurrentWindow();
   void appWindow
