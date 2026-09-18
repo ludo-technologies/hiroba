@@ -144,6 +144,7 @@ const elAuthOrgSelect = $<HTMLDivElement>("auth-org-select");
 const elAuthLogout = $<HTMLButtonElement>("auth-logout");
 const elAuthNewOrg = $<HTMLButtonElement>("auth-new-org");
 const elJoinBtn = $<HTMLButtonElement>("join-btn");
+const elJoinStatus = $<HTMLParagraphElement>("join-status");
 const elJoinError = $<HTMLParagraphElement>("join-error");
 const elJoinSettingsBtn = $<HTMLButtonElement>("join-settings-btn");
 const elServerSettings = $<HTMLDivElement>("server-settings");
@@ -584,6 +585,17 @@ export class UIManager {
   // State transitions
   // -------------------------------------------------------------------------
 
+  /** Connect attempt in flight: the button becomes Cancel and the pulsing
+   *  "Connecting…" line shows — without it a slow guest entry looks like a
+   *  dead button. Also re-applies the current locale's labels. */
+  private setConnecting(on: boolean): void {
+    elJoinBtn.disabled = false;
+    if (on) elJoinBtn.dataset.connecting = "true";
+    else delete elJoinBtn.dataset.connecting;
+    elJoinBtn.textContent = on ? t.cancel : t.enter;
+    elJoinStatus.toggleAttribute("hidden", !on);
+  }
+
   /** Show the join overlay and hide everything else (leave / error / give-up). */
   showJoin(error?: string): void {
     elJoin.removeAttribute("hidden");
@@ -600,9 +612,7 @@ export class UIManager {
     this.setCall(null);
     this.hideMoveHint();
     this.setMuteNudge(false);
-    elJoinBtn.disabled = false;
-    delete elJoinBtn.dataset.connecting;
-    elJoinBtn.textContent = t.enter;
+    this.setConnecting(false);
     if (error) {
       elJoinError.textContent = error;
       elJoinError.removeAttribute("hidden");
@@ -622,9 +632,7 @@ export class UIManager {
     elSidebar.removeAttribute("hidden");
     elTabs.removeAttribute("hidden");
     elJoinError.setAttribute("hidden", "");
-    elJoinBtn.disabled = false;
-    delete elJoinBtn.dataset.connecting;
-    elJoinBtn.textContent = t.enter;
+    this.setConnecting(false);
     // Join via Enter can leave focus stranded on a now-hidden input. Shortcuts
     // already survive that (isTypingTarget ignores [hidden] subtrees); this
     // clears the stale focus itself, as a guard against WebView focus quirks.
@@ -925,11 +933,7 @@ export class UIManager {
     );
 
     // Join / auth / org-setup button labels.
-    if (elJoinBtn.dataset.connecting === "true") {
-      elJoinBtn.textContent = t.cancel;
-    } else {
-      elJoinBtn.textContent = t.enter;
-    }
+    this.setConnecting(elJoinBtn.dataset.connecting === "true");
     this.setLoginBusy(this.lastLoginBusy);
     this.setEmailBusy(this.lastEmailBusy);
     this.setCodeBusy(this.lastCodeBusy);
@@ -2344,8 +2348,7 @@ export class UIManager {
         this.callbacks.onCancelConnect();
         return;
       }
-      elJoinBtn.dataset.connecting = "true";
-      elJoinBtn.textContent = t.cancel;
+      this.setConnecting(true);
       elJoinError.setAttribute("hidden", "");
 
       this._persistToStorage(name, color, serverUrl, token);

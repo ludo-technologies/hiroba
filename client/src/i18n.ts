@@ -197,7 +197,8 @@ const EN = {
   orgSwitchAria: "Switch organization",
   errOrgSwitch: "Couldn't switch organizations. Please try again.",
 
-  // Reconnect overlay
+  // Join card (connecting) / reconnect overlay
+  connecting: "Connecting…",
   reconnecting: "Reconnecting…",
   reconnectAttempt: (n: number, max: number) => `Reconnecting… (attempt ${n}/${max})`,
   reconnectOffline: "Waiting for the network…",
@@ -496,7 +497,8 @@ const JA: typeof EN = {
   orgSwitchAria: "組織を切り替え",
   errOrgSwitch: "組織を切り替えられませんでした。もう一度お試しください。",
 
-  // Reconnect overlay
+  // Join card (connecting) / reconnect overlay
+  connecting: "接続中…",
   reconnecting: "再接続中…",
   reconnectAttempt: (n: number, max: number) => `再接続中…(${n}/${max} 回目)`,
   reconnectOffline: "ネットワークの回復を待っています…",

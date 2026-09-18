@@ -205,6 +205,13 @@
           />
         </label>
 
+        <!-- Connecting: the button turns into Cancel, and this line is what
+             tells the user something is happening (a guest entry can take a
+             few seconds: /guest → /ice → welcome). -->
+        <p id="join-status" class="join-status" role="status" aria-live="polite" hidden>
+          <span class="pulse" aria-hidden="true"><span></span><span></span><span></span></span>
+          <span data-i18n="connecting">Connecting…</span>
+        </p>
         <button id="join-btn" type="submit">
           <span class="btn-label" data-i18n="enter">Enter Hiroba</span>
         </button>

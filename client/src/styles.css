@@ -518,6 +518,22 @@ body {
   filter: saturate(0.75);
 }
 
+/* --- Connecting status (above the button while an attempt is in flight) --- */
+
+.join-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin: 4px 0 2px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.join-status[hidden] {
+  display: none;
+}
+
 /* --- Error --- */
 
 .error {
