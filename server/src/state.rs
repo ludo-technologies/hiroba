@@ -131,6 +131,12 @@ pub struct Member {
     pub role: Role,
     /// When this member last posted a note ([`NOTE_COOLDOWN`]).
     pub last_note_at: Option<Instant>,
+    /// When this member connected — the stay length on leave.
+    pub joined_at: Instant,
+    /// The most *other* members in the org at once while this member was
+    /// here. Org-wide rather than per space: the question is whether anyone
+    /// was around at all, not which room they sat in.
+    pub peers_max: usize,
     /// The space the member is currently present in.
     pub space_id: String,
     pub x: f64,
@@ -635,6 +641,13 @@ impl Org {
             .clone();
         let (x, y) = guard.pick_spawn("lobby");
 
+        // Everyone already here now has one more peer than they had; the
+        // newcomer's peers are everyone already here.
+        let others = guard.members.len();
+        for m in guard.members.values_mut() {
+            m.peers_max = m.peers_max.max(others);
+        }
+
         let member = Member {
             id: id.clone(),
             num_id,
@@ -644,6 +657,8 @@ impl Org {
             sub,
             role,
             last_note_at: None,
+            joined_at: Instant::now(),
+            peers_max: others,
             space_id: space_id.clone(),
             x,
             y,
@@ -699,11 +714,10 @@ impl Org {
     ///
     /// Broadcasts `space_left` to their space, `presence_left` to the org, and
     /// ends any active page links (notifying the partner + clearing in_call).
-    pub async fn leave(&self, id: &str) {
+    /// Returns the departed member (its stay and peers), or `None` if already gone.
+    pub async fn leave(&self, id: &str) -> Option<Member> {
         let mut guard = self.inner.lock().await;
-        let Some(member) = guard.members.remove(id) else {
-            return; // already gone
-        };
+        let member = guard.members.remove(id)?;
 
         // Remove from its space + notify that space. The explicit proximity
         // disconnect makes audio teardown server-authoritative: peers must not
@@ -763,6 +777,7 @@ impl Org {
 
         // Org-wide: this member left the roster.
         guard.broadcast_org_except(id, ServerMsg::PresenceLeft { id: id.to_string() });
+        Some(member)
     }
 
     // -----------------------------------------------------------------------
@@ -1502,6 +1517,8 @@ mod tests {
                     sub: None,
                     role: Role::Member,
                     last_note_at: None,
+                    joined_at: Instant::now(),
+                    peers_max: 0,
                     space_id: desc.id.clone(),
                     x,
                     y,

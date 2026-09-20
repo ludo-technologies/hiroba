@@ -25,7 +25,8 @@ use tokio::sync::mpsc;
 use tokio::time::{interval, Duration};
 use tracing::{debug, info, warn};
 
-use crate::auth::Auth;
+use crate::auth::{Auth, Role};
+use crate::beacon::GuestBeacon;
 use crate::protocol::{ClientMsg, PeerPos, ServerMsg};
 use crate::proximity;
 use crate::registry::OrgRegistry;
@@ -54,12 +55,14 @@ const TICK_HZ: u32 = 12;
 
 /// Handle a single WebSocket connection for its entire lifetime. `auth` verifies
 /// the `hello` token and resolves it to a tenant + identity; `registry` then
-/// hands back the matching [`crate::state::Org`] (§7.6).
+/// hands back the matching [`crate::state::Org`] (§7.6). `beacon`, when
+/// configured, hears about a guest's exit.
 pub async fn handle_ws(
     socket: WebSocket,
     registry: OrgRegistry,
     auth: Arc<Auth>,
     billing: Option<Arc<crate::billing::BillingGate>>,
+    beacon: Option<Arc<GuestBeacon>>,
 ) {
     let (mut ws_tx, mut ws_rx) = socket.split();
 
@@ -276,9 +279,21 @@ pub async fn handle_ws(
     }
 
     // ── Phase 5: cleanup ──────────────────────────────────────────────────
-    org.leave(&peer_id).await;
+    let left = org.leave(&peer_id).await;
     info!(peer_id = %peer_id, "member left");
     writer_handle.abort();
+
+    // A browser guest's exit is the one moment that knows what their visit
+    // was like; report it off the connection's path, the way auth reports the
+    // entry. Members and admins are accounted for elsewhere (auth DB).
+    if let (Some(beacon), Some(m)) = (beacon, left.filter(|m| m.role == Role::Guest)) {
+        let org_id = org.id().to_string();
+        tokio::spawn(async move {
+            beacon
+                .guest_left(&org_id, &m.name, m.joined_at.elapsed().as_secs(), m.peers_max)
+                .await;
+        });
+    }
 }
 
 fn note_error(e: NoteError) -> ServerMsg {

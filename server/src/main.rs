@@ -26,6 +26,7 @@ use hiroba_common::cors_from_env;
 use tracing::{debug, error, info};
 
 mod auth;
+mod beacon;
 mod billing;
 mod ice;
 mod protocol;
@@ -36,6 +37,7 @@ mod store;
 mod ws;
 
 use auth::Auth;
+use beacon::GuestBeacon;
 use billing::BillingGate;
 use ice::IceIssuer;
 use registry::OrgRegistry;
@@ -51,6 +53,8 @@ struct AppState {
     ice: IceIssuer,
     /// Billing lock check, or `None` when billing enforcement is off (self-host).
     billing: Option<Arc<BillingGate>>,
+    /// Guest-exit reporter, or `None` when unconfigured (self-host).
+    beacon: Option<Arc<GuestBeacon>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -98,7 +102,9 @@ async fn ws_handler(
         .unwrap_or("-");
     tracing::info!(ip = %ip, ua = %ua, "ws upgrade");
     upgrade
-        .on_upgrade(move |socket| ws::handle_ws(socket, state.registry, state.auth, state.billing))
+        .on_upgrade(move |socket| {
+            ws::handle_ws(socket, state.registry, state.auth, state.billing, state.beacon)
+        })
 }
 
 fn bearer_token(headers: &HeaderMap) -> Option<&str> {
@@ -135,6 +141,10 @@ async fn main() {
     // the auth backend's /billing/status; off (no-op) for self-host.
     let billing = BillingGate::from_env().map(Arc::new);
 
+    // Guest-exit reporting: on when HIROBA_GUEST_BEACON_URL/SECRET point at
+    // the update worker's /guest/left; off (no-op) for self-host.
+    let beacon = GuestBeacon::from_env().map(Arc::new);
+
     // ── Persistence (§7.5) ─────────────────────────────────────────────────
     // HIROBA_DB=<path> persists the org registry + space catalogs (SQLite).
     // Unset → DB-less profile: everything in memory, exactly as before.
@@ -167,6 +177,7 @@ async fn main() {
         auth = auth.mode(),
         turn = ice.has_turn(),
         billing = billing.is_some(),
+        guest_beacon = beacon.is_some(),
         "auth + ICE configured"
     );
 
@@ -189,6 +200,7 @@ async fn main() {
             auth,
             ice,
             billing,
+            beacon,
         });
 
     // ── Bind address ─────────────────────────────────────────────────────
