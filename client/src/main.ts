@@ -39,7 +39,7 @@ import {
   shouldKeepAwake,
 } from "./loop.js";
 import { startUpdateChecks } from "./updater.js";
-import { inviteFromLocation, startDeepLinkListener } from "./deeplink.js";
+import { inviteFromLocation, returnFromLocation, startDeepLinkListener } from "./deeplink.js";
 import { resolveIceServers, type IceResolution } from "./config.js";
 import { locale, spaceLabel, t } from "./i18n.js";
 import {
@@ -297,6 +297,9 @@ startDeepLinkListener((code) => ui.applyInvite(code));
 // session on every connect, so a re-entry hours later needs no new link.
 const webInvite = inviteFromLocation();
 if (webInvite) ui.setGuestMode(true);
+// The page that sent the guest here (the landing page's demo button): leaving
+// goes back to it instead of stranding them on the join form.
+const guestReturnUrl = webInvite ? returnFromLocation() : "";
 
 // Warm the connections a join will open — auth (`/guest`, session restore)
 // and the signaling host (`/ice`) — while the user is still typing a name.
@@ -2613,6 +2616,7 @@ function handleSetStatus(away: boolean, dnd: boolean): void {
 
 function handleLeave(): void {
   leaveSession();
+  if (guestReturnUrl) window.location.assign(guestReturnUrl);
 }
 
 function leaveSession(): void {

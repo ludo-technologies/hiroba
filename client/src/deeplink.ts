@@ -27,6 +27,16 @@ export function inviteFromLocation(): string {
   return /^[A-Za-z0-9_-]{1,128}$/.test(code) ? code : "";
 }
 
+/** Where a browser guest goes after leaving (`?return=<path>`), or `""`.
+ *  Same-origin only, so an invite link can't be turned into an open redirect. */
+export function returnFromLocation(): string {
+  if (isTauri()) return "";
+  const raw = new URLSearchParams(window.location.search).get("return");
+  if (!raw) return "";
+  const url = new URL(raw, window.location.origin);
+  return url.origin === window.location.origin ? url.href : "";
+}
+
 /** Start listening; `onInvite` fires with the bare token for each invite link. */
 export function startDeepLinkListener(onInvite: (code: string) => void): void {
   if (!isTauri()) return;
