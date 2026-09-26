@@ -135,10 +135,8 @@
           <div id="auth-session" class="auth-session" hidden>
             <span class="auth-dot" aria-hidden="true"></span>
             <span id="auth-user" class="auth-user"></span>
-            <!-- Org switcher; stays hidden unless the user belongs to 2+ orgs. -->
-            <div id="auth-org-select" class="auth-org-select" hidden></div>
-            <button id="auth-new-org" type="button" class="ghost-btn" data-i18n="newOrg">New organization</button>
-            <button id="auth-logout" type="button" class="ghost-btn" data-i18n="signOut">Sign out</button>
+            <!-- Org menu: memberships, then "New organization" and sign-out. -->
+            <div id="auth-org-select" class="auth-org-select"></div>
           </div>
           <!-- Hosted trial countdown; copy set from ui.ts. Hidden unless the
                org's subscription is trialing. -->

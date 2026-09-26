@@ -141,8 +141,6 @@ const elLoginCodeBack = $<HTMLButtonElement>("login-code-back");
 const elAuthSession = $<HTMLDivElement>("auth-session");
 const elAuthUser = $<HTMLSpanElement>("auth-user");
 const elAuthOrgSelect = $<HTMLDivElement>("auth-org-select");
-const elAuthLogout = $<HTMLButtonElement>("auth-logout");
-const elAuthNewOrg = $<HTMLButtonElement>("auth-new-org");
 const elJoinBtn = $<HTMLButtonElement>("join-btn");
 const elJoinStatus = $<HTMLParagraphElement>("join-status");
 const elJoinError = $<HTMLParagraphElement>("join-error");
@@ -754,7 +752,6 @@ export class UIManager {
     } else {
       this.lastOrgs = [];
       this.lastOrgSlug = "";
-      elAuthOrgSelect.setAttribute("hidden", "");
       elAuthSession.setAttribute("hidden", "");
       elAuthActions.removeAttribute("hidden");
       // Signing out mid-code-entry would otherwise leave a stale code step.
@@ -764,10 +761,10 @@ export class UIManager {
 
   /**
    * The session's memberships, current org first as the backend orders them.
-   * Two or more turn the chip's org text into a switcher (and put the escape
-   * hatch on the billing-lock notice); fewer keep the plain text — the list
-   * arrives from a separate request and may legitimately never come (offline,
-   * old backend), which must simply mean "no switcher".
+   * Two or more add switch targets to the chip's org menu (and put the escape
+   * hatch on the billing-lock notice). The list arrives from a separate
+   * request and may legitimately never come (offline, old backend); the menu
+   * then holds just the session's own org.
    */
   setOrgList(orgs: OrgSummary[], currentSlug: string): void {
     this.lastOrgs = orgs;
@@ -788,23 +785,18 @@ export class UIManager {
   private _renderAuthChip(): void {
     const session = this.lastAuth;
     if (!session) return;
-    if (this.lastOrgs.length >= 2) {
-      elAuthUser.textContent = session.name;
-      this.orgSelect.setOptions(
-        this.lastOrgs.map((o) => ({
-          value: o.slug,
-          label: o.role === "admin" ? `${o.name} (admin)` : o.name,
-        })),
-        this.lastOrgSlug,
-      );
-      elAuthOrgSelect.removeAttribute("hidden");
-    } else {
-      elAuthOrgSelect.setAttribute("hidden", "");
-      elAuthUser.textContent =
-        session.role === "admin"
-          ? `${session.name} — ${session.org} (admin)`
-          : `${session.name} — ${session.org}`;
-    }
+    const orgLabel = (name: string, role: string) => (role === "admin" ? `${name} (admin)` : name);
+    elAuthUser.textContent = session.name;
+    this.orgSelect.setOptions(
+      this.lastOrgs.length >= 2
+        ? this.lastOrgs.map((o) => ({ value: o.slug, label: orgLabel(o.name, o.role) }))
+        : [{ value: "", label: orgLabel(session.org, session.role) }],
+      this.lastOrgs.length >= 2 ? this.lastOrgSlug : "",
+      [
+        { label: t.newOrgAction, onSelect: () => this.showOrgSetup("another") },
+        { label: t.signOutAccount, onSelect: () => this.callbacks.onLogout() },
+      ],
+    );
   }
 
   /** Disable the login buttons while the browser dance is in flight. */
@@ -944,6 +936,7 @@ export class UIManager {
     this._renderInviteSetup();
     this.setBillingLock(this.lastBillingLock);
     this._renderTrial();
+    this._renderAuthChip();
 
     // HUD chrome that UI owns directly.
     this.setMuted(this.lastMuted);
@@ -1016,8 +1009,6 @@ export class UIManager {
     };
     elLoginGoogle.addEventListener("click", () => start("google"));
     elLoginGithub.addEventListener("click", () => start("github"));
-    elAuthLogout.addEventListener("click", () => this.callbacks.onLogout());
-    elAuthNewOrg.addEventListener("click", () => this.showOrgSetup("another"));
 
     // ── E-mail one-time code ───────────────────────────────────────────────
     const sendCode = (email: string) => {

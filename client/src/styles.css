@@ -2097,7 +2097,7 @@ a.hud-pill {
 }
 
 .auth-user {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2193,17 +2193,10 @@ a.hud-pill {
   gap: 6px;
 }
 
-/* Org switcher in the signed-in chip. The cselect is built for full-width
- * form rows; here it shares the row with the name and the sign-out button. */
+/* Org menu in the signed-in chip: its own row under the name, so neither
+ * the name nor the org has to share the card's narrow width. */
 .auth-session .auth-org-select {
-  width: auto;
-  flex: 1 1 140px;
-  min-width: 0;
-  max-width: 100%;
-}
-
-.auth-session > .ghost-btn {
-  flex: none;
+  flex: 1 1 100%;
 }
 
 .auth-session .cselect-trigger {
@@ -2446,6 +2439,16 @@ a.hud-pill {
 
 .cselect-option[aria-selected="true"] {
   color: var(--ink);
+}
+
+.cselect-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--edge);
+}
+
+.cselect-action {
+  font-weight: 500;
 }
 
 @media (prefers-reduced-motion: reduce) {

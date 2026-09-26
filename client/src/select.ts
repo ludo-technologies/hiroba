@@ -18,6 +18,13 @@ export type SelectOption = {
   label: string;
 };
 
+/** A command row under the options (e.g. "New organization"): runs on pick,
+ *  never becomes the value. */
+export type SelectAction = {
+  label: string;
+  onSelect: () => void;
+};
+
 export type CustomSelectOpts = {
   /** Initial options (may be empty; call setOptions later). */
   options?: SelectOption[];
@@ -48,6 +55,7 @@ export class CustomSelect {
   private readonly onChange?: (value: string) => void;
 
   private options: SelectOption[] = [];
+  private actions: SelectAction[] = [];
   private _value = "";
   /** Index of the keyboard/hover highlight while open; -1 when closed. */
   private activeIndex = -1;
@@ -126,8 +134,9 @@ export class CustomSelect {
     this._syncSelectedAttrs();
   }
 
-  setOptions(options: SelectOption[], selected?: string): void {
+  setOptions(options: SelectOption[], selected?: string, actions: SelectAction[] = []): void {
     this.options = options.slice();
+    this.actions = actions.slice();
     if (selected !== undefined) {
       this._value = selected;
     } else if (!this.options.some((o) => o.value === this._value)) {
@@ -147,7 +156,7 @@ export class CustomSelect {
   }
 
   show(): void {
-    if (this.open || this.trigger.disabled || this.options.length === 0) return;
+    if (this.open || this.trigger.disabled || this._itemCount() === 0) return;
     if (openSelect && openSelect !== this) openSelect.close();
     openSelect = this;
     this.open = true;
@@ -207,6 +216,20 @@ export class CustomSelect {
       li.append(text, check);
       this.list.appendChild(li);
     });
+    this.actions.forEach((action, i) => {
+      const sep = document.createElement("li");
+      sep.className = "cselect-sep";
+      sep.setAttribute("role", "separator");
+      const li = document.createElement("li");
+      li.className = "cselect-option cselect-action";
+      li.setAttribute("role", "option");
+      li.id = `${baseId}-act-${i}`;
+      li.dataset.action = String(i);
+      li.setAttribute("aria-selected", "false");
+      li.tabIndex = -1;
+      li.textContent = action.label;
+      this.list.append(sep, li);
+    });
     // listbox needs a tabindex to receive focus for keyboard nav
     this.list.tabIndex = -1;
   }
@@ -221,6 +244,11 @@ export class CustomSelect {
     items.forEach((el) => {
       el.setAttribute("aria-selected", el.dataset.value === this._value ? "true" : "false");
     });
+  }
+
+  /** Options then actions — the order keyboard navigation walks. */
+  private _itemCount(): number {
+    return this.options.length + this.actions.length;
   }
 
   private _indexOfValue(value: string): number {
@@ -247,6 +275,13 @@ export class CustomSelect {
   }
 
   private _commitIndex(index: number): void {
+    const action = this.actions[index - this.options.length];
+    if (action) {
+      this.close();
+      this.trigger.focus();
+      action.onSelect();
+      return;
+    }
     const opt = this.options[index];
     if (!opt) return;
     const prev = this._value;
@@ -266,7 +301,10 @@ export class CustomSelect {
     const option = (e.target as HTMLElement | null)?.closest<HTMLElement>('[role="option"]');
     if (!option || !this.list.contains(option)) return;
     e.stopPropagation();
-    const index = this._indexOfValue(option.dataset.value ?? "");
+    const index =
+      option.dataset.action !== undefined
+        ? this.options.length + Number(option.dataset.action)
+        : this._indexOfValue(option.dataset.value ?? "");
     if (index >= 0) this._commitIndex(index);
   }
 
@@ -291,7 +329,7 @@ export class CustomSelect {
 
   private _onListKey(e: KeyboardEvent): void {
     if (!this.open) return;
-    const last = this.options.length - 1;
+    const last = this._itemCount() - 1;
     switch (e.key) {
       case "ArrowDown":
         e.preventDefault();
