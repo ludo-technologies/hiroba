@@ -220,6 +220,8 @@ const EN = {
 
   // Invite deep link (hiroba://invite/<token>)
   inviteApplied: "Invite code applied — sign in to join the org.",
+  joinedOrg: (org: string) => `You joined ${org}.`,
+  errJoinOrg: "Couldn't join the organization. Try opening the invite again.",
 
   // Browser guest (web build opened from an invite link)
   guestJoinHint: "You're joining as a guest from an invite link. Enter a name and you're in.",
@@ -520,6 +522,8 @@ const JA: typeof EN = {
 
   // Invite deep link (hiroba://invite/<token>)
   inviteApplied: "招待コードを受け取りました。サインインすると参加できます。",
+  joinedOrg: (org: string) => `${org} に参加しました。`,
+  errJoinOrg: "組織に参加できませんでした。もう一度招待を開いてください。",
 
   // Browser guest (web build opened from an invite link)
   guestJoinHint: "招待リンクからゲストとして参加します。名前を入れるだけで入室できます。",

@@ -288,9 +288,18 @@ ui.showJoin();
 // No-op in plain-browser sessions.
 startUpdateChecks(ui);
 
-// Invite deep links (hiroba://invite/<token>): prefill the join form so the
-// invited user only has to pick a sign-in provider. No-op outside Tauri.
-startDeepLinkListener((code) => ui.applyInvite(code));
+// Invite deep links (hiroba://invite/<token>). Signed in → join that org right
+// away; otherwise prefill the join form so the invited user only has to pick a
+// sign-in provider, and join once a stored session turns up instead (the link
+// can launch the app before the keychain restore lands). No-op outside Tauri.
+startDeepLinkListener((code) => {
+  if (authSession && isLive(authSession.claims)) {
+    void handleJoinSignedIn(code);
+    return;
+  }
+  deepLinkInvite = code;
+  ui.applyInvite(code);
+});
 
 // Browser guest: the web build opened from an invite link (?invite=…). The
 // invite stands in for a sign-in — `effectiveToken` trades it for a guest
@@ -507,6 +516,7 @@ async function restoreAuthSession(): Promise<void> {
   if (authSession && isLive(authSession.claims)) return cancelRestoreRetry();
   authSession = session;
   reflectAuthSession();
+  if (deepLinkInvite && session && isLive(session.claims)) void handleJoinSignedIn(deepLinkInvite);
   if (problem === "keychain") ui.showError(session ? t.errSessionNotSaved : t.errKeychain);
   if (session && !isLive(session.claims)) scheduleRestoreRetry();
   else cancelRestoreRetry();
@@ -537,6 +547,9 @@ window.addEventListener("online", () => {
   cancelRestoreRetry();
   void restoreAuthSession();
 });
+
+/** An invite deep link that arrived with no live session to join it with. */
+let deepLinkInvite: string | null = null;
 
 /** Provisional token held while the org-setup step is on screen (a first
  *  sign-in without an invite; `POST /orgs` upgrades it to a full session). */
@@ -718,6 +731,8 @@ async function adoptLogin(result: OAuthResult, invite: string): Promise<void> {
   }
   cancelRestoreRetry();
   authSession = result.session;
+  // The sign-in carried the prefilled invite, so it has been spent already.
+  deepLinkInvite = null;
   if (invite) ui.clearInvite();
   reflectAuthSession();
   // Persisting is what makes the *next* launch free; failing at it must not
@@ -828,6 +843,24 @@ async function handleJoinWithInvite(invite: string): Promise<void> {
     ui.showError(err instanceof Error ? err.message : t.errConnect);
   } finally {
     ui.setOrgSetupBusy(null);
+  }
+}
+
+/** A signed-in member opened an invite to another org: join it and move the
+ *  session there, as a switch would. */
+async function handleJoinSignedIn(invite: string): Promise<void> {
+  deepLinkInvite = null;
+  // The switch owns the session until it settles (see `orgSwitchPending`).
+  if (orgSwitchPending) await orgSwitchPending;
+  if (!authSession) return;
+  try {
+    const claims = await upgradeProvisional(authSession.token, "/orgs/join", { invite }, (status) =>
+      status === 409 ? t.errInvite : status === 401 ? t.errSessionExpired : t.errJoinOrg,
+    );
+    ui.clearInvite();
+    ui.showToast(t.joinedOrg(claims.org_name || claims.org));
+  } catch (err) {
+    ui.showToast(err instanceof Error ? err.message : t.errJoinOrg, "error");
   }
 }
 
