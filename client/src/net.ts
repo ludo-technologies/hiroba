@@ -81,6 +81,7 @@ export class HirobaNet extends EventTarget {
       ws.addEventListener(
         "error",
         () => {
+          if (this.ws !== ws) return;
           // The browser gives no detail on WS error events for security
           // reasons. Surface a typed event so the UI can react.
           this.dispatchEvent(new CustomEvent("neterror"));
@@ -89,8 +90,16 @@ export class HirobaNet extends EventTarget {
         { once: true },
       );
 
-      ws.addEventListener("message", (raw) => this._handleMessage(raw));
-      ws.addEventListener("close", (ev) => this._handleClose(ev));
+      // A socket we've let go of stays silent. Closing a half-open socket
+      // (sleep resume) completes only when TCP gives up — often after the
+      // reconnect has already landed — and its late `close` would otherwise
+      // tear down the fresh session and start the cycle again.
+      ws.addEventListener("message", (raw) => {
+        if (this.ws === ws) this._handleMessage(raw);
+      });
+      ws.addEventListener("close", (ev) => {
+        if (this.ws === ws) this._handleClose(ev);
+      });
     });
   }
 
