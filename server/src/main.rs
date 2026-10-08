@@ -101,10 +101,15 @@ async fn ws_handler(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("-");
     tracing::info!(ip = %ip, ua = %ua, "ws upgrade");
-    upgrade
-        .on_upgrade(move |socket| {
-            ws::handle_ws(socket, state.registry, state.auth, state.billing, state.beacon)
-        })
+    upgrade.on_upgrade(move |socket| {
+        ws::handle_ws(
+            socket,
+            state.registry,
+            state.auth,
+            state.billing,
+            state.beacon,
+        )
+    })
 }
 
 fn bearer_token(headers: &HeaderMap) -> Option<&str> {

@@ -14,7 +14,8 @@
  *    case over a relayed signaling channel).
  *  - Each remote stream feeds a GainNode. Gain is updated every rAF frame by
  *    main.ts calling `updateGains(selfPos, peerPositions)` — this is the actual
- *    "spatial" part: gain = clamp(1 - d/nearRadius, 0, 1).
+ *    "spatial" part: see `spatialGain` (distance falloff, overridden by the
+ *    meeting room's wall).
  *  - FR-08: initial state is MUTED. getUserMedia is deferred until the first
  *    unmute (privacy: we don't grab the mic until the user asks to talk). The
  *    local track is disabled (not removed) while muted so toggling is instant.
@@ -22,7 +23,31 @@
  *    Audio nodes so the audio graph doesn't leak.
  */
 
-import type { SignalData, SpaceDescriptor } from "./protocol.js";
+import { rectContains, type SignalData, type SpaceDescriptor } from "./protocol.js";
+
+/**
+ * How loud `b` sounds from `a` in this space, 0..1 — the one rule for both the
+ * gain nodes and the "someone's nearby" nudge (main.ts), so the ear and the
+ * hint never disagree. The meeting room's wall wins over distance: inside
+ * with each other → full volume however far apart; inside vs outside →
+ * silence (the server tears that link down; this covers the ticks in
+ * between). Otherwise gain falls off linearly to zero at nearRadius.
+ */
+export function spatialGain(
+  space: SpaceDescriptor,
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+): number {
+  const room = space.meetingRoom;
+  if (room) {
+    const aIn = rectContains(room, a);
+    const bIn = rectContains(room, b);
+    if (aIn && bIn) return 1;
+    if (aIn !== bIn) return 0;
+  }
+  const d = Math.hypot(a.x - b.x, a.y - b.y);
+  return Math.max(0, Math.min(1, 1 - d / space.nearRadius));
+}
 
 /**
  * Fallback ICE servers if `init()` is called without an explicit list (e.g.
@@ -521,7 +546,7 @@ export class AudioEngine {
   /**
    * Update gain for every connected peer.
    *  - page links     → full gain (1.0), no spatialisation.
-   *  - proximity links → spatial gain = clamp(1 - d/nearRadius, 0, 1).
+   *  - proximity links → `spatialGain` (distance, or the meeting room's wall).
    *
    * While any page link is live the space audio is fully muted (product
    * decision): page takes over the ears, and proximity gain is restored when
@@ -532,7 +557,7 @@ export class AudioEngine {
     peerPositions: ReadonlyMap<string, { x: number; y: number }>,
   ): void {
     if (!this.space) return;
-    const { nearRadius } = this.space;
+    const space = this.space;
     const paging = this.hasPage();
 
     for (const [id, entry] of this.peers) {
@@ -551,10 +576,7 @@ export class AudioEngine {
         entry.gainNode.gain.value = 0;
         continue;
       }
-      const dx = selfPos.x - pos.x;
-      const dy = selfPos.y - pos.y;
-      const d = Math.sqrt(dx * dx + dy * dy);
-      entry.gainNode.gain.value = Math.max(0, Math.min(1, 1 - d / nearRadius));
+      entry.gainNode.gain.value = spatialGain(space, selfPos, pos);
     }
   }
 

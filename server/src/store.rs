@@ -22,7 +22,7 @@ use std::sync::Mutex;
 
 use rusqlite::{params, Connection};
 
-use crate::protocol::{SpaceDescriptor, SpaceKind};
+use crate::protocol::{meeting_room_for, SpaceDescriptor, SpaceKind};
 
 /// A note pinned to a space's bulletin board.
 #[derive(Debug, Clone, PartialEq)]
@@ -143,21 +143,25 @@ impl Store {
             .map(|(org_id, org_name, next_space_seq)| {
                 let spaces = spaces_stmt
                     .query_map([&org_id], |row| {
-                        let kind: String = row.get(2)?;
+                        let kind = if row.get::<_, String>(2)? == "lobby" {
+                            SpaceKind::Lobby
+                        } else {
+                            SpaceKind::Team
+                        };
+                        let width: f64 = row.get(3)?;
+                        let height: f64 = row.get(4)?;
                         Ok(SpaceDescriptor {
                             id: row.get(0)?,
                             name: row.get(1)?,
-                            kind: if kind == "lobby" {
-                                SpaceKind::Lobby
-                            } else {
-                                SpaceKind::Team
-                            },
-                            width: row.get(3)?,
-                            height: row.get(4)?,
+                            kind,
+                            width,
+                            height,
                             near_radius: row.get(5)?,
                             far_radius: row.get(6)?,
                             tick_hz: row.get::<_, i64>(7)? as u32,
                             capacity: row.get::<_, i64>(8)? as u32,
+                            // Not a column: fixed by kind and footprint.
+                            meeting_room: meeting_room_for(kind, width, height),
                         })
                     })
                     .expect("query spaces")
@@ -314,6 +318,7 @@ mod tests {
         assert_eq!(lobby.near_radius, reference.near_radius);
         assert_eq!(lobby.far_radius, reference.far_radius);
         assert_eq!(lobby.tick_hz, reference.tick_hz);
+        assert_eq!(lobby.meeting_room, reference.meeting_room);
         assert_eq!(lobby.capacity, reference.capacity);
         assert_eq!(cat.spaces[2].kind, SpaceKind::Team);
         assert_eq!(cat.spaces[2].name, "Design");

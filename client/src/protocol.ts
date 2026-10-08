@@ -53,6 +53,24 @@ export interface SpaceDescriptor {
   tickHz: number;
   /** Max simultaneous members in the space. */
   capacity: number;
+  /**
+   * Walled meeting room on the floor (PROTOCOL.md §proximity — "Meeting
+   * room"): everyone inside hears everyone inside at full volume, and the wall
+   * is soundproof both ways. Absent on team spaces.
+   */
+  meetingRoom?: Rect;
+}
+
+/** An axis-aligned rectangle in world units (top-left origin). */
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export function rectContains(r: Rect, p: { x: number; y: number }): boolean {
+  return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
 }
 
 /**

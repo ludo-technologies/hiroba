@@ -44,6 +44,21 @@ pub enum Status {
     Active,
 }
 
+/// An axis-aligned rectangle in world units (top-left origin).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Rect {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+}
+
+impl Rect {
+    pub fn contains(&self, x: f64, y: f64) -> bool {
+        x >= self.x && x <= self.x + self.w && y >= self.y && y <= self.y + self.h
+    }
+}
+
 /// Per-space configuration + identity. Sent in `welcome.space`,
 /// `welcome.spaces`, `space_snapshot.space`, and `spaces` broadcasts.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,6 +79,15 @@ pub struct SpaceDescriptor {
     pub tick_hz: u32,
     /// Max simultaneous members in the space.
     pub capacity: u32,
+    /// Walled meeting room on the lobby floor (PROTOCOL.md §proximity —
+    /// "Meeting room"): everyone inside is near everyone inside, and nobody
+    /// inside is near anybody outside. Absent on team spaces.
+    #[serde(
+        rename = "meetingRoom",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub meeting_room: Option<Rect>,
 }
 
 impl SpaceDescriptor {
@@ -72,16 +96,18 @@ impl SpaceDescriptor {
     /// on-screen size; radii are half the old 1600×1200 defaults so proximity
     /// voice keeps the same feel in the smaller room.
     pub fn lobby() -> Self {
+        let (width, height) = (800.0, 600.0);
         Self {
             id: "lobby".to_string(),
             name: "Lobby".to_string(),
             kind: SpaceKind::Lobby,
-            width: 800.0,
-            height: 600.0,
+            width,
+            height,
             near_radius: 150.0,
             far_radius: 180.0,
             tick_hz: 12,
             capacity: 5,
+            meeting_room: meeting_room_for(SpaceKind::Lobby, width, height),
         }
     }
 
@@ -98,7 +124,24 @@ impl SpaceDescriptor {
             far_radius: 1100.0,
             tick_hz: 12,
             capacity: 5,
+            meeting_room: None,
         }
+    }
+}
+
+/// Where the meeting room stands on a floor of this kind and size: the lobby's
+/// top-right corner, clear of the board (top centre) and the commons (centre).
+/// The client draws the walls from the same rectangle it receives, so the
+/// picture and the audio boundary cannot drift apart.
+pub fn meeting_room_for(kind: SpaceKind, width: f64, height: f64) -> Option<Rect> {
+    match kind {
+        SpaceKind::Lobby => Some(Rect {
+            x: 0.6 * width,
+            y: 0.06 * height,
+            w: 0.35 * width,
+            h: 0.38 * height,
+        }),
+        SpaceKind::Team => None,
     }
 }
 

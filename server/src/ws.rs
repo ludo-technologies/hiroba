@@ -406,6 +406,7 @@ pub fn spawn_tick_loop(registry: OrgRegistry) {
                                 sets,
                                 tick.near_radius,
                                 tick.far_radius,
+                                tick.meeting_room.as_ref(),
                             );
 
                             for member in &tick.members {

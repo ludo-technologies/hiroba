@@ -23,7 +23,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { HirobaNet } from "./net.js";
 import { Renderer, type FrameLevels, type RenderActivity } from "./render.js";
 import { InputHandler, isTypingTarget } from "./input.js";
-import { AudioEngine } from "./audio.js";
+import { AudioEngine, spatialGain } from "./audio.js";
 import {
   UIManager,
   type InviteEntry,
@@ -1830,9 +1830,8 @@ function updateNudge(): void {
 function someoneInRange(): boolean {
   if (!session) return false;
   const me = session.input.position;
-  const nr = session.space.nearRadius;
   for (const p of session.peerPositions.values()) {
-    if (Math.hypot(me.x - p.x, me.y - p.y) <= nr) return true;
+    if (spatialGain(session.space, me, p) > 0) return true;
   }
   return false;
 }
