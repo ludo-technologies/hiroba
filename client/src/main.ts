@@ -67,13 +67,14 @@ import {
   type RestoreResult,
 } from "./auth.js";
 import { boardGeometry, boardOpen } from "./board.js";
-import type {
-  NoteInfo,
-  Peer,
-  RosterMember,
-  SpaceDescriptor,
-  Status,
-  WelcomeMsg,
+import {
+  rectContains,
+  type NoteInfo,
+  type Peer,
+  type RosterMember,
+  type SpaceDescriptor,
+  type Status,
+  type WelcomeMsg,
 } from "./protocol.js";
 
 // ---------------------------------------------------------------------------
@@ -214,6 +215,7 @@ let audioSettingsTimer = 0;
 // Ambient-prompt state.
 let moveHintActive = false;
 let nudgeShown = false;
+let inMeetingRoom = false;
 let connectAbort: AbortController | null = null;
 
 // Idle → away (NFR-01: dim + go quiet after inactivity).
@@ -1638,6 +1640,8 @@ function initSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[]
   rebuildRoster();
   setPeerCount();
   nudgeShown = false;
+  inMeetingRoom = false;
+  ui.hideRoomHint();
 }
 
 // ---------------------------------------------------------------------------
@@ -1824,6 +1828,13 @@ function updateNudge(): void {
   if (want !== nudgeShown) {
     nudgeShown = want;
     ui.setMuteNudge(want);
+  }
+  const room = session.space.meetingRoom;
+  const inRoom = room !== undefined && rectContains(room, session.input.position);
+  if (inRoom !== inMeetingRoom) {
+    inMeetingRoom = inRoom;
+    if (inRoom) ui.showRoomHint();
+    else ui.hideRoomHint();
   }
 }
 
