@@ -84,6 +84,7 @@ space catalog. Defaults:
 | `farRadius`  | 180           | ≥ space diagonal    | distance ≥ this ⇒ peers disconnect (hysteresis)      |
 | `tickHz`     | 12            | 12                  | server position-broadcast rate (NFR-04: 10–15 Hz)    |
 | `capacity`   | 5             | 5                   | max simultaneous members in the space                |
+| `meetingRoom`| `{x,y,w,h}`   | absent              | walled room on the floor, world units (see below)    |
 
 **Team spaces set `nearRadius`/`farRadius` to at least the space diagonal**, so
 every member is always "near" everyone else → the space behaves as a single
@@ -95,15 +96,27 @@ Proximity uses **hysteresis**: connect when distance crosses below `nearRadius`,
 disconnect only when it rises above `farRadius`. Proximity is computed
 **independently within each space**; peers in different spaces never connect.
 
+**Meeting room.** The lobby carries one walled room, `meetingRoom`, as a
+rectangle in world units (the lobby's top-right: `{ x: 480, y: 36, w: 280,
+h: 228 }` on the default 800×600 floor). Its wall overrides distance: two
+peers both inside the rectangle are near however far apart they stand, and a
+peer inside is never near a peer outside — the server emits `disconnect` the
+tick one of them crosses the wall, and the client plays peers inside at full
+gain with no distance falloff. The client draws the walls from this
+same rectangle, so the picture and the audio boundary cannot disagree.
+Arrivals never spawn inside it.
+
 ## Space descriptor
 
 Used in `welcome.spaces`, `welcome.space`, and `spaces` broadcasts:
 ```json
 { "id": "lobby", "name": "Lobby", "kind": "lobby",
   "width": 800, "height": 600, "nearRadius": 150, "farRadius": 180,
-  "tickHz": 12, "capacity": 5 }
+  "tickHz": 12, "capacity": 5,
+  "meetingRoom": { "x": 480, "y": 36, "w": 280, "h": 228 } }
 ```
-`kind` is `"lobby"` or `"team"`.
+`kind` is `"lobby"` or `"team"`. `meetingRoom` is present on the lobby only
+(§Space configuration — "Meeting room").
 
 ## Roster member descriptor
 

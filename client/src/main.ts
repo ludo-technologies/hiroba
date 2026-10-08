@@ -23,7 +23,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { HirobaNet } from "./net.js";
 import { Renderer, type FrameLevels, type RenderActivity } from "./render.js";
 import { InputHandler, isTypingTarget } from "./input.js";
-import { AudioEngine } from "./audio.js";
+import { AudioEngine, spatialGain } from "./audio.js";
 import {
   UIManager,
   type InviteEntry,
@@ -67,13 +67,14 @@ import {
   type RestoreResult,
 } from "./auth.js";
 import { boardGeometry, boardOpen } from "./board.js";
-import type {
-  NoteInfo,
-  Peer,
-  RosterMember,
-  SpaceDescriptor,
-  Status,
-  WelcomeMsg,
+import {
+  rectContains,
+  type NoteInfo,
+  type Peer,
+  type RosterMember,
+  type SpaceDescriptor,
+  type Status,
+  type WelcomeMsg,
 } from "./protocol.js";
 
 // ---------------------------------------------------------------------------
@@ -214,6 +215,7 @@ let audioSettingsTimer = 0;
 // Ambient-prompt state.
 let moveHintActive = false;
 let nudgeShown = false;
+let inMeetingRoom = false;
 let connectAbort: AbortController | null = null;
 
 // Idle → away (NFR-01: dim + go quiet after inactivity).
@@ -1638,6 +1640,8 @@ function initSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[]
   rebuildRoster();
   setPeerCount();
   nudgeShown = false;
+  inMeetingRoom = false;
+  ui.hideRoomHint();
 }
 
 // ---------------------------------------------------------------------------
@@ -1825,14 +1829,20 @@ function updateNudge(): void {
     nudgeShown = want;
     ui.setMuteNudge(want);
   }
+  const room = session.space.meetingRoom;
+  const inRoom = room !== undefined && rectContains(room, session.input.position);
+  if (inRoom !== inMeetingRoom) {
+    inMeetingRoom = inRoom;
+    if (inRoom) ui.showRoomHint();
+    else ui.hideRoomHint();
+  }
 }
 
 function someoneInRange(): boolean {
   if (!session) return false;
   const me = session.input.position;
-  const nr = session.space.nearRadius;
   for (const p of session.peerPositions.values()) {
-    if (Math.hypot(me.x - p.x, me.y - p.y) <= nr) return true;
+    if (spatialGain(session.space, me, p) > 0) return true;
   }
   return false;
 }

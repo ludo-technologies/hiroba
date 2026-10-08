@@ -236,6 +236,9 @@ const elMicLevelBar = $<HTMLDivElement>("mic-level-bar");
 
 const elOnboard = $<HTMLDivElement>("onboard");
 const elNudge = $<HTMLDivElement>("mute-nudge");
+const elRoomHint = $<HTMLDivElement>("room-hint");
+/** How long the meeting-room hint stays up. */
+const ROOM_HINT_MS = 4000;
 
 const elSidebar = $<HTMLElement>("sidebar");
 const elOrgName = $<HTMLSpanElement>("org-name");
@@ -450,6 +453,7 @@ export class UIManager {
   private custom = false; // whether the current color came from the custom picker
   private avatar = ""; // uploaded avatar data URL ("" = none, use initial+color)
   private onboardTimer = 0;
+  private roomHintTimer = 0;
 
   /** Running under Tauri: interactive login is possible and the session token
    *  lives in the OS keychain, so localStorage must NOT hold tokens. */
@@ -1609,6 +1613,19 @@ export class UIManager {
     this.onboardTimer = window.setTimeout(() => {
       elOnboard.setAttribute("hidden", "");
     }, 650);
+  }
+
+  /** Show the meeting-room hint for a few seconds on every entry. */
+  showRoomHint(): void {
+    window.clearTimeout(this.roomHintTimer);
+    elRoomHint.removeAttribute("hidden");
+    this.roomHintTimer = window.setTimeout(() => this.hideRoomHint(), ROOM_HINT_MS);
+  }
+
+  /** Hide it early (on walking back out, or leaving the space). */
+  hideRoomHint(): void {
+    window.clearTimeout(this.roomHintTimer);
+    elRoomHint.setAttribute("hidden", "");
   }
 
   /** Toggle the "someone's nearby — unmute to talk" nudge + mic pulse. */

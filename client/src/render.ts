@@ -5,6 +5,9 @@
  * has *context*. Rather than dots floating in an empty void, people gather in
  * recognisable places. The floor plan depends on the space kind:
  *  - Lobby: Focus / Meeting / Lounge / Café / Commons — open ambient floor.
+ *    Meeting is a walled room (its rectangle comes from the server, which
+ *    uses the same one as the audio boundary): soundproof, walked into
+ *    through the wall like any other furniture.
  *  - Team: one table ringed by seats — a simple work room (group call).
  * Seats are clickable: walk-to-snap so idle people rest on furniture instead of
  * scattering across open floor. Furniture is still static (no animation), so a
@@ -26,7 +29,7 @@
  * so we never double-apply devicePixelRatio.
  */
 
-import type { Peer, SpaceDescriptor, Status } from "./protocol.js";
+import { rectContains, type Peer, type Rect, type SpaceDescriptor, type Status } from "./protocol.js";
 import { boardGeometry, type BoardGeometry } from "./board.js";
 
 // ---------------------------------------------------------------------------
@@ -77,7 +80,9 @@ type FloorItem =
   | { kind: "couch"; x: number; y: number; w: number; h: number }
   | { kind: "plant"; x: number; y: number; r: number }
   | { kind: "stool"; x: number; y: number; r: number }
-  | { kind: "board"; x: number; y: number; w: number; h: number };
+  | { kind: "board"; x: number; y: number; w: number; h: number }
+  /** A walled room: floor and walls. */
+  | { kind: "room"; x: number; y: number; w: number; h: number; label: string };
 
 /** A sit target in world units. Click-to-sit walks here; tokens near a seat
  *  draw slightly smaller so idle people read as "at a desk / chair". */
@@ -140,12 +145,20 @@ const LEAF_HI = "#93bd75";
 
 // Zone rugs — muted, friendly, distinct.
 const RUG_FOCUS = "#e7c9b2"; // clay
-const RUG_MEET = "#c2d2da"; // sky
+const RUG_MEET = "#c2d2da"; // sky — the meeting room's floor
 const RUG_LOUNGE = "#cdd8bf"; // sage
 const RUG_CAFE = "#ecd6ad"; // straw
 const RUG_COMMONS = "#e3d2c0"; // warm neutral
 
 const ZONE_INK = "rgba(74,58,40,0.42)";
+
+// The meeting room's walls: dark wood like the frame, read as solid from above.
+const WALL = "#6d5138";
+const WALL_HI = "rgba(255,255,255,0.16)";
+/** Wall thickness in world units. */
+const WALL_T = 7;
+/** Inner shadow the walls cast on the room floor, in world units. */
+const WALL_SHADE = 16;
 
 // The one accent: warm clay/coral, for the proximity ring & self.
 // Matches --accent (#b54f2c) so canvas chrome tracks the AA-safe UI tokens.
@@ -529,7 +542,7 @@ export class Renderer {
     this._drawFloorBoards(ox, oy, scale, space);
     this._drawFurniture(ox, oy, scale);
     this._drawSeatHover(ox, oy, scale);
-    this._drawNearRings(ox, oy, scale, self, space.nearRadius);
+    this._drawNearRings(ox, oy, scale, self, space);
 
     // Click-to-walk destination: a calm pulsing ring until we arrive.
     if (this.walkTarget) {
@@ -705,6 +718,10 @@ export class Renderer {
           if (it.label) this._zoneLabel(it.label, x + w / 2, y + 13 * scale, scale);
           break;
         }
+        case "room": {
+          this._drawRoom(it, X(it.x), Y(it.y), it.w * scale, it.h * scale, scale);
+          break;
+        }
         case "rugRound": {
           const x = X(it.x), y = Y(it.y), r = it.r * scale;
           ctx.beginPath();
@@ -841,6 +858,60 @@ export class Renderer {
     ctx.fill();
   }
 
+  /**
+   * The meeting room, seen from above: a sky floor shaded along the walls so
+   * it reads as sunken/enclosed, and solid wood walls. No door: you walk
+   * through the wall as through a table, and a drawn door only promised a
+   * collision that is not there.
+   */
+  private _drawRoom(
+    it: Extract<FloorItem, { kind: "room" }>,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    scale: number,
+  ): void {
+    const ctx = this.ctx;
+    const t = WALL_T * scale;
+    const shade = WALL_SHADE * scale;
+
+    // Floor.
+    ctx.fillStyle = RUG_MEET;
+    ctx.fillRect(x, y, w, h);
+    // Inner shadow: a band along each wall, darkest at the wall.
+    const bands: Array<[number, number, number, number, number, number]> = [
+      [x, y, x, y + shade, w, shade], // top
+      [x, y + h, x, y + h - shade, w, shade], // bottom
+      [x, y, x + shade, y, shade, h], // left
+      [x + w, y, x + w - shade, y, shade, h], // right
+    ];
+    for (const [gx0, gy0, gx1, gy1, bw, bh] of bands) {
+      const g = ctx.createLinearGradient(gx0, gy0, gx1, gy1);
+      g.addColorStop(0, "rgba(60,50,40,0.16)");
+      g.addColorStop(1, "rgba(60,50,40,0)");
+      ctx.fillStyle = g;
+      ctx.fillRect(Math.min(gx0, gx1), Math.min(gy0, gy1), bw, bh);
+    }
+
+    // Walls.
+    ctx.save();
+    ctx.lineJoin = "miter";
+    ctx.lineWidth = t;
+    ctx.strokeStyle = WALL;
+    ctx.strokeRect(x, y, w, h);
+    // A lit top edge so the walls have height.
+    ctx.lineWidth = Math.max(1, t * 0.3);
+    ctx.strokeStyle = WALL_HI;
+    ctx.beginPath();
+    ctx.moveTo(x - t / 2, y - t / 2 + ctx.lineWidth / 2);
+    ctx.lineTo(x + w + t / 2, y - t / 2 + ctx.lineWidth / 2);
+    ctx.stroke();
+    ctx.restore();
+
+    this._zoneLabel(it.label, x + w / 2, y + (WALL_T + 13) * scale, scale);
+  }
+
   private _zoneLabel(text: string, cx: number, y: number, scale: number): void {
     const ctx = this.ctx;
     ctx.save();
@@ -898,22 +969,42 @@ export class Renderer {
     ctx.restore();
   }
 
-  /** Concentric "talking range" rings around self — calm ripples at rest. */
+  /**
+   * The "talking range" around self: a circle on the open floor; inside the
+   * meeting room, the room itself — that is exactly who hears you.
+   */
   private _drawNearRings(
     ox: number,
     oy: number,
     scale: number,
     self: RenderPeer,
-    nearRadius: number,
+    space: SpaceDescriptor,
   ): void {
     const ctx = this.ctx;
     const sx = ox + self.x * scale;
     const sy = oy + self.y * scale;
-    const sr = nearRadius * scale;
+    const sr = space.nearRadius * scale;
+    const room = space.meetingRoom;
 
     ctx.save();
+    const inset = (WALL_T / 2) * scale;
+    const rx = room ? ox + room.x * scale + inset : 0;
+    const ry = room ? oy + room.y * scale + inset : 0;
+    const rw = room ? room.w * scale - inset * 2 : 0;
+    const rh = room ? room.h * scale - inset * 2 : 0;
     ctx.beginPath();
-    ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+    if (room && rectContains(room, self)) {
+      ctx.rect(rx, ry, rw, rh);
+    } else {
+      if (room) {
+        // The wall is soundproof: the circle stops at it.
+        ctx.rect(0, 0, this.canvas.width, this.canvas.height);
+        ctx.rect(rx, ry, rw, rh);
+        ctx.clip("evenodd");
+        ctx.beginPath();
+      }
+      ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+    }
     ctx.fillStyle = NEAR_FILL;
     ctx.fill();
     ctx.strokeStyle = NEAR_STROKE;
@@ -1255,6 +1346,31 @@ function pushStool(
   seats.push({ x, y, hitR: seatHitR(r) });
 }
 
+/**
+ * The meeting room's furniture inside the server's rectangle: a round table
+ * with six stools, sized so the ring clears the walls' inner shadow.
+ */
+function pushMeetingRoom(items: FloorItem[], seats: Seat[], room: Rect, stoolR: number): void {
+  items.push({
+    kind: "room",
+    x: room.x,
+    y: room.y,
+    w: room.w,
+    h: room.h,
+    label: "Meeting",
+  });
+  const cx = room.x + room.w / 2;
+  const cy = room.y + room.h / 2;
+  const tr = Math.min(room.w, room.h) * 0.22;
+  items.push({ kind: "table", x: cx - tr, y: cy - tr, w: tr * 2, h: tr * 2, round: true });
+  const ring = tr + stoolR * 1.5;
+  // Ring starts at 3 o'clock so no stool sits under the signage at the top.
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    pushStool(items, seats, cx + Math.cos(a) * ring, cy + Math.sin(a) * ring, stoolR);
+  }
+}
+
 /** Open ambient lobby: five zones so presence has place-context. */
 function buildLobbyFloor(space: SpaceDescriptor): FloorPlan {
   const W = space.width;
@@ -1280,31 +1396,8 @@ function buildLobbyFloor(space: SpaceDescriptor): FloorPlan {
   }
   items.push({ kind: "plant", x: 0.07 * W, y: 0.33 * H, r: 0.035 * W });
 
-  // --- Meeting (top-right): a round table ringed by stools ---
-  items.push({
-    kind: "rug",
-    x: 0.58 * W,
-    y: 0.06 * H,
-    w: 0.37 * W,
-    h: 0.32 * H,
-    color: RUG_MEET,
-    label: "Meeting",
-  });
-  const mcx = 0.765 * W;
-  const mcy = 0.22 * H;
-  const mtr = 0.085 * W;
-  items.push({
-    kind: "table",
-    x: mcx - mtr,
-    y: mcy - mtr,
-    w: mtr * 2,
-    h: mtr * 2,
-    round: true,
-  });
-  for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * Math.PI * 2 - Math.PI / 2;
-    pushStool(items, seats, mcx + Math.cos(a) * mtr * 1.65, mcy + Math.sin(a) * mtr * 1.65, sr);
-  }
+  // --- Meeting (top-right): the walled room, a round table ringed by stools ---
+  if (space.meetingRoom) pushMeetingRoom(items, seats, space.meetingRoom, sr);
 
   // --- Lounge (bottom-left): couch + coffee table + plant ---
   items.push({

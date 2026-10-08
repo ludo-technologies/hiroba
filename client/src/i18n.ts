@@ -210,6 +210,7 @@ const EN = {
   onboardClick: "— or click the floor / a seat",
   onboardCallTip: "Call from the sidebar · DND blocks unexpected calls",
   nudgeText: "Someone's nearby — press M to talk",
+  roomHintText: "In the meeting room — nobody outside can hear",
 
   // Auto-update banner
   updateAvailable: (v: string) => `Hiroba ${v} is available`,
@@ -512,6 +513,7 @@ const JA: typeof EN = {
   onboardClick: "(クリックで移動・席に座れます)",
   onboardCallTip: "サイドバーの「呼ぶ」で通話 · 取り込み中は着信を遮断",
   nudgeText: "近くに誰かいます — M キーで話せます",
+  roomHintText: "会議室に入りました — 外には聞こえません",
 
   // Auto-update banner
   updateAvailable: (v: string) => `Hiroba ${v} が利用できます`,

@@ -20,7 +20,7 @@ use tokio::sync::{mpsc, Mutex};
 
 use crate::auth::Role;
 use crate::protocol::{
-    NoteInfo, OrgInfo, PeerInfo, PeerPos, RosterMember, ServerMsg, SpaceDescriptor, Status,
+    NoteInfo, OrgInfo, PeerInfo, PeerPos, Rect, RosterMember, ServerMsg, SpaceDescriptor, Status,
 };
 use crate::store::{Note, OrgCatalog, Store};
 
@@ -222,6 +222,7 @@ pub struct SpaceTick {
     pub space_id: String,
     pub near_radius: f64,
     pub far_radius: f64,
+    pub meeting_room: Option<Rect>,
     pub members: Vec<TickMember>,
 }
 
@@ -306,10 +307,15 @@ impl OrgInner {
             .collect();
         let start = occupied.len() as u64;
         let attempts = (desc.capacity.max(8) as u64) * 2;
-        let mut best = spawn_position(desc, start);
+        let mut best = (desc.width / 2.0, desc.height / 2.0);
         let mut best_clearance = f64::NEG_INFINITY;
         for index in start..start + attempts {
             let (x, y) = spawn_position(desc, index);
+            // Nobody materialises inside the meeting room: arriving mid-meeting
+            // would be as rude as it is in a real office.
+            if desc.meeting_room.is_some_and(|r| r.contains(x, y)) {
+                continue;
+            }
             let clearance = occupied
                 .iter()
                 .map(|&(ox, oy)| (ox - x).hypot(oy - y))
@@ -1428,6 +1434,7 @@ impl Org {
                 space_id: space_id.clone(),
                 near_radius: space.desc.near_radius,
                 far_radius: space.desc.far_radius,
+                meeting_room: space.desc.meeting_room,
                 members,
             });
         }
@@ -1577,6 +1584,26 @@ mod tests {
                 m.id
             );
         }
+    }
+
+    /// The spiral's sixth point falls inside the meeting room; the picker must
+    /// step over it rather than drop an arrival into someone's meeting.
+    #[test]
+    fn spawns_skip_the_meeting_room() {
+        let lobby = SpaceDescriptor::lobby();
+        let room = lobby.meeting_room.expect("the lobby has a meeting room");
+        let (x, y) = spawn_position(&lobby, 5);
+        assert!(
+            room.contains(x, y),
+            "precondition: spiral point 5 lies in the room"
+        );
+
+        let org = org_with_parked_members(&lobby, 5);
+        let (x, y) = org.pick_spawn(&lobby.id);
+        assert!(
+            !room.contains(x, y),
+            "spawn ({x:.0},{y:.0}) landed inside the meeting room"
+        );
     }
 
     #[test]

@@ -5,6 +5,11 @@
 ///   - Connect:    distance drops BELOW nearRadius (and neither side is DND)
 ///   - Disconnect: distance rises ABOVE farRadius, or either side turns DND on
 ///
+/// A space may have a walled meeting room (`SpaceDescriptor::meeting_room`).
+/// Its wall overrides distance: two peers both inside are near however far
+/// apart they stand, and a peer inside is never near a peer outside. Crossing
+/// the wall is a single discrete event, so it needs no hysteresis of its own.
+///
 /// `update_proximity` returns, for each peer, the delta (new connections and
 /// dropped connections) since the last call.  The caller applies the delta by
 /// emitting `proximity` messages only when non-empty.
@@ -13,7 +18,7 @@
 /// *smaller* id is always the WebRTC offerer for any pair.
 use std::collections::{HashMap, HashSet};
 
-use crate::protocol::ProximityConnect;
+use crate::protocol::{ProximityConnect, Rect};
 
 /// Euclidean distance between two points.
 #[inline]
@@ -54,6 +59,7 @@ impl ProximityDelta {
 /// `positions` — current positions of all peers.
 /// `connected_sets` — mutable map from peer string_id → set of string_ids
 ///    currently considered near.  Updated in-place.
+/// `meeting_room` — the space's walled room, if it has one.
 ///
 /// Returns a map from peer string_id → delta (may be empty).
 pub fn update_proximity(
@@ -61,6 +67,7 @@ pub fn update_proximity(
     connected_sets: &mut HashMap<String, HashSet<String>>,
     near_radius: f64,
     far_radius: f64,
+    meeting_room: Option<&Rect>,
 ) -> HashMap<String, ProximityDelta> {
     // Ensure every peer has an entry (even if empty) so we can mutate below.
     for p in positions {
@@ -79,13 +86,19 @@ pub fn update_proximity(
             let b = &positions[j];
 
             let dist = distance(a.x, a.y, b.x, b.y);
+            let a_in = meeting_room.is_some_and(|r| r.contains(a.x, a.y));
+            let b_in = meeting_room.is_some_and(|r| r.contains(b.x, b.y));
             // DND on either side makes the pair untouchable: no new link, and
             // an existing link is force-disconnected regardless of distance.
-            let blocked = a.dnd || b.dnd;
+            // A wall between them does the same.
+            let blocked = a.dnd || b.dnd || a_in != b_in;
+            // Inside the room, distance stops mattering.
+            let near = (a_in && b_in) || dist <= near_radius;
+            let far = !(a_in && b_in) && dist > far_radius;
 
             let currently_connected = connected_sets[&a.string_id].contains(&b.string_id);
 
-            if !currently_connected && !blocked && dist <= near_radius {
+            if !currently_connected && !blocked && near {
                 // New connection: register in both directions.
                 connected_sets
                     .get_mut(&a.string_id)
@@ -115,7 +128,7 @@ pub fn update_proximity(
                         id: a.string_id.clone(),
                         initiator: !a_initiates,
                     });
-            } else if currently_connected && (blocked || dist > far_radius) {
+            } else if currently_connected && (blocked || far) {
                 // Disconnection.
                 connected_sets
                     .get_mut(&a.string_id)
@@ -249,7 +262,7 @@ mod tests {
 
         // Both peers at exactly nearRadius - 1 apart.
         let positions = vec![peer(1, 0.0, 0.0), peer(2, near - 1.0, 0.0)];
-        let deltas = update_proximity(&positions, &mut sets, near, far);
+        let deltas = update_proximity(&positions, &mut sets, near, far, None);
 
         // Both should have a connect entry for the other.
         let d1 = &deltas["1"];
@@ -282,10 +295,10 @@ mod tests {
         let positions = vec![peer(1, 0.0, 0.0), peer(2, near - 1.0, 0.0)];
 
         // First tick: connect.
-        update_proximity(&positions, &mut sets, near, far);
+        update_proximity(&positions, &mut sets, near, far, None);
 
         // Second tick with identical positions: no delta.
-        let deltas = update_proximity(&positions, &mut sets, near, far);
+        let deltas = update_proximity(&positions, &mut sets, near, far, None);
         let d1 = &deltas["1"];
         assert!(d1.connect.is_empty(), "no new connect on second tick");
         assert!(d1.disconnect.is_empty(), "no disconnect on second tick");
@@ -300,12 +313,12 @@ mod tests {
 
         // Connect first.
         let positions_close = vec![peer(1, 0.0, 0.0), peer(2, near - 1.0, 0.0)];
-        update_proximity(&positions_close, &mut sets, near, far);
+        update_proximity(&positions_close, &mut sets, near, far, None);
 
         // Move peer 2 into the hysteresis gap (> nearRadius, < farRadius).
         let gap = (near + far) / 2.0; // 330.0
         let positions_gap = vec![peer(1, 0.0, 0.0), peer(2, gap, 0.0)];
-        let deltas = update_proximity(&positions_gap, &mut sets, near, far);
+        let deltas = update_proximity(&positions_gap, &mut sets, near, far, None);
 
         assert!(
             deltas["1"].disconnect.is_empty(),
@@ -323,11 +336,11 @@ mod tests {
 
         // Connect first.
         let positions_close = vec![peer(1, 0.0, 0.0), peer(2, near - 1.0, 0.0)];
-        update_proximity(&positions_close, &mut sets, near, far);
+        update_proximity(&positions_close, &mut sets, near, far, None);
 
         // Move peer 2 well beyond farRadius.
         let positions_far = vec![peer(1, 0.0, 0.0), peer(2, far + 1.0, 0.0)];
-        let deltas = update_proximity(&positions_far, &mut sets, near, far);
+        let deltas = update_proximity(&positions_far, &mut sets, near, far, None);
 
         assert_eq!(
             deltas["1"].disconnect.len(),
@@ -353,7 +366,7 @@ mod tests {
         // Protocol says "distance ≤ nearRadius ⇒ near", so exactly equal IS a connect.
         let mut sets: HashMap<String, HashSet<String>> = HashMap::new();
         let at_boundary = vec![peer(1, 0.0, 0.0), peer(2, near, 0.0)];
-        let deltas = update_proximity(&at_boundary, &mut sets, near, far);
+        let deltas = update_proximity(&at_boundary, &mut sets, near, far, None);
         assert_eq!(
             deltas["1"].connect.len(),
             1,
@@ -373,7 +386,7 @@ mod tests {
             peer(2, 100.0, 0.0),  // close to 1
             peer(3, 1000.0, 0.0), // far from both
         ];
-        let deltas = update_proximity(&positions, &mut sets, near, far);
+        let deltas = update_proximity(&positions, &mut sets, near, far, None);
 
         // Only 1↔2 should connect.
         assert_eq!(deltas["1"].connect.len(), 1);
@@ -399,7 +412,7 @@ mod tests {
             peer(2, 800.0, 600.0),
             peer(3, 400.0, 300.0),
         ];
-        let deltas = update_proximity(&positions, &mut sets, near, far);
+        let deltas = update_proximity(&positions, &mut sets, near, far, None);
 
         // Each member should connect to both of the others (group call).
         for id in ["1", "2", "3"] {
@@ -422,7 +435,7 @@ mod tests {
         let mut sets: HashMap<String, HashSet<String>> = HashMap::new();
 
         let positions = vec![peer(1, 0.0, 0.0), dnd_peer(2, 10.0, 0.0)];
-        let deltas = update_proximity(&positions, &mut sets, near, far);
+        let deltas = update_proximity(&positions, &mut sets, near, far, None);
 
         assert!(
             deltas["1"].connect.is_empty() && deltas["2"].connect.is_empty(),
@@ -441,22 +454,22 @@ mod tests {
 
         // Connect while both available.
         let close = vec![peer(1, 0.0, 0.0), peer(2, 10.0, 0.0)];
-        update_proximity(&close, &mut sets, near, far);
+        update_proximity(&close, &mut sets, near, far, None);
         assert!(sets["1"].contains("2"));
 
         // Peer 2 turns DND on without moving → both sides get a disconnect.
         let dnd_on = vec![peer(1, 0.0, 0.0), dnd_peer(2, 10.0, 0.0)];
-        let deltas = update_proximity(&dnd_on, &mut sets, near, far);
+        let deltas = update_proximity(&dnd_on, &mut sets, near, far, None);
         assert_eq!(deltas["1"].disconnect, vec!["2".to_string()]);
         assert_eq!(deltas["2"].disconnect, vec!["1".to_string()]);
         assert!(!sets["1"].contains("2") && !sets["2"].contains("1"));
 
         // Still DND: no reconnect flapping.
-        let deltas = update_proximity(&dnd_on, &mut sets, near, far);
+        let deltas = update_proximity(&dnd_on, &mut sets, near, far, None);
         assert!(deltas["1"].is_empty() && deltas["2"].is_empty());
 
         // DND off while still in range → normal connect resumes.
-        let deltas = update_proximity(&close, &mut sets, near, far);
+        let deltas = update_proximity(&close, &mut sets, near, far, None);
         assert_eq!(deltas["1"].connect.len(), 1);
         assert_eq!(deltas["2"].connect.len(), 1);
     }
@@ -472,11 +485,11 @@ mod tests {
         let mut sets: HashMap<String, HashSet<String>> = HashMap::new();
 
         let close = vec![peer(1, 0.0, 0.0), peer(2, 10.0, 0.0)];
-        update_proximity(&close, &mut sets, near, far);
+        update_proximity(&close, &mut sets, near, far, None);
 
         // Peer 2 turns DND on → both sides get a disconnect…
         let dnd_on = vec![peer(1, 0.0, 0.0), dnd_peer(2, 10.0, 0.0)];
-        let deltas = update_proximity(&dnd_on, &mut sets, near, far);
+        let deltas = update_proximity(&dnd_on, &mut sets, near, far, None);
         assert_eq!(deltas["1"].disconnect, vec!["2".to_string()]);
 
         // …but peer 1's channel is full, so its message is dropped.
@@ -488,7 +501,7 @@ mod tests {
 
         // Next tick: the disconnect is regenerated for both sides. Peer 2 gets a
         // duplicate (it received the first one), which is idempotent client-side.
-        let deltas = update_proximity(&dnd_on, &mut sets, near, far);
+        let deltas = update_proximity(&dnd_on, &mut sets, near, far, None);
         assert_eq!(
             deltas["1"].disconnect,
             vec!["2".to_string()],
@@ -506,13 +519,13 @@ mod tests {
         let mut sets: HashMap<String, HashSet<String>> = HashMap::new();
 
         let close = vec![peer(1, 0.0, 0.0), peer(2, 10.0, 0.0)];
-        let deltas = update_proximity(&close, &mut sets, near, far);
+        let deltas = update_proximity(&close, &mut sets, near, far, None);
         assert_eq!(deltas["1"].connect.len(), 1);
 
         rollback_delta("1", &deltas["1"], &mut sets);
         assert!(!sets["1"].contains("2") && !sets["2"].contains("1"));
 
-        let deltas = update_proximity(&close, &mut sets, near, far);
+        let deltas = update_proximity(&close, &mut sets, near, far, None);
         assert_eq!(
             deltas["1"].connect.len(),
             1,
@@ -529,10 +542,10 @@ mod tests {
         let mut sets: HashMap<String, HashSet<String>> = HashMap::new();
 
         let close = vec![peer(1, 0.0, 0.0), peer(2, 10.0, 0.0)];
-        update_proximity(&close, &mut sets, near, far);
+        update_proximity(&close, &mut sets, near, far, None);
 
         let apart = vec![peer(1, 0.0, 0.0), peer(2, far + 1.0, 0.0)];
-        let deltas = update_proximity(&apart, &mut sets, near, far);
+        let deltas = update_proximity(&apart, &mut sets, near, far, None);
         remove_peer("2", &mut sets); // peer 2 leaves the space this tick
 
         rollback_delta("1", &deltas["1"], &mut sets);
@@ -548,7 +561,7 @@ mod tests {
         let mut sets: HashMap<String, HashSet<String>> = HashMap::new();
 
         let positions = vec![peer(1, 0.0, 0.0), peer(2, 100.0, 0.0)];
-        update_proximity(&positions, &mut sets, near, far);
+        update_proximity(&positions, &mut sets, near, far, None);
 
         // Peer 2 leaves.
         let affected = remove_peer("2", &mut sets);
@@ -558,5 +571,85 @@ mod tests {
             !sets["1"].contains("2"),
             "peer 1 should no longer list peer 2"
         );
+    }
+
+    /// Walls beat distance: two peers at opposite ends of the meeting room are
+    /// far apart in lobby terms yet connect, while the peer just outside the
+    /// wall, within arm's reach of one of them, does not.
+    #[test]
+    fn test_meeting_room_connects_inside_and_walls_off_outside() {
+        let near = 150.0_f64;
+        let far = 180.0_f64;
+        let room = Rect {
+            x: 480.0,
+            y: 36.0,
+            w: 280.0,
+            h: 228.0,
+        };
+        let mut sets: HashMap<String, HashSet<String>> = HashMap::new();
+
+        let positions = vec![
+            peer(1, 490.0, 50.0),  // inside, top-left corner
+            peer(2, 750.0, 250.0), // inside, bottom-right corner (~330 away)
+            peer(3, 470.0, 50.0),  // outside, 20 from peer 1 through the wall
+        ];
+        let deltas = update_proximity(&positions, &mut sets, near, far, Some(&room));
+
+        assert_eq!(deltas["1"].connect.len(), 1, "peer 1 links only to peer 2");
+        assert_eq!(deltas["1"].connect[0].id, "2");
+        assert_eq!(deltas["2"].connect.len(), 1);
+        assert!(deltas["3"].connect.is_empty(), "the wall blocks peer 3");
+    }
+
+    /// Walking through the wall tears the link down on that tick, and walking
+    /// back in restores it: the same positions without a room would have
+    /// stayed linked throughout.
+    #[test]
+    fn test_crossing_the_wall_toggles_the_link() {
+        let near = 150.0_f64;
+        let far = 180.0_f64;
+        let room = Rect {
+            x: 480.0,
+            y: 36.0,
+            w: 280.0,
+            h: 228.0,
+        };
+        let mut sets: HashMap<String, HashSet<String>> = HashMap::new();
+
+        let both_in = vec![peer(1, 500.0, 100.0), peer(2, 520.0, 100.0)];
+        update_proximity(&both_in, &mut sets, near, far, Some(&room));
+        assert!(sets["1"].contains("2"));
+
+        let one_out = vec![peer(1, 500.0, 100.0), peer(2, 470.0, 100.0)];
+        let deltas = update_proximity(&one_out, &mut sets, near, far, Some(&room));
+        assert_eq!(deltas["1"].disconnect, vec!["2".to_string()]);
+        assert_eq!(deltas["2"].disconnect, vec!["1".to_string()]);
+
+        let deltas = update_proximity(&both_in, &mut sets, near, far, Some(&room));
+        assert_eq!(deltas["1"].connect.len(), 1, "re-linked on re-entry");
+    }
+
+    /// Outside the room the distance rule is untouched by the room's presence.
+    #[test]
+    fn test_room_does_not_affect_pairs_outside_it() {
+        let near = 150.0_f64;
+        let far = 180.0_f64;
+        let room = Rect {
+            x: 480.0,
+            y: 36.0,
+            w: 280.0,
+            h: 228.0,
+        };
+        let mut sets: HashMap<String, HashSet<String>> = HashMap::new();
+
+        let positions = vec![
+            peer(1, 100.0, 400.0),
+            peer(2, 200.0, 400.0),
+            peer(3, 100.0, 100.0),
+        ];
+        let deltas = update_proximity(&positions, &mut sets, near, far, Some(&room));
+        assert_eq!(deltas["1"].connect.len(), 1);
+        assert_eq!(deltas["1"].connect[0].id, "2");
+        assert!(deltas["3"].connect.is_empty());
     }
 }

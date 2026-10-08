@@ -14,7 +14,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { AudioEngine } from "../.test-build/audio.js";
+import { AudioEngine, spatialGain } from "../.test-build/audio.js";
 
 // --- Minimal Web API mocks -------------------------------------------------
 
@@ -674,4 +674,28 @@ test("video sender updates are serialised and a superseded switch is dropped", a
   log[2].release();
   await tick();
   assert.deepEqual(log.slice(3).map((e) => e.mode), ["maintain-resolution"], "the current mode's settings land last");
+});
+
+// --- spatialGain: the one rule for gain nodes and the nearby nudge ----------
+
+
+const LOBBY = {
+  ...SPACE, width: 800, height: 600, nearRadius: 150, farRadius: 180,
+  meetingRoom: { x: 480, y: 36, w: 280, h: 228 },
+};
+
+test("spatialGain: distance falloff on the open floor", () => {
+  assert.equal(spatialGain(LOBBY, { x: 100, y: 400 }, { x: 100, y: 400 }), 1);
+  assert.equal(spatialGain(LOBBY, { x: 100, y: 400 }, { x: 175, y: 400 }), 0.5);
+  assert.equal(spatialGain(LOBBY, { x: 100, y: 400 }, { x: 300, y: 400 }), 0);
+});
+
+test("spatialGain: the meeting room is full volume inside and soundproof across", () => {
+  // Opposite corners of the room: ~330 apart, well past nearRadius.
+  assert.equal(spatialGain(LOBBY, { x: 490, y: 50 }, { x: 750, y: 250 }), 1);
+  // 20 apart through the wall, in either direction.
+  assert.equal(spatialGain(LOBBY, { x: 490, y: 50 }, { x: 470, y: 50 }), 0);
+  assert.equal(spatialGain(LOBBY, { x: 470, y: 50 }, { x: 490, y: 50 }), 0);
+  // No room (a team space): plain distance.
+  assert.equal(spatialGain(SPACE, { x: 490, y: 50 }, { x: 470, y: 50 }), 1 - 20 / 300);
 });
