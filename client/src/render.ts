@@ -6,7 +6,8 @@
  * recognisable places. The floor plan depends on the space kind:
  *  - Lobby: Focus / Meeting / Lounge / Café / Commons — open ambient floor.
  *    Meeting is a walled room (its rectangle comes from the server, which
- *    uses the same one as the audio boundary): soundproof, with a door.
+ *    uses the same one as the audio boundary): soundproof, walked into
+ *    through the wall like any other furniture.
  *  - Team: one table ringed by seats — a simple work room (group call).
  * Seats are clickable: walk-to-snap so idle people rest on furniture instead of
  * scattering across open floor. Furniture is still static (no animation), so a
@@ -80,8 +81,8 @@ type FloorItem =
   | { kind: "plant"; x: number; y: number; r: number }
   | { kind: "stool"; x: number; y: number; r: number }
   | { kind: "board"; x: number; y: number; w: number; h: number }
-  /** A walled room: floor, walls, and a door gap in the bottom wall at `door`. */
-  | { kind: "room"; x: number; y: number; w: number; h: number; door: { x: number; w: number }; label: string };
+  /** A walled room: floor and walls. */
+  | { kind: "room"; x: number; y: number; w: number; h: number; label: string };
 
 /** A sit target in world units. Click-to-sit walks here; tokens near a seat
  *  draw slightly smaller so idle people read as "at a desk / chair". */
@@ -158,8 +159,6 @@ const WALL_HI = "rgba(255,255,255,0.16)";
 const WALL_T = 7;
 /** Inner shadow the walls cast on the room floor, in world units. */
 const WALL_SHADE = 16;
-/** Door gap width in world units — one person wide, with room to spare. */
-const DOOR_W = 60;
 
 // The one accent: warm clay/coral, for the proximity ring & self.
 // Matches --accent (#b54f2c) so canvas chrome tracks the AA-safe UI tokens.
@@ -861,9 +860,9 @@ export class Renderer {
 
   /**
    * The meeting room, seen from above: a sky floor shaded along the walls so
-   * it reads as sunken/enclosed, solid wood walls, and a door in the bottom
-   * wall drawn the way floor plans draw one — the leaf standing ajar with its
-   * swing arc into the lobby, so the gap reads as an entrance and not a hole.
+   * it reads as sunken/enclosed, and solid wood walls. No door: you walk
+   * through the wall as through a table, and a drawn door only promised a
+   * collision that is not there.
    */
   private _drawRoom(
     it: Extract<FloorItem, { kind: "room" }>,
@@ -895,45 +894,18 @@ export class Renderer {
       ctx.fillRect(Math.min(gx0, gx1), Math.min(gy0, gy1), bw, bh);
     }
 
-    // Walls: one closed outline, with the door gap left open in the bottom wall.
-    const doorX = x + (it.door.x - it.x) * scale;
-    const doorW = it.door.w * scale;
+    // Walls.
     ctx.save();
-    ctx.lineCap = "butt";
     ctx.lineJoin = "miter";
     ctx.lineWidth = t;
     ctx.strokeStyle = WALL;
-    ctx.beginPath();
-    ctx.moveTo(doorX + doorW, y + h); // bottom wall, right of the door…
-    ctx.lineTo(x + w, y + h);
-    ctx.lineTo(x + w, y);
-    ctx.lineTo(x, y);
-    ctx.lineTo(x, y + h);
-    ctx.lineTo(doorX, y + h); // …round to its left end
-    ctx.stroke();
+    ctx.strokeRect(x, y, w, h);
     // A lit top edge so the walls have height.
     ctx.lineWidth = Math.max(1, t * 0.3);
     ctx.strokeStyle = WALL_HI;
     ctx.beginPath();
     ctx.moveTo(x - t / 2, y - t / 2 + ctx.lineWidth / 2);
     ctx.lineTo(x + w + t / 2, y - t / 2 + ctx.lineWidth / 2);
-    ctx.stroke();
-
-    // Door: hinged at the left jamb, leaf swung ~70° out into the lobby.
-    const hinge = { x: doorX, y: y + h };
-    const open = (70 * Math.PI) / 180;
-    ctx.lineWidth = Math.max(1.5, t * 0.45);
-    ctx.strokeStyle = WALL;
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.moveTo(hinge.x, hinge.y);
-    ctx.lineTo(hinge.x + Math.cos(open) * doorW, hinge.y + Math.sin(open) * doorW);
-    ctx.stroke();
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = ROOM_EDGE;
-    ctx.setLineDash([3 * scale, 4 * scale]);
-    ctx.beginPath();
-    ctx.arc(hinge.x, hinge.y, doorW, 0, open);
     ctx.stroke();
     ctx.restore();
 
@@ -1376,8 +1348,7 @@ function pushStool(
 
 /**
  * The meeting room's furniture inside the server's rectangle: a round table
- * with six stools, sized so the ring clears the walls' inner shadow. The door
- * sits toward the lobby's centre, where people approach from.
+ * with six stools, sized so the ring clears the walls' inner shadow.
  */
 function pushMeetingRoom(items: FloorItem[], seats: Seat[], room: Rect, stoolR: number): void {
   items.push({
@@ -1386,7 +1357,6 @@ function pushMeetingRoom(items: FloorItem[], seats: Seat[], room: Rect, stoolR: 
     y: room.y,
     w: room.w,
     h: room.h,
-    door: { x: room.x + 0.1 * room.w, w: DOOR_W },
     label: "Meeting",
   });
   const cx = room.x + room.w / 2;
