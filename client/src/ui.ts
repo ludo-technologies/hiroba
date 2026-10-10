@@ -14,7 +14,8 @@
  * so the layers stay decoupled.
  */
 
-import type { NoteInfo, SpaceDescriptor } from "./protocol.js";
+import type { NoteInfo, SpaceDescriptor, TeamLayout } from "./protocol.js";
+import { paintLayoutPreview } from "./render.js";
 import { BOARD_MAX_NOTES } from "./board.js";
 import {
   applyStaticI18n,
@@ -27,6 +28,9 @@ import {
 import { CODE_LENGTH, extractInviteCode, sanitizeCode, type OrgSummary } from "./auth.js";
 import { CustomSelect, type SelectOption } from "./select.js";
 import { bindOverlayDismiss } from "./overlay.js";
+
+/** Picker order; the first is the default. */
+const TEAM_LAYOUTS: TeamLayout[] = ["meeting", "desks", "lounge", "cafe"];
 
 // ---------------------------------------------------------------------------
 // LocalStorage keys
@@ -382,8 +386,8 @@ export interface UICallbacks {
   onCancelReconnect(): void;
   /** Switch to another space (tab click). */
   onEnterSpace(spaceId: string): void;
-  /** Create a new team space with the given name (FR-14). */
-  onCreateSpace(name: string): void;
+  /** Create a new team space with the given name and layout (FR-14). */
+  onCreateSpace(name: string, layout: TeamLayout): void;
   /** Pin a note to the current space's bulletin board. */
   onPostNote(text: string): void;
   /** Take a note off the board. */
@@ -483,6 +487,8 @@ export class UIManager {
   private lastScreenReopenVisible = false;
   private lastInvites: InviteEntry[] | null = null;
   private lastNotes: NoteInfo[] = [];
+  /** Cancels an open "+" name input and its layout picker (null when closed). */
+  private cancelCreateSpace: (() => void) | null = null;
   /** The note last sent, to put back in the input if the server refuses it. */
   private sentNote = "";
   private lastMembers: MemberEntry[] | null = null;
@@ -1739,6 +1745,8 @@ export class UIManager {
 
   /** Rebuild the space tabs from the catalog, marking the current one active. */
   renderTabs(spaces: SpaceDescriptor[], currentSpaceId: string): void {
+    // The picker lives outside the tab row, so removing the input won't take it along.
+    this.cancelCreateSpace?.();
     elTabs.replaceChildren();
     for (const sp of spaces) {
       const b = document.createElement("button");
@@ -1772,13 +1780,50 @@ export class UIManager {
     elTabs.querySelector(".tab.active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }
 
-  /** Swap the "+" button for an inline input to name a new space. */
+  /** Swap the "+" button for an inline input to name a new space, with a
+   *  layout picker under it. Focus stays in the input throughout. */
   private _beginCreateSpace(addBtn: HTMLButtonElement): void {
     const input = document.createElement("input");
     input.type = "text";
     input.className = "tab-add-input";
     input.maxLength = 32;
     input.placeholder = t.teamName;
+
+    // Outside the tab row: its overflow would clip a dropdown.
+    const picker = document.createElement("div");
+    picker.className = "layout-picker";
+    const group = document.createElement("div");
+    group.className = "layout-choices";
+    group.setAttribute("role", "radiogroup");
+    group.setAttribute("aria-label", t.layoutLabel);
+    const hint = document.createElement("div");
+    hint.className = "layout-hint";
+    hint.textContent = t.layoutHint;
+    picker.append(group, hint);
+
+    let layout: TeamLayout = "meeting";
+    const choices = TEAM_LAYOUTS.map((l) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "layout-choice";
+      b.tabIndex = -1;
+      b.setAttribute("role", "radio");
+      const canvas = document.createElement("canvas");
+      const label = document.createElement("span");
+      label.textContent = t.layoutNames[l];
+      b.append(canvas, label);
+      // Keep focus (and the typed name) in the input; a blur would cancel.
+      b.addEventListener("mousedown", (e) => e.preventDefault());
+      b.addEventListener("click", () => pick(l));
+      group.appendChild(b);
+      return { layout: l, button: b, canvas };
+    });
+    const pick = (l: TeamLayout) => {
+      layout = l;
+      for (const c of choices) c.button.setAttribute("aria-checked", String(c.layout === l));
+    };
+    pick(layout);
+
     // One-shot: removing the focused input fires `blur` synchronously in
     // Chromium, so without the guard Enter would re-enter here and create the
     // space twice. Blur cancels rather than commits — a catalog re-render
@@ -1787,13 +1832,15 @@ export class UIManager {
     const close = () => {
       if (done) return;
       done = true;
+      this.cancelCreateSpace = null;
+      picker.remove();
       input.replaceWith(addBtn);
     };
     const commit = () => {
       if (done) return;
       const name = input.value.trim();
       close();
-      if (name) this.callbacks.onCreateSpace(name);
+      if (name) this.callbacks.onCreateSpace(name, layout);
     };
     input.addEventListener("keydown", (e) => {
       if (e.isComposing) return; // Enter confirming an IME candidate is not a submit
@@ -1802,11 +1849,27 @@ export class UIManager {
         commit();
       } else if (e.key === "Escape") {
         close();
+      } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const step = e.key === "ArrowDown" ? 1 : -1;
+        const i = TEAM_LAYOUTS.indexOf(layout);
+        pick(TEAM_LAYOUTS[(i + step + TEAM_LAYOUTS.length) % TEAM_LAYOUTS.length]);
       }
     });
     input.addEventListener("blur", close);
+    this.cancelCreateSpace = close;
     addBtn.replaceWith(input);
+
+    // Focus first: it can scroll the tab row, which moves the input.
     input.focus();
+    document.body.appendChild(picker);
+    for (const c of choices) paintLayoutPreview(c.canvas, c.layout);
+    // Under the input, pulled left as far as needed to stay on screen
+    // (12px matches the picker's max-width gutter).
+    const r = input.getBoundingClientRect();
+    const maxLeft = window.innerWidth - picker.offsetWidth - 12;
+    picker.style.left = `${Math.max(12, Math.min(r.left, maxLeft))}px`;
+    picker.style.top = `${r.bottom + 8}px`;
   }
 
   // -------------------------------------------------------------------------

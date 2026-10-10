@@ -28,6 +28,10 @@ export interface Org {
 /** What a space is for. `team` spaces behave as a single group call. */
 export type SpaceKind = "lobby" | "team";
 
+/** A team space's floor plan, fixed at creation. Furniture only — radii and
+ *  capacity are the same for every layout. */
+export type TeamLayout = "meeting" | "desks" | "lounge" | "cafe";
+
 /**
  * Effective member status (server-computed).
  * Priority, highest first: `in_call > dnd > away > active`.
@@ -43,6 +47,8 @@ export interface SpaceDescriptor {
   id: string;
   name: string;
   kind: SpaceKind;
+  /** Team spaces only. A server from before layouts sends none. */
+  layout?: TeamLayout;
   width: number;
   height: number;
   /** Peers within this distance get a P2P audio link. */
@@ -142,6 +148,7 @@ export interface EnterSpaceMsg {
 export interface CreateSpaceMsg {
   t: "create_space";
   name: string;
+  layout: TeamLayout;
 }
 
 /** Pin a short note to the current space's bulletin board. */

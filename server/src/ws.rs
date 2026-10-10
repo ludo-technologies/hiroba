@@ -220,8 +220,8 @@ pub async fn handle_ws(
                         org.send_notes(&pid).await;
                     }
                 }
-                Ok(ClientMsg::CreateSpace { name }) => {
-                    let err = match org.create_space(name).await {
+                Ok(ClientMsg::CreateSpace { name, layout }) => {
+                    let err = match org.create_space(name, layout).await {
                         CreateSpaceOutcome::Created => None,
                         CreateSpaceOutcome::LimitReached => Some(ServerMsg::Error {
                             code: "space_limit".to_string(),

@@ -287,6 +287,9 @@ const EN = {
   ariaSpaces: "Spaces",
   createTeam: "Create a team space",
   teamName: "Team name",
+  layoutLabel: "Layout",
+  layoutHint: "↑↓ to choose · Enter to create",
+  layoutNames: { meeting: "Meeting", desks: "Desks", lounge: "Lounge", cafe: "Café" },
   teamTitle: (name: string) => `${name} (team)`,
   // Built-in space display names (keyed by the server's stable space id).
   spaceLobby: "Lobby",
@@ -589,6 +592,9 @@ const JA: typeof EN = {
   ariaSpaces: "スペース",
   createTeam: "チームスペースを作成",
   teamName: "チーム名",
+  layoutLabel: "レイアウト",
+  layoutHint: "↑↓で選択・Enterで作成",
+  layoutNames: { meeting: "会議室", desks: "作業部屋", lounge: "ラウンジ", cafe: "カフェ" },
   teamTitle: (name: string) => `${name}(チーム)`,
   // Built-in space display names (keyed by the server's stable space id).
   spaceLobby: "ロビー",

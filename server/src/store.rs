@@ -22,7 +22,7 @@ use std::sync::Mutex;
 
 use rusqlite::{params, Connection};
 
-use crate::protocol::{meeting_room_for, SpaceDescriptor, SpaceKind};
+use crate::protocol::{meeting_room_for, SpaceDescriptor, SpaceKind, TeamLayout};
 
 /// A note pinned to a space's bulletin board.
 #[derive(Debug, Clone, PartialEq)]
@@ -84,6 +84,7 @@ impl Store {
                space_id    TEXT NOT NULL,
                name        TEXT NOT NULL,
                kind        TEXT NOT NULL CHECK (kind IN ('lobby', 'team')),
+               layout      TEXT,
                width       REAL NOT NULL,
                height      REAL NOT NULL,
                near_radius REAL NOT NULL,
@@ -106,6 +107,22 @@ impl Store {
              );",
         )
         .expect("apply schema");
+        // Catalogs from before team layouts: add the column, and every
+        // existing team space keeps the one floor it always had.
+        let has_layout: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('spaces') WHERE name = 'layout'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("inspect spaces schema");
+        if !has_layout {
+            conn.execute_batch(
+                "ALTER TABLE spaces ADD COLUMN layout TEXT;
+                 UPDATE spaces SET layout = 'meeting' WHERE kind = 'team';",
+            )
+            .expect("add spaces.layout");
+        }
         Self {
             conn: Mutex::new(conn),
         }
@@ -120,7 +137,7 @@ impl Store {
         let mut spaces_stmt = conn
             .prepare(
                 "SELECT space_id, name, kind, width, height, near_radius, far_radius,
-                        tick_hz, capacity
+                        tick_hz, capacity, layout
                  FROM spaces WHERE org_id = ?1 ORDER BY ord",
             )
             .expect("prepare spaces");
@@ -150,10 +167,15 @@ impl Store {
                         };
                         let width: f64 = row.get(3)?;
                         let height: f64 = row.get(4)?;
+                        let layout: Option<String> = row.get(9)?;
                         Ok(SpaceDescriptor {
                             id: row.get(0)?,
                             name: row.get(1)?,
                             kind,
+                            layout: layout.map(|l| {
+                                TeamLayout::parse(&l)
+                                    .unwrap_or_else(|| panic!("unknown space layout {l:?}"))
+                            }),
                             width,
                             height,
                             near_radius: row.get(5)?,
@@ -226,8 +248,8 @@ impl Store {
         conn.execute(
             "INSERT OR IGNORE INTO spaces
                (org_id, space_id, name, kind, width, height, near_radius,
-                far_radius, tick_hz, capacity, ord)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                far_radius, tick_hz, capacity, ord, layout)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 org_id,
                 desc.id,
@@ -240,6 +262,7 @@ impl Store {
                 desc.tick_hz as i64,
                 desc.capacity as i64,
                 ord as i64,
+                desc.layout.map(TeamLayout::as_str),
             ],
         )
         .expect("insert space");
@@ -297,8 +320,18 @@ mod tests {
         let store = Store::open_in_memory();
         store.upsert_org("acme", "Acme");
         store.insert_space("acme", &SpaceDescriptor::lobby(), 0, 1);
-        store.insert_space("acme", &SpaceDescriptor::team("dev", "Dev"), 1, 1);
-        store.insert_space("acme", &SpaceDescriptor::team("team1", "Design"), 2, 2);
+        store.insert_space(
+            "acme",
+            &SpaceDescriptor::team("dev", "Dev", TeamLayout::Meeting),
+            1,
+            1,
+        );
+        store.insert_space(
+            "acme",
+            &SpaceDescriptor::team("team1", "Design", TeamLayout::Lounge),
+            2,
+            2,
+        );
 
         let catalogs = store.load_all();
         assert_eq!(catalogs.len(), 1);
@@ -320,8 +353,32 @@ mod tests {
         assert_eq!(lobby.tick_hz, reference.tick_hz);
         assert_eq!(lobby.meeting_room, reference.meeting_room);
         assert_eq!(lobby.capacity, reference.capacity);
+        assert_eq!(lobby.layout, None);
         assert_eq!(cat.spaces[2].kind, SpaceKind::Team);
         assert_eq!(cat.spaces[2].name, "Design");
+        assert_eq!(cat.spaces[2].layout, Some(TeamLayout::Lounge));
+    }
+
+    #[test]
+    fn catalog_without_layout_column_migrates_team_spaces_to_meeting() {
+        let conn = Connection::open_in_memory().expect("in-memory sqlite");
+        conn.execute_batch(
+            "CREATE TABLE orgs (id TEXT PRIMARY KEY, name TEXT NOT NULL,
+               next_space_seq INTEGER NOT NULL DEFAULT 1);
+             CREATE TABLE spaces (org_id TEXT NOT NULL, space_id TEXT NOT NULL,
+               name TEXT NOT NULL, kind TEXT NOT NULL, width REAL NOT NULL,
+               height REAL NOT NULL, near_radius REAL NOT NULL, far_radius REAL NOT NULL,
+               tick_hz INTEGER NOT NULL, capacity INTEGER NOT NULL, ord INTEGER NOT NULL,
+               PRIMARY KEY (org_id, space_id));
+             INSERT INTO orgs (id, name, next_space_seq) VALUES ('acme', 'Acme', 2);
+             INSERT INTO spaces VALUES ('acme', 'lobby', 'Lobby', 'lobby', 800, 600, 150, 180, 12, 5, 0);
+             INSERT INTO spaces VALUES ('acme', 'team1', 'Dev', 'team', 800, 600, 1100, 1100, 12, 5, 1);",
+        )
+        .expect("old schema");
+
+        let spaces = &Store::init(conn).load_all()[0].spaces;
+        assert_eq!(spaces[0].layout, None);
+        assert_eq!(spaces[1].layout, Some(TeamLayout::Meeting));
     }
 
     #[test]
@@ -338,9 +395,19 @@ mod tests {
         let store = Store::open_in_memory();
         store.upsert_org("acme", "Acme");
         // Insert out of ord order; load must come back sorted by ord.
-        store.insert_space("acme", &SpaceDescriptor::team("team2", "B"), 2, 3);
+        store.insert_space(
+            "acme",
+            &SpaceDescriptor::team("team2", "B", TeamLayout::Meeting),
+            2,
+            3,
+        );
         store.insert_space("acme", &SpaceDescriptor::lobby(), 0, 3);
-        store.insert_space("acme", &SpaceDescriptor::team("team1", "A"), 1, 3);
+        store.insert_space(
+            "acme",
+            &SpaceDescriptor::team("team1", "A", TeamLayout::Meeting),
+            1,
+            3,
+        );
 
         let cat = &store.load_all()[0];
         let ids: Vec<&str> = cat.spaces.iter().map(|s| s.id.as_str()).collect();

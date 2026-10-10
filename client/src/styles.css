@@ -1438,6 +1438,61 @@ a.hud-pill {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
+/* Layout picker under the "+" input; positioned by ui.ts from the input's rect. */
+.layout-picker {
+  position: fixed;
+  z-index: 56;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  background: var(--paper);
+  border: 1px solid var(--edge);
+  border-radius: 16px;
+  box-shadow: var(--shadow-card);
+  max-width: calc(100vw - 24px);
+}
+
+.layout-choices {
+  display: flex;
+  gap: 6px;
+}
+
+.layout-choice {
+  display: grid;
+  gap: 4px;
+  padding: 4px;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.layout-choice canvas {
+  display: block;
+  width: 96px;
+  height: 72px;
+  border-radius: 6px;
+}
+
+.layout-choice:hover {
+  background: var(--paper-2);
+}
+
+.layout-choice[aria-checked="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-lo);
+}
+
+.layout-hint {
+  font-size: 11.5px;
+  color: var(--ink-mute);
+}
+
 /* ---------------------------------------------------------------------------
  * In-call banner (page / barge-in) + toasts
  * --------------------------------------------------------------------------- */

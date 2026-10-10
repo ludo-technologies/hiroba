@@ -8,7 +8,8 @@
  *    Meeting is a walled room (its rectangle comes from the server, which
  *    uses the same one as the audio boundary): soundproof, walked into
  *    through the wall like any other furniture.
- *  - Team: one table ringed by seats — a simple work room (group call).
+ *  - Team: a small room (group call) in the layout chosen at creation —
+ *    meeting table, desk island, lounge, or café counter.
  * Seats are clickable: walk-to-snap so idle people rest on furniture instead of
  * scattering across open floor. Furniture is still static (no animation), so a
  * quiet office repaints nothing at all (NFR-01).
@@ -29,7 +30,14 @@
  * so we never double-apply devicePixelRatio.
  */
 
-import { rectContains, type Peer, type Rect, type SpaceDescriptor, type Status } from "./protocol.js";
+import {
+  rectContains,
+  type Peer,
+  type Rect,
+  type SpaceDescriptor,
+  type Status,
+  type TeamLayout,
+} from "./protocol.js";
 import { boardGeometry, type BoardGeometry } from "./board.js";
 
 // ---------------------------------------------------------------------------
@@ -539,8 +547,8 @@ export class Renderer {
     ctx.rect(ox, oy, space.width * scale, space.height * scale);
     ctx.clip();
 
-    this._drawFloorBoards(ox, oy, scale, space);
-    this._drawFurniture(ox, oy, scale);
+    drawFloorBoards(ctx, ox, oy, scale, space);
+    drawFurniture(ctx, ox, oy, scale, this.boardNotes, this.floor);
     this._drawSeatHover(ox, oy, scale);
     this._drawNearRings(ox, oy, scale, self, space);
 
@@ -675,171 +683,6 @@ export class Renderer {
     };
   }
 
-  /** Warm wood floor with faint plank seams. */
-  private _drawFloorBoards(ox: number, oy: number, scale: number, space: SpaceDescriptor): void {
-    const ctx = this.ctx;
-    const w = space.width * scale;
-    const h = space.height * scale;
-
-    const g = ctx.createLinearGradient(0, oy, 0, oy + h);
-    g.addColorStop(0, FLOOR_TOP);
-    g.addColorStop(1, FLOOR_BOT);
-    ctx.fillStyle = g;
-    ctx.fillRect(ox, oy, w, h);
-
-    // Horizontal plank seams every ~110 world units.
-    const seam = 110 * scale;
-    ctx.strokeStyle = PLANK;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let y = oy + seam; y < oy + h; y += seam) {
-      const yy = Math.round(y) + 0.5;
-      ctx.moveTo(ox, yy);
-      ctx.lineTo(ox + w, yy);
-    }
-    ctx.stroke();
-  }
-
-  private _drawFurniture(ox: number, oy: number, scale: number): void {
-    const ctx = this.ctx;
-    const X = (wx: number) => ox + wx * scale;
-    const Y = (wy: number) => oy + wy * scale;
-
-    for (const it of this.floor) {
-      switch (it.kind) {
-        case "rug": {
-          const x = X(it.x), y = Y(it.y), w = it.w * scale, h = it.h * scale;
-          roundRect(ctx, x, y, w, h, 14 * scale + 4);
-          ctx.fillStyle = it.color;
-          ctx.fill();
-          ctx.lineWidth = 1;
-          ctx.strokeStyle = "rgba(90,70,45,0.12)";
-          ctx.stroke();
-          if (it.label) this._zoneLabel(it.label, x + w / 2, y + 13 * scale, scale);
-          break;
-        }
-        case "room": {
-          this._drawRoom(it, X(it.x), Y(it.y), it.w * scale, it.h * scale, scale);
-          break;
-        }
-        case "rugRound": {
-          const x = X(it.x), y = Y(it.y), r = it.r * scale;
-          ctx.beginPath();
-          ctx.arc(x, y, r, 0, Math.PI * 2);
-          ctx.fillStyle = it.color;
-          ctx.fill();
-          ctx.lineWidth = 1;
-          ctx.strokeStyle = "rgba(90,70,45,0.12)";
-          ctx.stroke();
-          if (it.label) this._zoneLabel(it.label, x, y - r + 13 * scale, scale);
-          break;
-        }
-        case "table": {
-          this._softShadow(X(it.x), Y(it.y), it.w * scale, it.h * scale, it.round);
-          const x = X(it.x), y = Y(it.y), w = it.w * scale, h = it.h * scale;
-          const rad = it.round ? Math.min(w, h) / 2 : 7;
-          roundRect(ctx, x, y, w, h, rad);
-          const tg = ctx.createLinearGradient(0, y, 0, y + h);
-          tg.addColorStop(0, WOOD_HI);
-          tg.addColorStop(1, WOOD);
-          ctx.fillStyle = tg;
-          ctx.fill();
-          ctx.lineWidth = 1;
-          ctx.strokeStyle = WOOD_EDGE;
-          ctx.stroke();
-          break;
-        }
-        case "couch": {
-          this._softShadow(X(it.x), Y(it.y), it.w * scale, it.h * scale, false);
-          const x = X(it.x), y = Y(it.y), w = it.w * scale, h = it.h * scale;
-          roundRect(ctx, x, y, w, h, 9);
-          ctx.fillStyle = COUCH;
-          ctx.fill();
-          // seat cushion highlight
-          roundRect(ctx, x + w * 0.16, y + h * 0.16, w * 0.68, h * 0.68, 7);
-          ctx.fillStyle = COUCH_HI;
-          ctx.fill();
-          break;
-        }
-        case "stool": {
-          const x = X(it.x), y = Y(it.y), r = it.r * scale;
-          ctx.beginPath();
-          ctx.arc(x, y, r, 0, Math.PI * 2);
-          ctx.fillStyle = WOOD;
-          ctx.fill();
-          // Seat cushion highlight — reads more like a chair than a peg.
-          ctx.beginPath();
-          ctx.arc(x, y, r * 0.55, 0, Math.PI * 2);
-          ctx.fillStyle = WOOD_HI;
-          ctx.fill();
-          ctx.lineWidth = 1;
-          ctx.strokeStyle = WOOD_EDGE;
-          ctx.beginPath();
-          ctx.arc(x, y, r, 0, Math.PI * 2);
-          ctx.stroke();
-          break;
-        }
-        case "board": {
-          if (this.boardNotes === null) break;
-          const x = X(it.x), y = Y(it.y), w = it.w * scale, h = it.h * scale;
-          this._softShadow(x, y, w, h, false);
-          roundRect(ctx, x, y, w, h, 4);
-          ctx.fillStyle = BOARD_FACE;
-          ctx.fill();
-          ctx.lineWidth = Math.max(2, 3 * scale);
-          ctx.strokeStyle = BOARD_FRAME;
-          ctx.stroke();
-          // Named like the zones: unlabelled it read as one more table.
-          this._zoneLabel("Board", x + w / 2, y + h / 2, scale);
-          // Note count, as an unread-style badge on the top-right corner.
-          if (this.boardNotes > 0) {
-            const r = 9 * scale;
-            ctx.beginPath();
-            ctx.arc(x + w, y + r * 0.6, r, 0, Math.PI * 2);
-            ctx.fillStyle = BOARD_BADGE;
-            ctx.fill();
-            ctx.font = `700 ${Math.max(9, Math.round(11 * scale))}px ${FONT_FAMILY}`;
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            ctx.fillStyle = "#fff";
-            ctx.fillText(String(this.boardNotes), x + w, y + r * 0.6);
-          }
-          break;
-        }
-        case "plant": {
-          const x = X(it.x), y = Y(it.y), r = it.r * scale;
-          // pot
-          ctx.beginPath();
-          ctx.arc(x, y, r * 0.6, 0, Math.PI * 2);
-          ctx.fillStyle = POT;
-          ctx.fill();
-          // foliage — a little cluster of leaves
-          for (const [dx, dy, rr] of [
-            [0, -0.5, 0.85], [-0.55, -0.1, 0.6], [0.55, -0.1, 0.6], [0, 0.15, 0.7],
-          ] as const) {
-            ctx.beginPath();
-            ctx.arc(x + dx * r, y + dy * r, rr * r, 0, Math.PI * 2);
-            ctx.fillStyle = rr > 0.7 ? LEAF_HI : LEAF;
-            ctx.fill();
-          }
-          break;
-        }
-      }
-    }
-  }
-
-  /** A soft drop shadow under a rectangular furniture piece. */
-  private _softShadow(x: number, y: number, w: number, h: number, round: boolean): void {
-    const ctx = this.ctx;
-    ctx.save();
-    ctx.fillStyle = "rgba(70,50,28,0.16)";
-    const off = 3;
-    const rad = round ? Math.min(w, h) / 2 : 7;
-    roundRect(ctx, x + off, y + off + 2, w, h, rad);
-    ctx.fill();
-    ctx.restore();
-  }
-
   /** Soft accent ring on the seat under the pointer (stools, couch, commons). */
   private _drawSeatHover(ox: number, oy: number, scale: number): void {
     if (!this.seatHover) return;
@@ -856,84 +699,6 @@ export class Renderer {
     ctx.arc(x, y, r * 0.35, 0, Math.PI * 2);
     ctx.fillStyle = "rgba(181,79,44,0.18)";
     ctx.fill();
-  }
-
-  /**
-   * The meeting room, seen from above: a sky floor shaded along the walls so
-   * it reads as sunken/enclosed, and solid wood walls. No door: you walk
-   * through the wall as through a table, and a drawn door only promised a
-   * collision that is not there.
-   */
-  private _drawRoom(
-    it: Extract<FloorItem, { kind: "room" }>,
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-    scale: number,
-  ): void {
-    const ctx = this.ctx;
-    const t = WALL_T * scale;
-    const shade = WALL_SHADE * scale;
-
-    // Floor.
-    ctx.fillStyle = RUG_MEET;
-    ctx.fillRect(x, y, w, h);
-    // Inner shadow: a band along each wall, darkest at the wall.
-    const bands: Array<[number, number, number, number, number, number]> = [
-      [x, y, x, y + shade, w, shade], // top
-      [x, y + h, x, y + h - shade, w, shade], // bottom
-      [x, y, x + shade, y, shade, h], // left
-      [x + w, y, x + w - shade, y, shade, h], // right
-    ];
-    for (const [gx0, gy0, gx1, gy1, bw, bh] of bands) {
-      const g = ctx.createLinearGradient(gx0, gy0, gx1, gy1);
-      g.addColorStop(0, "rgba(60,50,40,0.16)");
-      g.addColorStop(1, "rgba(60,50,40,0)");
-      ctx.fillStyle = g;
-      ctx.fillRect(Math.min(gx0, gx1), Math.min(gy0, gy1), bw, bh);
-    }
-
-    // Walls.
-    ctx.save();
-    ctx.lineJoin = "miter";
-    ctx.lineWidth = t;
-    ctx.strokeStyle = WALL;
-    ctx.strokeRect(x, y, w, h);
-    // A lit top edge so the walls have height.
-    ctx.lineWidth = Math.max(1, t * 0.3);
-    ctx.strokeStyle = WALL_HI;
-    ctx.beginPath();
-    ctx.moveTo(x - t / 2, y - t / 2 + ctx.lineWidth / 2);
-    ctx.lineTo(x + w + t / 2, y - t / 2 + ctx.lineWidth / 2);
-    ctx.stroke();
-    ctx.restore();
-
-    this._zoneLabel(it.label, x + w / 2, y + (WALL_T + 13) * scale, scale);
-  }
-
-  private _zoneLabel(text: string, cx: number, y: number, scale: number): void {
-    const ctx = this.ctx;
-    ctx.save();
-    // Scale-proportional like avatar initials — canvas is physical px, no ctx.scale().
-    const fontPx = Math.max(10, Math.round(FONT_ZONE_PX * scale));
-    ctx.font = `700 ${fontPx}px ${FONT_FAMILY}`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = ZONE_INK;
-    // Manual letter-spacing for a calm, signage feel (portable across WebViews).
-    const letters = text.toUpperCase().split("");
-    const sp = 2.5 * scale;
-    let total = 0;
-    for (const ch of letters) total += ctx.measureText(ch).width + sp;
-    total -= sp;
-    let x = cx - total / 2;
-    for (const ch of letters) {
-      const cw = ctx.measureText(ch).width;
-      ctx.fillText(ch, x + cw / 2, y);
-      x += cw + sp;
-    }
-    ctx.restore();
   }
 
   /** A soft radial darkening toward the edges, for a sense of depth/calm. */
@@ -1316,10 +1081,12 @@ export class Renderer {
  * Lay out furniture in world units, as fractions of the space so it fits any
  * server geometry. Layout depends on `space.kind`:
  *  - lobby → multi-zone open floor (Focus / Meeting / Lounge / Café / Commons)
- *  - team  → one table + capacity seats (simple work room)
+ *  - team  → the room's `layout` (see `TEAM_FLOORS`)
  */
 function buildFloor(space: SpaceDescriptor): FloorPlan {
-  return space.kind === "team" ? buildTeamFloor(space) : buildLobbyFloor(space);
+  if (space.kind === "lobby") return buildLobbyFloor(space);
+  // A server from before layouts sends none: its team rooms are all meeting rooms.
+  return TEAM_FLOORS[space.layout ?? "meeting"](space);
 }
 
 /** Default stool radius as a fraction of room width. */
@@ -1484,17 +1251,35 @@ function buildLobbyFloor(space: SpaceDescriptor): FloorPlan {
 }
 
 /**
- * Team work room: one table + capacity seats. Radii on the server already make
- * the whole room one group call — the floor only needs a clear gathering place.
+ * Team rooms. Radii on the server already make the whole room one group call,
+ * so a layout only sets the furniture and where people sit. Every plan keeps
+ * the board's top-left stand point clear.
  */
-function buildTeamFloor(space: SpaceDescriptor): FloorPlan {
+const TEAM_FLOORS: Record<TeamLayout, (space: SpaceDescriptor) => FloorPlan> = {
+  meeting: buildMeetingFloor,
+  desks: buildDesksFloor,
+  lounge: buildLoungeFloor,
+  cafe: buildCafeFloor,
+};
+
+/** Team stools read a touch larger than the lobby's. */
+const TEAM_STOOL_R = STOOL_R * 1.05;
+
+function pushPlants(items: FloorItem[], space: SpaceDescriptor, at: Array<[number, number]>): void {
+  for (const [x, y] of at) {
+    items.push({ kind: "plant", x: x * space.width, y: y * space.height, r: 0.038 * space.width });
+  }
+}
+
+/** One round table + capacity seats: talking in a circle. */
+function buildMeetingFloor(space: SpaceDescriptor): FloorPlan {
   const W = space.width;
   const H = space.height;
   const items: FloorItem[] = [];
   const seats: Seat[] = [];
   const n = Math.max(2, Math.min(space.capacity || 5, 8));
   const minSide = Math.min(W, H);
-  const sr = STOOL_R * W * 1.05;
+  const sr = TEAM_STOOL_R * W;
 
   // Soft rug under the meeting area (no zone label — the tab names the room).
   items.push({
@@ -1530,10 +1315,372 @@ function buildTeamFloor(space: SpaceDescriptor): FloorPlan {
   }
 
   // Corner plants — sparse, so the table stays the focus.
-  items.push({ kind: "plant", x: 0.08 * W, y: 0.1 * H, r: 0.038 * W });
-  items.push({ kind: "plant", x: 0.92 * W, y: 0.9 * H, r: 0.038 * W });
+  pushPlants(items, space, [[0.08, 0.1], [0.92, 0.9]]);
 
   return { items, seats, board: pushBoard(items, space) };
+}
+
+/** A desk island, three facing two: heads-down work within earshot. */
+function buildDesksFloor(space: SpaceDescriptor): FloorPlan {
+  const W = space.width;
+  const H = space.height;
+  const items: FloorItem[] = [];
+  const seats: Seat[] = [];
+  const sr = TEAM_STOOL_R * W;
+  const dw = 0.13 * W;
+  const dh = 0.1 * H;
+
+  items.push({ kind: "rug", x: 0.2 * W, y: 0.27 * H, w: 0.6 * W, h: 0.58 * H, color: RUG_FOCUS });
+  for (const cx of [0.36, 0.5, 0.64]) {
+    items.push({ kind: "table", x: cx * W - dw / 2, y: 0.44 * H, w: dw, h: dh, round: false });
+    pushStool(items, seats, cx * W, 0.37 * H, sr);
+  }
+  for (const cx of [0.43, 0.57]) {
+    items.push({ kind: "table", x: cx * W - dw / 2, y: 0.54 * H, w: dw, h: dh, round: false });
+    pushStool(items, seats, cx * W, 0.72 * H, sr);
+  }
+  pushPlants(items, space, [[0.92, 0.1], [0.08, 0.9], [0.92, 0.9]]);
+
+  return { items, seats, board: pushBoard(items, space) };
+}
+
+/** A sofa, a low table and two armchairs: chatting and breaks. */
+function buildLoungeFloor(space: SpaceDescriptor): FloorPlan {
+  const W = space.width;
+  const H = space.height;
+  const items: FloorItem[] = [];
+  const seats: Seat[] = [];
+  const hitR = seatHitR(TEAM_STOOL_R * W * 1.1);
+
+  items.push({ kind: "rug", x: 0.16 * W, y: 0.3 * H, w: 0.68 * W, h: 0.6 * H, color: RUG_LOUNGE });
+  // Sofa: sit targets along the cushions, as on the lobby couch.
+  items.push({ kind: "couch", x: 0.31 * W, y: 0.71 * H, w: 0.38 * W, h: 0.13 * H });
+  for (const sx of [0.39, 0.5, 0.61]) seats.push({ x: sx * W, y: 0.775 * H, hitR });
+  items.push({ kind: "table", x: 0.39 * W, y: 0.49 * H, w: 0.22 * W, h: 0.11 * H, round: true });
+  // Armchairs either side of the table.
+  for (const x of [0.2, 0.71]) {
+    items.push({ kind: "couch", x: x * W, y: 0.45 * H, w: 0.09 * W, h: 0.13 * H });
+    seats.push({ x: (x + 0.045) * W, y: 0.515 * H, hitR });
+  }
+  pushPlants(items, space, [[0.92, 0.12], [0.08, 0.9], [0.9, 0.9]]);
+
+  return { items, seats, board: pushBoard(items, space) };
+}
+
+/** A long counter with a row of stools: dropping by for a quick word. */
+function buildCafeFloor(space: SpaceDescriptor): FloorPlan {
+  const W = space.width;
+  const H = space.height;
+  const items: FloorItem[] = [];
+  const seats: Seat[] = [];
+  const sr = TEAM_STOOL_R * W;
+
+  items.push({ kind: "rug", x: 0.15 * W, y: 0.3 * H, w: 0.7 * W, h: 0.5 * H, color: RUG_CAFE });
+  items.push({ kind: "table", x: 0.22 * W, y: 0.42 * H, w: 0.56 * W, h: 0.08 * H, round: false });
+  for (let i = 0; i < 5; i++) pushStool(items, seats, (0.3 + i * 0.1) * W, 0.6 * H, sr);
+  pushPlants(items, space, [[0.92, 0.12], [0.08, 0.9], [0.92, 0.9]]);
+
+  return { items, seats, board: pushBoard(items, space) };
+}
+
+// ---------------------------------------------------------------------------
+// Floor & furniture painting (shared by the live scene and the picker thumbnails)
+// ---------------------------------------------------------------------------
+
+/** Paint an empty team room in `layout` to fit `canvas` (the layout picker's
+ *  thumbnails). Only proportions matter here: team rooms are 800×600. */
+export function paintLayoutPreview(canvas: HTMLCanvasElement, layout: TeamLayout): void {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(canvas.clientWidth * dpr);
+  canvas.height = Math.round(canvas.clientHeight * dpr);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas 2D context not available");
+  const space: SpaceDescriptor = {
+    id: "preview",
+    name: "",
+    kind: "team",
+    layout,
+    width: 800,
+    height: 600,
+    nearRadius: 1100,
+    farRadius: 1100,
+    tickHz: 12,
+    capacity: 5,
+  };
+  const scale = Math.min(canvas.width / space.width, canvas.height / space.height);
+  const ox = (canvas.width - space.width * scale) / 2;
+  const oy = (canvas.height - space.height * scale) / 2;
+  ctx.fillStyle = FRAME_BG;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  drawFloorBoards(ctx, ox, oy, scale, space);
+  // No board: its signage would swamp a thumbnail.
+  drawFurniture(ctx, ox, oy, scale, null, TEAM_FLOORS[layout](space).items);
+}
+
+/** Warm wood floor with faint plank seams. */
+function drawFloorBoards(
+  ctx: CanvasRenderingContext2D,
+  ox: number,
+  oy: number,
+  scale: number,
+  space: SpaceDescriptor,
+): void {
+  const w = space.width * scale;
+  const h = space.height * scale;
+
+  const g = ctx.createLinearGradient(0, oy, 0, oy + h);
+  g.addColorStop(0, FLOOR_TOP);
+  g.addColorStop(1, FLOOR_BOT);
+  ctx.fillStyle = g;
+  ctx.fillRect(ox, oy, w, h);
+
+  // Horizontal plank seams every ~110 world units.
+  const seam = 110 * scale;
+  ctx.strokeStyle = PLANK;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let y = oy + seam; y < oy + h; y += seam) {
+    const yy = Math.round(y) + 0.5;
+    ctx.moveTo(ox, yy);
+    ctx.lineTo(ox + w, yy);
+  }
+  ctx.stroke();
+}
+
+/** `boardNotes` null leaves the board out, as for a server that sends none. */
+function drawFurniture(
+  ctx: CanvasRenderingContext2D,
+  ox: number,
+  oy: number,
+  scale: number,
+  boardNotes: number | null,
+  items: FloorItem[],
+): void {
+  const X = (wx: number) => ox + wx * scale;
+  const Y = (wy: number) => oy + wy * scale;
+
+  for (const it of items) {
+    switch (it.kind) {
+      case "rug": {
+        const x = X(it.x), y = Y(it.y), w = it.w * scale, h = it.h * scale;
+        roundRect(ctx, x, y, w, h, 14 * scale + 4);
+        ctx.fillStyle = it.color;
+        ctx.fill();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = "rgba(90,70,45,0.12)";
+        ctx.stroke();
+        if (it.label) zoneLabel(ctx, it.label, x + w / 2, y + 13 * scale, scale);
+        break;
+      }
+      case "room": {
+        drawRoom(ctx, it, X(it.x), Y(it.y), it.w * scale, it.h * scale, scale);
+        break;
+      }
+      case "rugRound": {
+        const x = X(it.x), y = Y(it.y), r = it.r * scale;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fillStyle = it.color;
+        ctx.fill();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = "rgba(90,70,45,0.12)";
+        ctx.stroke();
+        if (it.label) zoneLabel(ctx, it.label, x, y - r + 13 * scale, scale);
+        break;
+      }
+      case "table": {
+        softShadow(ctx, X(it.x), Y(it.y), it.w * scale, it.h * scale, it.round);
+        const x = X(it.x), y = Y(it.y), w = it.w * scale, h = it.h * scale;
+        const rad = it.round ? Math.min(w, h) / 2 : 7;
+        roundRect(ctx, x, y, w, h, rad);
+        const tg = ctx.createLinearGradient(0, y, 0, y + h);
+        tg.addColorStop(0, WOOD_HI);
+        tg.addColorStop(1, WOOD);
+        ctx.fillStyle = tg;
+        ctx.fill();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = WOOD_EDGE;
+        ctx.stroke();
+        break;
+      }
+      case "couch": {
+        softShadow(ctx, X(it.x), Y(it.y), it.w * scale, it.h * scale, false);
+        const x = X(it.x), y = Y(it.y), w = it.w * scale, h = it.h * scale;
+        roundRect(ctx, x, y, w, h, 9);
+        ctx.fillStyle = COUCH;
+        ctx.fill();
+        // seat cushion highlight
+        roundRect(ctx, x + w * 0.16, y + h * 0.16, w * 0.68, h * 0.68, 7);
+        ctx.fillStyle = COUCH_HI;
+        ctx.fill();
+        break;
+      }
+      case "stool": {
+        const x = X(it.x), y = Y(it.y), r = it.r * scale;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fillStyle = WOOD;
+        ctx.fill();
+        // Seat cushion highlight — reads more like a chair than a peg.
+        ctx.beginPath();
+        ctx.arc(x, y, r * 0.55, 0, Math.PI * 2);
+        ctx.fillStyle = WOOD_HI;
+        ctx.fill();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = WOOD_EDGE;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.stroke();
+        break;
+      }
+      case "board": {
+        if (boardNotes === null) break;
+        const x = X(it.x), y = Y(it.y), w = it.w * scale, h = it.h * scale;
+        softShadow(ctx, x, y, w, h, false);
+        roundRect(ctx, x, y, w, h, 4);
+        ctx.fillStyle = BOARD_FACE;
+        ctx.fill();
+        ctx.lineWidth = Math.max(2, 3 * scale);
+        ctx.strokeStyle = BOARD_FRAME;
+        ctx.stroke();
+        // Named like the zones: unlabelled it read as one more table.
+        zoneLabel(ctx, "Board", x + w / 2, y + h / 2, scale);
+        // Note count, as an unread-style badge on the top-right corner.
+        if (boardNotes > 0) {
+          const r = 9 * scale;
+          ctx.beginPath();
+          ctx.arc(x + w, y + r * 0.6, r, 0, Math.PI * 2);
+          ctx.fillStyle = BOARD_BADGE;
+          ctx.fill();
+          ctx.font = `700 ${Math.max(9, Math.round(11 * scale))}px ${FONT_FAMILY}`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillStyle = "#fff";
+          ctx.fillText(String(boardNotes), x + w, y + r * 0.6);
+        }
+        break;
+      }
+      case "plant": {
+        const x = X(it.x), y = Y(it.y), r = it.r * scale;
+        // pot
+        ctx.beginPath();
+        ctx.arc(x, y, r * 0.6, 0, Math.PI * 2);
+        ctx.fillStyle = POT;
+        ctx.fill();
+        // foliage — a little cluster of leaves
+        for (const [dx, dy, rr] of [
+          [0, -0.5, 0.85], [-0.55, -0.1, 0.6], [0.55, -0.1, 0.6], [0, 0.15, 0.7],
+        ] as const) {
+          ctx.beginPath();
+          ctx.arc(x + dx * r, y + dy * r, rr * r, 0, Math.PI * 2);
+          ctx.fillStyle = rr > 0.7 ? LEAF_HI : LEAF;
+          ctx.fill();
+        }
+        break;
+      }
+    }
+  }
+}
+
+/** A soft drop shadow under a rectangular furniture piece. */
+function softShadow(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  round: boolean,
+): void {
+  ctx.save();
+  ctx.fillStyle = "rgba(70,50,28,0.16)";
+  const off = 3;
+  const rad = round ? Math.min(w, h) / 2 : 7;
+  roundRect(ctx, x + off, y + off + 2, w, h, rad);
+  ctx.fill();
+  ctx.restore();
+}
+
+/**
+ * The meeting room, seen from above: a sky floor shaded along the walls so
+ * it reads as sunken/enclosed, and solid wood walls. No door: you walk
+ * through the wall as through a table, and a drawn door only promised a
+ * collision that is not there.
+ */
+function drawRoom(
+  ctx: CanvasRenderingContext2D,
+  it: Extract<FloorItem, { kind: "room" }>,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  scale: number,
+): void {
+  const t = WALL_T * scale;
+  const shade = WALL_SHADE * scale;
+
+  // Floor.
+  ctx.fillStyle = RUG_MEET;
+  ctx.fillRect(x, y, w, h);
+  // Inner shadow: a band along each wall, darkest at the wall.
+  const bands: Array<[number, number, number, number, number, number]> = [
+    [x, y, x, y + shade, w, shade], // top
+    [x, y + h, x, y + h - shade, w, shade], // bottom
+    [x, y, x + shade, y, shade, h], // left
+    [x + w, y, x + w - shade, y, shade, h], // right
+  ];
+  for (const [gx0, gy0, gx1, gy1, bw, bh] of bands) {
+    const g = ctx.createLinearGradient(gx0, gy0, gx1, gy1);
+    g.addColorStop(0, "rgba(60,50,40,0.16)");
+    g.addColorStop(1, "rgba(60,50,40,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(Math.min(gx0, gx1), Math.min(gy0, gy1), bw, bh);
+  }
+
+  // Walls.
+  ctx.save();
+  ctx.lineJoin = "miter";
+  ctx.lineWidth = t;
+  ctx.strokeStyle = WALL;
+  ctx.strokeRect(x, y, w, h);
+  // A lit top edge so the walls have height.
+  ctx.lineWidth = Math.max(1, t * 0.3);
+  ctx.strokeStyle = WALL_HI;
+  ctx.beginPath();
+  ctx.moveTo(x - t / 2, y - t / 2 + ctx.lineWidth / 2);
+  ctx.lineTo(x + w + t / 2, y - t / 2 + ctx.lineWidth / 2);
+  ctx.stroke();
+  ctx.restore();
+
+  zoneLabel(ctx, it.label, x + w / 2, y + (WALL_T + 13) * scale, scale);
+}
+
+function zoneLabel(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  cx: number,
+  y: number,
+  scale: number,
+): void {
+  ctx.save();
+  // Scale-proportional like avatar initials — canvas is physical px, no ctx.scale().
+  const fontPx = Math.max(10, Math.round(FONT_ZONE_PX * scale));
+  ctx.font = `700 ${fontPx}px ${FONT_FAMILY}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = ZONE_INK;
+  // Manual letter-spacing for a calm, signage feel (portable across WebViews).
+  const letters = text.toUpperCase().split("");
+  const sp = 2.5 * scale;
+  let total = 0;
+  for (const ch of letters) total += ctx.measureText(ch).width + sp;
+  total -= sp;
+  let x = cx - total / 2;
+  for (const ch of letters) {
+    const cw = ctx.measureText(ch).width;
+    ctx.fillText(ch, x + cw / 2, y);
+    x += cw + sp;
+  }
+  ctx.restore();
 }
 
 // ---------------------------------------------------------------------------

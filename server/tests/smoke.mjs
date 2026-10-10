@@ -236,6 +236,12 @@ class Client {
   ok(!!spacesA && !!spacesB, "create_space broadcasts the new catalog to the whole org");
   const design = spacesA?.spaces?.find((s) => s.name === "Design");
   ok(design?.kind === "team" && design?.capacity === 5, "created space is a team (capacity 5)");
+  ok(design?.layout === "meeting", "create_space without a layout gets the meeting layout");
+  ok(spacesA?.spaces?.find((s) => s.kind === "lobby")?.layout === undefined, "the lobby carries no layout");
+  A.clear();
+  A.send({ t: "create_space", name: "Studio", layout: "desks" });
+  const withLayout = await A.wait((m) => m.t === "spaces" && m.spaces?.some((s) => s.name === "Studio"));
+  ok(withLayout?.spaces?.find((s) => s.name === "Studio")?.layout === "desks", "create_space keeps the chosen layout");
   A.clear();
   A.send({ t: "create_space", name: " Design " });
   const dup = await A.wait((m) => m.t === "error" && m.code === "space_exists");

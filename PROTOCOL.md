@@ -116,7 +116,10 @@ Used in `welcome.spaces`, `welcome.space`, and `spaces` broadcasts:
   "meetingRoom": { "x": 480, "y": 36, "w": 280, "h": 228 } }
 ```
 `kind` is `"lobby"` or `"team"`. `meetingRoom` is present on the lobby only
-(§Space configuration — "Meeting room").
+(§Space configuration — "Meeting room"). A team space carries `layout` — its
+floor plan, one of `"meeting"`, `"desks"`, `"lounge"`, `"cafe"`, fixed at
+creation. It changes only furniture and seats, never radii or capacity. The
+lobby has no `layout`.
 
 ## Roster member descriptor
 
@@ -172,9 +175,10 @@ not hung up by moving rooms (see §`page`).
 
 ### `create_space` — create a new team space (FR-14)
 ```json
-{ "t": "create_space", "name": "Design" }
+{ "t": "create_space", "name": "Design", "layout": "desks" }
 ```
-Server creates a team space, assigns a `spaceId`, and broadcasts the updated
+`layout` is optional and defaults to `"meeting"` (clients from before layouts
+omit it). Server creates a team space, assigns a `spaceId`, and broadcasts the updated
 catalog via `spaces` to the org. A name already in use is rejected with
 `error` code `space_exists`. (Permission to create may be restricted; see
 requirements §9.)

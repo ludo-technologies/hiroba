@@ -74,6 +74,7 @@ import {
   type RosterMember,
   type SpaceDescriptor,
   type Status,
+  type TeamLayout,
   type WelcomeMsg,
 } from "./protocol.js";
 
@@ -2478,10 +2479,10 @@ function handleEnterSpace(spaceId: string): void {
   session.net.send({ t: "enter_space", spaceId });
 }
 
-function handleCreateSpace(name: string): void {
+function handleCreateSpace(name: string, layout: TeamLayout): void {
   if (!session) return;
   markActive();
-  session.net.send({ t: "create_space", name });
+  session.net.send({ t: "create_space", name, layout });
 }
 
 function handlePage(memberId: string): void {

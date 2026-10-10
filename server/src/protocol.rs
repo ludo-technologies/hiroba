@@ -33,6 +33,36 @@ pub enum SpaceKind {
     Team,
 }
 
+/// Furniture plan of a team space, chosen at creation. Floor plan only —
+/// radii, capacity and tick rate are the same for every layout.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TeamLayout {
+    /// Also what a `create_space` without `layout` gets (pre-layout clients).
+    #[default]
+    Meeting,
+    Desks,
+    Lounge,
+    Cafe,
+}
+
+impl TeamLayout {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Meeting => "meeting",
+            Self::Desks => "desks",
+            Self::Lounge => "lounge",
+            Self::Cafe => "cafe",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        [Self::Meeting, Self::Desks, Self::Lounge, Self::Cafe]
+            .into_iter()
+            .find(|l| l.as_str() == s)
+    }
+}
+
 /// Effective member status (server-computed). Priority, highest first:
 /// `in_call > dnd > away > active` (PROTOCOL.md §"Presence & status").
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -66,6 +96,9 @@ pub struct SpaceDescriptor {
     pub id: String,
     pub name: String,
     pub kind: SpaceKind,
+    /// Set on team spaces only; the lobby has its own fixed floor.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub layout: Option<TeamLayout>,
     pub width: f64,
     pub height: f64,
     /// Distance ≤ nearRadius → peers become NEAR (audio connects).
@@ -101,6 +134,7 @@ impl SpaceDescriptor {
             id: "lobby".to_string(),
             name: "Lobby".to_string(),
             kind: SpaceKind::Lobby,
+            layout: None,
             width,
             height,
             near_radius: 150.0,
@@ -113,11 +147,12 @@ impl SpaceDescriptor {
 
     /// A team space: radii ≥ diagonal so the whole space is one group call.
     /// 800×600 → diagonal = 1000; we use 1100 so everyone is always near.
-    pub fn team(id: impl Into<String>, name: impl Into<String>) -> Self {
+    pub fn team(id: impl Into<String>, name: impl Into<String>, layout: TeamLayout) -> Self {
         Self {
             id: id.into(),
             name: name.into(),
             kind: SpaceKind::Team,
+            layout: Some(layout),
             width: 800.0,
             height: 600.0,
             near_radius: 1100.0,
@@ -238,7 +273,11 @@ pub enum ClientMsg {
     },
 
     /// Create a new team space (FR-14).
-    CreateSpace { name: String },
+    CreateSpace {
+        name: String,
+        #[serde(default)]
+        layout: TeamLayout,
+    },
 
     /// Position update — sent at ~tickHz only when moving (current space).
     Move { x: f64, y: f64 },

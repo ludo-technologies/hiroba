@@ -21,6 +21,7 @@ use tokio::sync::{mpsc, Mutex};
 use crate::auth::Role;
 use crate::protocol::{
     NoteInfo, OrgInfo, PeerInfo, PeerPos, Rect, RosterMember, ServerMsg, SpaceDescriptor, Status,
+    TeamLayout,
 };
 use crate::store::{Note, OrgCatalog, Store};
 
@@ -499,7 +500,7 @@ impl Org {
         let id = id.into();
         let name = name.into();
         let lobby = SpaceDescriptor::lobby();
-        let dev = SpaceDescriptor::team("dev", "Dev");
+        let dev = SpaceDescriptor::team("dev", "Dev", TeamLayout::Meeting);
 
         if let Some(s) = &store {
             s.upsert_org(&id, &name);
@@ -960,7 +961,7 @@ impl Org {
     /// Refuses (creating nothing) when the org already holds
     /// [`MAX_SPACES_PER_ORG`] spaces — otherwise any guest could create spaces
     /// without bound (resource-exhaustion guard).
-    pub async fn create_space(&self, name: String) -> CreateSpaceOutcome {
+    pub async fn create_space(&self, name: String, layout: TeamLayout) -> CreateSpaceOutcome {
         let mut guard = self.inner.lock().await;
 
         if guard.spaces.len() >= MAX_SPACES_PER_ORG {
@@ -987,7 +988,7 @@ impl Org {
             space_id = format!("team{seq}");
         }
 
-        let desc = SpaceDescriptor::team(space_id.clone(), name);
+        let desc = SpaceDescriptor::team(space_id.clone(), name, layout);
         // Write-through before the in-memory insert: a crash in between leaves
         // the space persisted, which `from_catalog` restores cleanly. The
         // synchronous INSERT inside the tokio mutex is deliberate — space
@@ -1562,14 +1563,14 @@ mod tests {
 
     #[test]
     fn pick_spawn_in_empty_space_is_centre() {
-        let desc = SpaceDescriptor::team("t1", "Team");
+        let desc = SpaceDescriptor::team("t1", "Team", TeamLayout::Meeting);
         let org = org_with_parked_members(&desc, 0);
         assert_eq!(org.pick_spawn("t1"), (desc.width / 2.0, desc.height / 2.0));
     }
 
     #[test]
     fn respawn_after_departure_clears_parked_members() {
-        let desc = SpaceDescriptor::team("t1", "Team");
+        let desc = SpaceDescriptor::team("t1", "Team", TeamLayout::Meeting);
         let mut org = org_with_parked_members(&desc, 3);
         // The middle member leaves: the next arrival reuses occupancy index 2,
         // whose plain spiral point is exactly where member "2" is parked.

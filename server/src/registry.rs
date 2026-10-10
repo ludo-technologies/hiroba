@@ -91,7 +91,7 @@ impl Default for OrgRegistry {
 mod tests {
     use super::*;
     use crate::auth::Role;
-    use crate::protocol::ServerMsg;
+    use crate::protocol::{ServerMsg, TeamLayout};
     use tokio::sync::mpsc;
 
     #[tokio::test]
@@ -150,7 +150,7 @@ mod tests {
         // "First boot": seed the org, create a space.
         let reg = OrgRegistry::with_store(store.clone(), store.load_all());
         let org = reg.seed("ludo", "Ludo").await;
-        org.create_space("Design".into()).await;
+        org.create_space("Design".into(), TeamLayout::Meeting).await;
 
         // "Restart": a fresh registry built from the same store.
         let reg2 = OrgRegistry::with_store(store.clone(), store.load_all());
@@ -174,11 +174,11 @@ mod tests {
         let store = Arc::new(Store::open_in_memory());
         let reg = OrgRegistry::with_store(store.clone(), store.load_all());
         let org = reg.seed("ludo", "Ludo").await;
-        org.create_space("A".into()).await; // team1
+        org.create_space("A".into(), TeamLayout::Meeting).await; // team1
 
         let reg2 = OrgRegistry::with_store(store.clone(), store.load_all());
         let org2 = reg2.get_or_create("ludo", "Ludo").await;
-        org2.create_space("B".into()).await; // must be team2, not a clash
+        org2.create_space("B".into(), TeamLayout::Meeting).await; // must be team2, not a clash
 
         let cat = &store.load_all()[0];
         let ids: Vec<&str> = cat.spaces.iter().map(|s| s.id.as_str()).collect();
