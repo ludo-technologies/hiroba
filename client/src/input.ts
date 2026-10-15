@@ -2,9 +2,7 @@
  * input.ts — Keyboard and click-to-walk movement for the Hiroba client.
  *
  * Movement model:
- *  - WASD and Arrow keys set velocity in *screen* directions; the floor is
- *    drawn isometrically, so "right" is mapped through the renderer's basis
- *    onto the world diagonal that runs toward screen-right.
+ *  - WASD and Arrow keys set velocity in x/y.
  *  - A click (or tap) on the floor sets a walk target; we walk toward it at
  *    the same speed and stop on arrival. Keyboard input always wins: the
  *    first movement key cancels the target.
@@ -20,7 +18,6 @@
  */
 
 import type { SpaceDescriptor } from "./protocol.js";
-import { SCREEN_DOWN_WORLD, SCREEN_RIGHT_WORLD } from "./render.js";
 
 // Movement speed in world-units per second.
 // At 150 nearRadius the world is 800 wide, so ~200 u/s crosses the world in 4s.
@@ -173,12 +170,8 @@ export class InputHandler {
     if (vx !== 0 || vy !== 0) {
       // Keyboard wins: steering by key cancels any click-to-walk destination.
       this.target = null;
-      // Screen intent → world direction (the basis is orthonormal, so the
-      // speed is unchanged).
-      const wx = vx * SCREEN_RIGHT_WORLD[0] + vy * SCREEN_DOWN_WORLD[0];
-      const wy = vx * SCREEN_RIGHT_WORLD[1] + vy * SCREEN_DOWN_WORLD[1];
-      this.x = clamp(this.x + wx * MOVE_SPEED * dt, 0, this.space.width);
-      this.y = clamp(this.y + wy * MOVE_SPEED * dt, 0, this.space.height);
+      this.x = clamp(this.x + vx * MOVE_SPEED * dt, 0, this.space.width);
+      this.y = clamp(this.y + vy * MOVE_SPEED * dt, 0, this.space.height);
     } else if (this.target) {
       // Walk toward the click destination; snap and stop on arrival.
       const dx = this.target.x - this.x;

@@ -14,19 +14,26 @@
  * Seats are clickable: walk-to-snap so idle people rest on furniture instead of
  * scattering across open floor.
  *
- * The room is drawn in **isometric projection**: the floor is a diamond seen
- * from a corner, two far walls stand behind it, and furniture and people
- * have height. World coordinates (the server's 800×600 floor) never change;
- * only the projection does:
+ * The room is drawn with **height**: the floor is foreshortened, the far
+ * wall stands behind it with its windows, and furniture and people rise off
+ * the floor. The camera is a parallel projection with a yaw (rotation about
+ * the vertical) and a pitch (how much the floor is squashed). At rest the
+ * yaw is zero — the floor keeps the orientation of a plan, with the far
+ * wall along the top — and on entering a space the camera swings in from a
+ * 45° isometric corner view to that resting view, so the room is seen as a
+ * solid thing before settling into the view you work in. World coordinates
+ * (the server's 800×600 floor) never change; only the projection does:
  *
- *     sx = x − y            sy = (x + y)·K − z
+ *     x' = (x − cx)·cos θ − (y − cy)·sin θ
+ *     y' = (x − cx)·sin θ + (y − cy)·cos θ
+ *     sx = x'                sy = y'·K − z
  *
  * Anything that lies flat on the floor (rugs, planks, shadows, rings) is
  * painted in world space under a canvas transform that *is* that projection,
  * so circles come out as the right ellipses for free. Anything that stands
  * up (walls, table legs, people) is drawn in screen space from projected
- * points. Standing things are painter-sorted by depth (x + y) each frame so
- * a person walks behind a desk and in front of a sofa correctly.
+ * points. Standing things are painter-sorted by depth (y') each frame so a
+ * person walks behind a desk and in front of a sofa correctly.
  *
  * The picture is a *lit room*: tall windows in the far walls let daylight
  * fall across the floor, and the light follows the real clock — gold in the
@@ -83,20 +90,27 @@ export interface RendererOptions {
 // Projection
 // ---------------------------------------------------------------------------
 
-/** Vertical squash of the floor: 0.5 is the classic 2:1 isometric. A touch
- *  steeper keeps the floor readable (less hides behind furniture). */
-const ISO_K = 0.56;
+/** The camera: yaw about the vertical (radians) and the floor's squash. */
+interface Camera {
+  yaw: number;
+  pitch: number;
+}
 
-/**
- * Screen-direction basis in world units, for keyboard steering: pressing
- * "right" should walk toward screen-right, which on an isometric floor is
- * the world's (+x, −y) diagonal. `input.ts` maps screen intent through this.
- */
-export const SCREEN_RIGHT_WORLD: readonly [number, number] = [Math.SQRT1_2, -Math.SQRT1_2];
-export const SCREEN_DOWN_WORLD: readonly [number, number] = [Math.SQRT1_2, Math.SQRT1_2];
+/** The resting view: a plan's orientation, tilted enough to show height. */
+const CAM_REST: Camera = { yaw: 0, pitch: 0.74 };
+/** Where the entrance swing starts: a true isometric corner view. */
+const CAM_ENTER: Camera = { yaw: Math.PI / 4, pitch: 0.56 };
+/** The swing's length, ms. */
+const ENTER_MS = 1500;
 
-/** Where the world's origin lands on the canvas, and the pixels per unit. */
+/** The camera plus the fit: where the floor's centre lands on the canvas,
+ *  and the pixels per world unit. */
 interface View {
+  cam: Camera;
+  cos: number;
+  sin: number;
+  cx: number;
+  cy: number;
   scale: number;
   ox: number;
   oy: number;
@@ -104,13 +118,26 @@ interface View {
 
 /** Project a world point (height z) to canvas pixels. */
 function pt(V: View, x: number, y: number, z = 0): { x: number; y: number } {
-  return { x: V.ox + (x - y) * V.scale, y: V.oy + ((x + y) * ISO_K - z) * V.scale };
+  const dx = x - V.cx;
+  const dy = y - V.cy;
+  return {
+    x: V.ox + (dx * V.cos - dy * V.sin) * V.scale,
+    y: V.oy + ((dx * V.sin + dy * V.cos) * V.cam.pitch - z) * V.scale,
+  };
+}
+
+/** How far into the picture a floor point lies (painter's order). */
+function depthAt(V: View, x: number, y: number): number {
+  return (x - V.cx) * V.sin + (y - V.cy) * V.cos;
 }
 
 /** Set the canvas transform so world-space drawing lands on the floor plane
  *  at height `z`. Circles become the right ellipses, hairlines stay thin. */
 function floorXf(ctx: CanvasRenderingContext2D, V: View, z = 0): void {
-  ctx.setTransform(V.scale, ISO_K * V.scale, -V.scale, ISO_K * V.scale, V.ox, V.oy - z * V.scale);
+  const s = V.scale;
+  const k = V.cam.pitch;
+  const o = pt(V, 0, 0, z);
+  ctx.setTransform(V.cos * s, V.sin * k * s, -V.sin * s, V.cos * k * s, o.x, o.y);
 }
 
 // ---------------------------------------------------------------------------
@@ -227,10 +254,10 @@ interface FloorPlan {
 // Visual constants
 // ---------------------------------------------------------------------------
 
-// People are sized in *projected* units (the floor diamond is W+H wide), so
-// they keep a fixed proportion to the room at any window size.
-const PEER_R = 33;
-const SELF_R = 35;
+// People are sized in world units, so they keep a fixed proportion to the
+// room at any window size.
+const PEER_R = 20;
+const SELF_R = 22;
 /** Within this distance of a seat centre, the token uses the seated pose. */
 const SEAT_SIT_EPS = 14;
 /** Seated people are raised onto the seat and drawn a notch smaller. */
@@ -483,6 +510,11 @@ export class Renderer {
   /** Timestamp of the previous draw, for frame-rate-independent easing. */
   private lastDraw = 0;
 
+  /** The entrance swing: when it started (0 = not swinging), and the yaw
+   *  the standing items were last sorted for. */
+  private enterStart = 0;
+  private sortedYaw = NaN;
+
   /** Called when the renderer needs the loop to wake (e.g. a resize repaint). */
   private onWake: (() => void) | null = null;
 
@@ -528,8 +560,12 @@ export class Renderer {
     this.lastDraw = 0;
     this.peers.clear();
     this.plan = buildFloor(space);
+    this.sortedYaw = NaN;
     this.seatHover = null;
     this.boardNotes = null;
+    // Swing in from the corner view (not for those who asked for less motion).
+    this.enterStart = prefersReducedMotion() ? 0 : -1;
+    this.onWake?.();
   }
 
   /** Return to the un-initialized state and paint the idle screen. */
@@ -554,7 +590,20 @@ export class Renderer {
    * and the hit-tests would then need to share its state through here.
    */
   private _view(space: SpaceDescriptor): View {
-    return fitView(this.canvas.width, this.canvas.height, space);
+    return fitView(this.canvas.width, this.canvas.height, space, this._camera(this.lastDraw));
+  }
+
+  /** The camera at time `now`: mid-swing after `init`, else at rest. */
+  private _camera(now: number): Camera {
+    if (this.enterStart === 0) return CAM_REST;
+    if (this.enterStart < 0) return CAM_ENTER; // not started yet (first draw starts it)
+    const t = (now - this.enterStart) / ENTER_MS;
+    if (t >= 1) return CAM_REST;
+    const e = easeInOutCubic(clamp01(t));
+    return {
+      yaw: lerp(CAM_ENTER.yaw, CAM_REST.yaw, e),
+      pitch: lerp(CAM_ENTER.pitch, CAM_REST.pitch, e),
+    };
   }
 
   /** Canvas pixel coordinates of a pointer event. */
@@ -567,9 +616,11 @@ export class Renderer {
   /** Un-project a canvas pixel onto the plane at height `z`. */
   private _toWorldAt(px: number, py: number, z: number, V: View): { x: number; y: number } {
     const sx = (px - V.ox) / V.scale;
-    const sy = (py - V.oy) / V.scale + z;
-    const sum = sy / ISO_K;
-    return { x: (sum + sx) / 2, y: (sum - sx) / 2 };
+    const sy = ((py - V.oy) / V.scale + z) / V.cam.pitch;
+    return {
+      x: V.cx + sx * V.cos + sy * V.sin,
+      y: V.cy - sx * V.sin + sy * V.cos,
+    };
   }
 
   /**
@@ -645,13 +696,17 @@ export class Renderer {
     const b = this.plan?.board;
     if (!space || !b || this.boardNotes === null) return null;
     const p = this._canvasPx(clientX, clientY);
-    const w = this._toWorldAt(p.x, p.y, 0, this._view(space));
-    // A point on the y=0 wall at height z un-projects to y = −z/(2K) and
-    // x − y = its position along the wall.
-    const z = -w.y * 2 * ISO_K;
-    const along = w.x - w.y;
-    const hit = z >= BOARD_Z0 - 4 && z <= BOARD_Z1 + 4 && along >= b.x && along <= b.x + b.w;
-    return hit ? { x: b.standX, y: b.standY } : null;
+    const V = this._view(space);
+    // Test the board's wall-mounted parallelogram directly: un-project at a
+    // few heights and accept when the point lands on the wall (y ≈ 0)
+    // between the board's edges.
+    for (let z = BOARD_Z0 - 4; z <= BOARD_Z1 + 4; z += 4) {
+      const w = this._toWorldAt(p.x, p.y, z, V);
+      if (Math.abs(w.y) <= 2.5 / V.cam.pitch && w.x >= b.x && w.x <= b.x + b.w) {
+        return { x: b.standX, y: b.standY };
+      }
+    }
+    return null;
   }
 
   /** Highlight a pageable peer under the pointer, or clear the hover ring. */
@@ -800,11 +855,22 @@ export class Renderer {
     let highRate = false;
     let lowRate = false;
 
-    const V = this._view(space);
+    // The entrance swing starts on the first frame after `init`.
+    if (this.enterStart < 0) this.enterStart = now;
+    const swinging = this.enterStart > 0 && now - this.enterStart < ENTER_MS;
+    if (swinging) highRate = true;
+    else if (this.enterStart > 0) this.enterStart = 0;
+    const V = fitView(this.canvas.width, this.canvas.height, space, this._camera(now));
+
+    // Furniture keeps its painter's order for the current yaw.
+    if (this.sortedYaw !== V.cam.yaw) {
+      sortStanding(plan.standing, V);
+      this.sortedYaw = V.cam.yaw;
+    }
 
     // --- The static room, from the cache ---
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.drawImage(this._scene(space, plan), 0, 0);
+    ctx.drawImage(this._scene(space, plan, V), 0, 0);
 
     // --- Flat, live marks on the floor ---
     ctx.save();
@@ -841,20 +907,23 @@ export class Renderer {
 
     // --- Standing things, back to front: furniture and people interleaved ---
     const people: Array<{ depth: number; peer: RenderPeer; isSelf: boolean }> = [];
-    for (const p of this.peers.values()) people.push({ depth: p.x + p.y, peer: p, isSelf: false });
+    for (const p of this.peers.values()) {
+      people.push({ depth: depthAt(V, p.x, p.y), peer: p, isSelf: false });
+    }
     // Self sorts a hair in front of anyone at the same spot, so "you" are
     // never hidden by a peer standing exactly where you stand.
-    people.push({ depth: self.x + self.y + 0.01, peer: self, isSelf: true });
+    people.push({ depth: depthAt(V, self.x, self.y) + 0.01, peer: self, isSelf: true });
     people.sort((a, b) => a.depth - b.depth);
 
     // Each person is painted right after the last item they stand in front
     // of (see `inFrontOf`); furniture keeps its own back-to-front order.
     const standing = plan.standing;
+    const sideFaces = V.cam.yaw > 0.01;
     const slot: Array<typeof people> = [];
     for (const entry of people) {
       let at = 0;
       for (let i = 0; i < standing.length; i++) {
-        if (inFrontOf(entry.peer.x, entry.peer.y, standing[i].fp)) at = i + 1;
+        if (inFrontOf(entry.peer.x, entry.peer.y, standing[i].fp, sideFaces)) at = i + 1;
       }
       (slot[at] ??= []).push(entry);
     }
@@ -896,9 +965,9 @@ export class Renderer {
    * something it depends on changed: size, space, board count, or the light
    * step. Also refreshes the palette the standing pass draws with.
    */
-  private _scene(space: SpaceDescriptor, plan: FloorPlan): HTMLCanvasElement {
+  private _scene(space: SpaceDescriptor, plan: FloorPlan, V: View): HTMLCanvasElement {
     const step = this._lightStep();
-    const key = `${this.canvas.width}x${this.canvas.height}|${space.id}|${this.boardNotes}|${step}`;
+    const key = `${this.canvas.width}x${this.canvas.height}|${space.id}|${this.boardNotes}|${step}|${V.cam.yaw}|${V.cam.pitch}`;
     if (this.scene && this.sceneKey === key) return this.scene;
 
     let scene = this.scene;
@@ -917,7 +986,7 @@ export class Renderer {
       this.palette = makePalette(this.light);
       this.lightStep = step;
     }
-    paintBackdrop(sctx, this._view(space), space, plan, this.boardNotes, this.light, this.palette, this.grain);
+    paintBackdrop(sctx, V, space, plan, this.boardNotes, this.light, this.palette, this.grain);
 
     this.sceneKey = key;
     return scene;
@@ -1383,20 +1452,38 @@ function localHour(): number {
 }
 
 /** Fit the projected room — walls, floor and slab — into a viewport. */
-function fitView(vw: number, vh: number, space: SpaceDescriptor): View {
+function fitView(vw: number, vh: number, space: SpaceDescriptor, cam: Camera): View {
   const W = space.width;
   const H = space.height;
-  // Projected extents at scale 1 with origin at (0,0).
-  const minX = -H - WALL_T - VIEW_PAD;
-  const maxX = W + WALL_T + VIEW_PAD;
-  const minY = -WALL_H - VIEW_PAD;
-  const maxY = (W + H) * ISO_K + SLAB_T + VIEW_PAD;
-  const scale = Math.min(vw / (maxX - minX), vh / (maxY - minY));
-  return {
-    scale,
-    ox: (vw - (maxX + minX) * scale) / 2,
-    oy: (vh - (maxY + minY) * scale) / 2,
+  const V: View = {
+    cam,
+    cos: Math.cos(cam.yaw),
+    sin: Math.sin(cam.yaw),
+    cx: W / 2,
+    cy: H / 2,
+    scale: 1,
+    ox: 0,
+    oy: 0,
   };
+  // Projected extents of the room's box at scale 1, centred on the floor.
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const x of [-WALL_T, W + WALL_T]) {
+    for (const y of [-WALL_T, H + WALL_T]) {
+      for (const z of [-SLAB_T, WALL_H]) {
+        const p = pt(V, x, y, z);
+        minX = Math.min(minX, p.x);
+        maxX = Math.max(maxX, p.x);
+        minY = Math.min(minY, p.y);
+        maxY = Math.max(maxY, p.y);
+      }
+    }
+  }
+  minX -= VIEW_PAD; maxX += VIEW_PAD; minY -= VIEW_PAD; maxY += VIEW_PAD;
+  const scale = Math.min(vw / (maxX - minX), vh / (maxY - minY));
+  V.scale = scale;
+  V.ox = (vw - (maxX + minX) * scale) / 2;
+  V.oy = (vh - (maxY + minY) * scale) / 2;
+  return V;
 }
 
 // ---------------------------------------------------------------------------
@@ -1413,7 +1500,7 @@ function fitView(vw: number, vh: number, space: SpaceDescriptor): View {
 function buildFloor(space: SpaceDescriptor): FloorPlan {
   const plan =
     space.kind === "lobby" ? buildLobbyFloor(space) : TEAM_FLOORS[space.layout ?? "meeting"](space);
-  plan.standing = sortStanding(plan.items);
+  plan.standing = collectStanding(plan.items);
   return plan;
 }
 
@@ -1663,7 +1750,7 @@ function buildLoungeFloor(space: SpaceDescriptor): FloorPlan {
 
   items.push({ kind: "rug", x: 0.16 * W, y: 0.3 * H, w: 0.68 * W, h: 0.6 * H, color: RUG_LOUNGE });
   // Sofa: sit targets along the cushions, as on the lobby couch.
-  items.push({ kind: "couch", x: 0.31 * W, y: 0.71 * H, w: 0.38 * W, h: 0.13 * H, back: "bottom" });
+  items.push({ kind: "couch", x: 0.31 * W, y: 0.71 * H, w: 0.38 * W, h: 0.13 * H, back: "top" });
   for (const sx of [0.39, 0.5, 0.61]) seats.push({ x: sx * W, y: 0.775 * H, hitR });
   items.push({ kind: "table", x: 0.39 * W, y: 0.49 * H, w: 0.22 * W, h: 0.11 * H, round: true, tone: "walnut", top: LOW_TABLE_H });
   items.push({ kind: "mug", x: 0.46 * W, y: 0.545 * H, r: 0.0065 * W, z: LOW_TABLE_H });
@@ -1707,27 +1794,28 @@ function buildCafeFloor(space: SpaceDescriptor): FloorPlan {
 /** Props on a surface sort just in front of what they stand on. */
 const PROP_BIAS = 30;
 
-/** Depth (x + y of the anchor) a standing item is painted at. */
-function depthOf(item: FloorItem | WallSeg): number {
+/** The depth a standing item is painted at: its anchor, pushed a little
+ *  forward for props so they sit on top of what carries them. */
+function depthOf(V: View, item: FloorItem | WallSeg): number {
   switch (item.kind) {
     case "table":
     case "couch":
     case "shelf":
-      return item.x + item.w / 2 + item.y + item.h / 2;
+      return depthAt(V, item.x + item.w / 2, item.y + item.h / 2);
     case "machine":
     case "book":
-      return item.x + item.w / 2 + item.y + item.h / 2 + PROP_BIAS;
+      return depthAt(V, item.x + item.w / 2, item.y + item.h / 2) + PROP_BIAS;
     case "monitor":
     case "mug":
     case "deskLamp":
-      return item.x + item.y + PROP_BIAS;
+      return depthAt(V, item.x, item.y) + PROP_BIAS;
     case "wallSeg":
-      return (item.x0 + item.x1) / 2 + (item.y0 + item.y1) / 2;
+      return depthAt(V, (item.x0 + item.x1) / 2, (item.y0 + item.y1) / 2);
     case "stool":
     case "plant":
     case "pendant":
     case "floorLamp":
-      return item.x + item.y;
+      return depthAt(V, item.x, item.y);
     default:
       return 0;
   }
@@ -1767,23 +1855,23 @@ function footprintOf(item: FloorItem | WallSeg): Footprint {
 }
 
 /**
- * Whether a person standing at (px, py) is painted over a footprint. Seen
- * from the +x+y corner, anything past a box's near faces is in front of it;
- * anything short of its far faces is behind; on the footprint itself (a
- * seat) counts as in front. A scalar depth cannot say this for a long
- * counter, whose centre may be deeper than someone standing at its end.
+ * Whether a person standing at (px, py) is painted over a footprint.
+ * Anything past a box's near face (+y; and +x too when the camera is
+ * yawed so that face shows) is in front of it; anything short of its far
+ * faces is behind; on the footprint itself (a seat) counts as in front. A
+ * scalar depth cannot say this for a long counter, whose centre may be
+ * deeper than someone standing at its end.
  */
-function inFrontOf(px: number, py: number, fp: Footprint): boolean {
-  if (px >= fp.x1 - 1 || py >= fp.y1 - 1) return true;
-  if (px <= fp.x0 + 1 || py <= fp.y0 + 1) return false;
+function inFrontOf(px: number, py: number, fp: Footprint, sideFaces: boolean): boolean {
+  if (py >= fp.y1 - 1 || (sideFaces && px >= fp.x1 - 1)) return true;
+  if (py <= fp.y0 + 1 || (sideFaces && px <= fp.x0 + 1)) return false;
   return true;
 }
 
-/** Everything that stands up, back to front. Rooms become glass segments. */
-function sortStanding(items: FloorItem[]): Standing[] {
+/** Everything that stands up (unsorted). Rooms become glass segments. */
+function collectStanding(items: FloorItem[]): Standing[] {
   const out: Standing[] = [];
-  const push = (item: FloorItem | WallSeg) =>
-    out.push({ depth: depthOf(item), fp: footprintOf(item), item });
+  const push = (item: FloorItem | WallSeg) => out.push({ depth: 0, fp: footprintOf(item), item });
   for (const it of items) {
     if (it.kind === "rug" || it.kind === "rugRound") continue;
     if (it.kind === "room") {
@@ -1792,8 +1880,13 @@ function sortStanding(items: FloorItem[]): Standing[] {
     }
     push(it);
   }
-  out.sort((a, b) => a.depth - b.depth);
   return out;
+}
+
+/** Order the standing items back to front for this camera (in place). */
+function sortStanding(standing: Standing[], V: View): void {
+  for (const s of standing) s.depth = depthOf(V, s.item);
+  standing.sort((a, b) => a.depth - b.depth);
 }
 
 /** Split a room's four walls into short lengths so they sort with people. */
@@ -1846,8 +1939,9 @@ export function paintLayoutPreview(canvas: HTMLCanvasElement, layout: TeamLayout
     tickHz: 12,
     capacity: 5,
   };
-  const V = fitView(canvas.width, canvas.height, space);
+  const V = fitView(canvas.width, canvas.height, space, CAM_REST);
   const plan = buildFloor(space);
+  sortStanding(plan.standing, V);
   // Always daylight: a thumbnail is a floor plan, not a mood. No board: its
   // signage would swamp it.
   const light = lightAt(11);
@@ -2647,8 +2741,8 @@ function isoCyl(
 ): void {
   const base = pt(V, cx, cy, z0);
   const up = pt(V, cx, cy, z1);
-  const rx = r * Math.SQRT2 * V.scale;
-  const ry = rx * ISO_K;
+  const rx = r * V.scale;
+  const ry = rx * V.cam.pitch;
   const g = ctx.createLinearGradient(base.x - rx, 0, base.x + rx, 0);
   g.addColorStop(0, sideDark);
   g.addColorStop(0.55, sideLight);
@@ -2754,13 +2848,13 @@ function drawStool(
   isoCyl(ctx, V, x, y, r, SEAT_H - 6, SEAT_H, pal.cushion, pal.walnut, pal.walnutSide, "rgba(60,38,18,0.3)");
   // Cushion shading.
   const c = pt(V, x, y, SEAT_H);
-  const rx = r * Math.SQRT2 * V.scale;
-  const cg = ctx.createRadialGradient(c.x - rx * 0.25, c.y - rx * ISO_K * 0.3, rx * 0.1, c.x, c.y, rx);
+  const rx = r * V.scale;
+  const cg = ctx.createRadialGradient(c.x - rx * 0.25, c.y - rx * V.cam.pitch * 0.3, rx * 0.1, c.x, c.y, rx);
   cg.addColorStop(0, "rgba(255,255,255,0.25)");
   cg.addColorStop(1, "rgba(80,50,20,0.12)");
   ctx.fillStyle = cg;
   ctx.beginPath();
-  ctx.ellipse(c.x, c.y, rx * 0.85, rx * ISO_K * 0.85, 0, 0, Math.PI * 2);
+  ctx.ellipse(c.x, c.y, rx * 0.85, rx * V.cam.pitch * 0.85, 0, 0, Math.PI * 2);
   ctx.fill();
   if (!backBehind) drawBack();
 }
@@ -2904,7 +2998,7 @@ function drawMonitor(
   const h = w * 0.58;
   ctx.fillStyle = pal.metal;
   ctx.beginPath();
-  ctx.ellipse(foot.x, foot.y, w * 0.18, w * 0.18 * ISO_K, 0, 0, Math.PI * 2);
+  ctx.ellipse(foot.x, foot.y, w * 0.18, w * 0.18 * V.cam.pitch, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillRect(foot.x - 1.5 * V.scale, foot.y - 8 * V.scale, 3 * V.scale, 8 * V.scale);
   const top = foot.y - 8 * V.scale - h;
@@ -2930,10 +3024,10 @@ function drawMug(
   const mh = 9;
   isoCyl(ctx, V, it.x, it.y, it.r, it.z, it.z + mh, pal.cup, pal.cup, shade(pal.cup, 0.8));
   const top = pt(V, it.x, it.y, it.z + mh);
-  const rx = it.r * Math.SQRT2 * V.scale;
+  const rx = it.r * V.scale;
   ctx.fillStyle = pal.latte;
   ctx.beginPath();
-  ctx.ellipse(top.x, top.y, rx * 0.7, rx * 0.7 * ISO_K, 0, 0, Math.PI * 2);
+  ctx.ellipse(top.x, top.y, rx * 0.7, rx * 0.7 * V.cam.pitch, 0, 0, Math.PI * 2);
   ctx.fill();
   // Handle.
   ctx.strokeStyle = pal.cup;
@@ -2955,7 +3049,7 @@ function drawDeskLamp(
   const s = V.scale;
   ctx.fillStyle = pal.metal;
   ctx.beginPath();
-  ctx.ellipse(base.x, base.y, 4 * s, 4 * s * ISO_K, 0, 0, Math.PI * 2);
+  ctx.ellipse(base.x, base.y, 4 * s, 4 * s * V.cam.pitch, 0, 0, Math.PI * 2);
   ctx.fill();
   const headX = base.x - 9 * s;
   const headY = base.y - 26 * s;
@@ -3051,7 +3145,7 @@ function drawFloorLamp(
   const base = pt(V, it.x, it.y, 0);
   ctx.fillStyle = pal.metal;
   ctx.beginPath();
-  ctx.ellipse(base.x, base.y, 9 * s, 9 * s * ISO_K, 0, 0, Math.PI * 2);
+  ctx.ellipse(base.x, base.y, 9 * s, 9 * s * V.cam.pitch, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillRect(base.x - 1.2 * s, base.y - 112 * s, 2.4 * s, 112 * s);
   const on = light.lamp;
@@ -3234,6 +3328,15 @@ function clamp01(v: number): number {
 
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
+}
+
+/** The entrance swing's easing. */
+function easeInOutCubic(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+function prefersReducedMotion(): boolean {
+  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 }
 
 /** Smoothstep, so light keyframes blend without a visible corner. */
