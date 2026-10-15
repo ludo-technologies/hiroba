@@ -19,6 +19,9 @@
  *  - FR-08: initial state is MUTED. getUserMedia is deferred until the first
  *    unmute (privacy: we don't grab the mic until the user asks to talk). The
  *    local track is disabled (not removed) while muted so toggling is instant.
+ *    Once no peer has been around for MIC_IDLE_RELEASE_MS the track is
+ *    released (the OS "mic in use" indicator must not stay lit all day in a
+ *    space nobody else is in) and re-acquired when a peer next appears.
  *  - On peer disconnect / leave we close the connection AND disconnect the Web
  *    Audio nodes so the audio graph doesn't leak.
  */
@@ -137,6 +140,10 @@ const LEVEL_RELEASE = 1 - (1 - 0.12) ** 2;
 /** Smoothed levels below this read as silence (ring hidden; loop may sleep). */
 const ACTIVITY_FLOOR = 0.02;
 
+/** How long the mic is kept after the last peer leaves, so someone walking
+ *  past and back does not cost a re-acquire and a renegotiation. */
+const MIC_IDLE_RELEASE_MS = 20_000;
+
 /**
  * Incoming-page ringtone (dual-tone, US-ring-like). Distinct from the canvas
  * "speaking ring" visuals — this is actual audio so a callee working in another
@@ -164,9 +171,11 @@ export class AudioEngine {
   private localStream: MediaStream | null = null;
   private localTrack: MediaStreamTrack | null = null;
 
-  /** Whether getUserMedia has been attempted (so we only acquire once). */
+  /** Whether a live call track is currently held (see `_updateMicHold`). */
   private micAcquired = false;
   private micAcquirePromise: Promise<void> | null = null;
+  /** Pending release of the mic after the last peer left. */
+  private micIdleTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Current mute state. Starts true per FR-08. */
   private muted = true;
@@ -331,8 +340,7 @@ export class AudioEngine {
   disconnect(peerId: string): void {
     const entry = this.peers.get(peerId);
     if (!entry) return;
-    this._closePeer(entry);
-    this.peers.delete(peerId);
+    this._dropPeer(entry);
   }
 
   /**
@@ -344,10 +352,7 @@ export class AudioEngine {
     const entry = this.peers.get(peerId);
     if (!entry) return;
     entry.proximity = false;
-    if (!entry.page) {
-      this._closePeer(entry);
-      this.peers.delete(peerId);
-    }
+    if (!entry.page) this._dropPeer(entry);
   }
 
   /**
@@ -359,10 +364,7 @@ export class AudioEngine {
     const entry = this.peers.get(peerId);
     if (!entry) return;
     entry.page = false;
-    if (!entry.proximity) {
-      this._closePeer(entry);
-      this.peers.delete(peerId);
-    }
+    if (!entry.proximity) this._dropPeer(entry);
   }
 
   /**
@@ -371,12 +373,9 @@ export class AudioEngine {
    * link survives the move (PROTOCOL.md §"enter_space").
    */
   disconnectAllProximity(): void {
-    for (const [id, entry] of this.peers) {
+    for (const entry of this.peers.values()) {
       entry.proximity = false;
-      if (!entry.page) {
-        this._closePeer(entry);
-        this.peers.delete(id);
-      }
+      if (!entry.page) this._dropPeer(entry);
     }
   }
 
@@ -663,22 +662,19 @@ export class AudioEngine {
     }
 
     if (!this.muted && !this.micAcquired) {
-      const acquisition = this.micAcquirePromise ?? this._acquireMic();
-      this.micAcquirePromise = acquisition;
       try {
-        await acquisition;
+        await this._ensureMic();
       } catch {
         // Mic acquisition failed (denied/no device): revert to muted.
         this.muted = true;
         return this.muted;
-      } finally {
-        if (this.micAcquirePromise === acquisition) this.micAcquirePromise = null;
       }
     }
 
     if (this.localTrack) {
       this.localTrack.enabled = !this.muted;
     }
+    this._updateMicHold();
     return this.muted;
   }
 
@@ -1049,22 +1045,8 @@ export class AudioEngine {
     for (const entry of this.peers.values()) this._closePeer(entry);
     this.peers.clear();
     this.stopMicPreview();
-
-    try {
-      this.localLevelSource?.disconnect();
-    } catch { /* already disconnected */ }
-    try {
-      this.localAnalyser?.disconnect();
-    } catch { /* already disconnected */ }
-    this.localLevelSource = null;
-    this.localAnalyser = null;
-    this.selfLevelValue = 0;
-
-    if (this.localStream) {
-      this.localStream.getTracks().forEach((t) => t.stop());
-      this.localStream = null;
-    }
-    this.localTrack = null;
+    this._cancelMicIdleRelease();
+    this._releaseMic();
     // Cancel before stopping: a capture still in the picker is not in
     // `videoStream` yet, so `_stopVideo` cannot reach it — it must stop itself
     // when it lands, or the OS keeps recording after the user has left.
@@ -1076,7 +1058,6 @@ export class AudioEngine {
     }
     this.audioCtx = null;
 
-    this.micAcquired = false;
     this.micAcquirePromise = null;
     this.muted = true;
     this.space = null;
@@ -1117,6 +1098,7 @@ export class AudioEngine {
       remoteVideoMode: null,
     };
     this.peers.set(peerId, entry);
+    this._updateMicHold();
 
     // Trickle our local ICE candidates to the peer.
     pc.addEventListener("icecandidate", (ev) => {
@@ -1358,12 +1340,7 @@ export class AudioEngine {
    *  and the settings-panel level meter. When muted the track is disabled and
    *  produces silence, so the analyser reads ~0 — exactly what we want. */
   private _tapLocalStream(stream: MediaStream): void {
-    try {
-      this.localLevelSource?.disconnect();
-    } catch { /* already disconnected */ }
-    try {
-      this.localAnalyser?.disconnect();
-    } catch { /* already disconnected */ }
+    this._untapLocalStream();
     const ctx = this._getAudioContext();
     const localSource = ctx.createMediaStreamSource(stream);
     const localAnalyser = ctx.createAnalyser();
@@ -1374,7 +1351,75 @@ export class AudioEngine {
     this.localAnalyser = localAnalyser;
   }
 
-  /** Acquire the local microphone track. Called once on first unmute. */
+  private _untapLocalStream(): void {
+    try {
+      this.localLevelSource?.disconnect();
+    } catch { /* already disconnected */ }
+    try {
+      this.localAnalyser?.disconnect();
+    } catch { /* already disconnected */ }
+    this.localLevelSource = null;
+    this.localAnalyser = null;
+    this.selfLevelValue = 0;
+  }
+
+  /**
+   * Hold the mic only while someone is around to hear it. Called on every
+   * transition (peer added/dropped, mute toggled, acquire landed). With peers
+   * present the track is kept even while muted, so unmuting stays instant.
+   * With no peers left it is kept for MIC_IDLE_RELEASE_MS and then released
+   * so the OS "mic in use" indicator goes off; it comes back on its own when
+   * a peer next appears while unmuted. The unmute gesture itself still
+   * acquires with no peers (`toggleMute`), so the permission prompt is tied
+   * to a click and not to a stranger walking up.
+   */
+  private _updateMicHold(): void {
+    if (this.peers.size > 0) {
+      this._cancelMicIdleRelease();
+      if (!this.muted && !this.micAcquired) {
+        this._ensureMic().catch(() => { /* logged in _acquireMic */ });
+      }
+      return;
+    }
+    if (this.micAcquired && this.micIdleTimer === null) {
+      this.micIdleTimer = setTimeout(() => {
+        this.micIdleTimer = null;
+        if (this.peers.size === 0) this._releaseMic();
+      }, MIC_IDLE_RELEASE_MS);
+    }
+  }
+
+  private _cancelMicIdleRelease(): void {
+    if (this.micIdleTimer === null) return;
+    clearTimeout(this.micIdleTimer);
+    this.micIdleTimer = null;
+  }
+
+  /** Stop the call track and forget it. The next `_ensureMic` re-acquires. */
+  private _releaseMic(): void {
+    this.micEpoch++; // an in-flight device switch for this track is now stale
+    this._untapLocalStream();
+    if (this.localStream) {
+      this.localStream.getTracks().forEach((t) => t.stop());
+      this.localStream = null;
+    }
+    this.localTrack = null;
+    this.micAcquired = false;
+  }
+
+  /** Acquire the mic unless already held or in flight: the unmute gesture and
+   *  the peer-arrival path share one getUserMedia call. */
+  private _ensureMic(): Promise<void> {
+    if (this.micAcquirePromise) return this.micAcquirePromise;
+    const acquisition = this._acquireMic().finally(() => {
+      if (this.micAcquirePromise === acquisition) this.micAcquirePromise = null;
+    });
+    this.micAcquirePromise = acquisition;
+    return acquisition;
+  }
+
+  /** Acquire the local microphone track (first unmute, or a peer appearing
+   *  after an idle release). */
   private async _acquireMic(): Promise<void> {
     const epoch = ++this.micEpoch;
     let stream: MediaStream | null = null;
@@ -1402,6 +1447,7 @@ export class AudioEngine {
           // PC may have closed in the meantime — ignore.
         }
       }
+      this._updateMicHold(); // no peers by now → start the idle release
     } catch (err) {
       if (stream && stream !== this.localStream) {
         stream.getTracks().forEach((track) => track.stop());
@@ -1483,6 +1529,13 @@ export class AudioEngine {
     try {
       entry.pc.close();
     } catch { /* already closed */ }
+  }
+
+  /** Close a peer, forget it, and let the mic go idle if it was the last. */
+  private _dropPeer(entry: PeerConn): void {
+    this._closePeer(entry);
+    this.peers.delete(entry.id);
+    this._updateMicHold();
   }
 }
 

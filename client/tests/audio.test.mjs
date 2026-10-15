@@ -12,7 +12,7 @@
  * and fire the captured `track` listener, exactly as a real RTCPeerConnection
  * would. Run via `npm test`.
  */
-import { test } from "node:test";
+import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { AudioEngine, spatialGain } from "../.test-build/audio.js";
 
@@ -206,7 +206,7 @@ function fakeSender(log) {
 const FakeMic = {
   lastTrack: null,
   getUserMedia() {
-    const track = { kind: "audio", enabled: false, stop() {} };
+    const track = { kind: "audio", enabled: false, stopped: false, stop() { this.stopped = true; } };
     FakeMic.lastTrack = track;
     return Promise.resolve(new FakeMediaStream([track]));
   },
@@ -593,6 +593,7 @@ test("toggleMute acquires the mic and enables the track (the barge-in path)", as
   const muted = await eng.toggleMute();
   assert.equal(muted, false, "first toggle goes live");
   assert.equal(FakeMic.lastTrack?.enabled, true, "the acquired mic track is enabled (voice is live)");
+  eng.destroy(); // cancels the idle-release timer so the test process can exit
 });
 
 test("destroy stops a microphone capture that resolves after teardown", async () => {
@@ -627,6 +628,81 @@ test("superseding microphone acquisition leaves the engine able to retry", async
   navigator.mediaDevices.getUserMedia = FakeMic.getUserMedia;
   assert.equal(await eng.toggleMute(), false, "the next unmute retries acquisition");
   assert.equal(FakeMic.lastTrack?.enabled, true, "the retry acquires a live track");
+  eng.destroy();
+});
+
+/** Matches MIC_IDLE_RELEASE_MS in src/audio.ts. */
+const MIC_IDLE_RELEASE_MS = 20_000;
+
+test("the mic is released once nobody has been around for a while, and comes back with the next peer", async () => {
+  installMocks();
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    const eng = new AudioEngine();
+    eng.init(SPACE, () => {}, () => {});
+    await eng.connect("a", true);
+    await eng.toggleMute();
+    const first = FakeMic.lastTrack;
+    assert.equal(first.enabled, true);
+
+    eng.disconnect("a");
+    mock.timers.tick(MIC_IDLE_RELEASE_MS - 1);
+    assert.equal(first.stopped, false, "kept during the grace period");
+    mock.timers.tick(1);
+    assert.equal(first.stopped, true, "released once the grace period is over");
+    assert.equal(eng.isMuted, false, "the user is still logically unmuted");
+
+    await eng.connect("b", true);
+    await tick();
+    const second = FakeMic.lastTrack;
+    assert.notEqual(second, first, "a peer appearing re-acquires the mic");
+    assert.equal(second.enabled, true, "and it goes live without another click");
+    assert.equal(second.stopped, false);
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test("a peer leaving and coming back inside the grace period keeps the mic", async () => {
+  installMocks();
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    const eng = new AudioEngine();
+    eng.init(SPACE, () => {}, () => {});
+    await eng.connect("a", true);
+    await eng.toggleMute();
+    const track = FakeMic.lastTrack;
+
+    eng.disconnect("a");
+    mock.timers.tick(MIC_IDLE_RELEASE_MS / 2);
+    await eng.connect("a", true);
+    mock.timers.tick(MIC_IDLE_RELEASE_MS);
+    assert.equal(track.stopped, false, "the pending release was cancelled");
+    assert.equal(FakeMic.lastTrack, track, "no re-acquire happened");
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test("muting with nobody around also lets the mic go, and unmuting re-acquires it", async () => {
+  installMocks();
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    const eng = new AudioEngine();
+    eng.init(SPACE, () => {}, () => {});
+    await eng.toggleMute();
+    const first = FakeMic.lastTrack;
+    await eng.toggleMute();
+    assert.equal(eng.isMuted, true);
+    mock.timers.tick(MIC_IDLE_RELEASE_MS);
+    assert.equal(first.stopped, true, "released: nobody can hear it and it is muted");
+
+    assert.equal(await eng.toggleMute(), false);
+    assert.notEqual(FakeMic.lastTrack, first, "unmuting acquires a fresh track");
+    assert.equal(FakeMic.lastTrack.enabled, true);
+  } finally {
+    mock.timers.reset();
+  }
 });
 
 /** Let queued microtasks (the sender update chain) run. */
