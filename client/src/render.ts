@@ -169,8 +169,8 @@ interface RenderPeer extends Peer {
 type Side = "top" | "bottom" | "left" | "right";
 
 type FloorItem =
-  | { kind: "rug"; x: number; y: number; w: number; h: number; color: string; label?: string }
-  | { kind: "rugRound"; x: number; y: number; r: number; color: string; label?: string }
+  | { kind: "rug"; x: number; y: number; w: number; h: number; color: string }
+  | { kind: "rugRound"; x: number; y: number; r: number; color: string }
   | {
       kind: "table";
       x: number;
@@ -189,7 +189,7 @@ type FloorItem =
   | { kind: "couch"; x: number; y: number; w: number; h: number; back: Side }
   | { kind: "plant"; x: number; y: number; r: number; variant: "bush" | "palm" }
   /** A walled room: glass partitions on the server's rectangle. */
-  | { kind: "room"; x: number; y: number; w: number; h: number; label: string }
+  | { kind: "room"; x: number; y: number; w: number; h: number }
   /** Props that sit on a surface at height `z` and catch the light. */
   | { kind: "monitor"; x: number; y: number; w: number; z: number }
   | { kind: "mug"; x: number; y: number; r: number; z: number }
@@ -266,8 +266,6 @@ const SEAT_SIT_SCALE = 0.9;
 const FONT_FAMILY = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 /** Name-chip text size at scale=1; multiply by scale when setting ctx.font. */
 const FONT_LABEL_PX = 12.5;
-/** Zone signage text size at scale=1. */
-const FONT_ZONE_PX = 12;
 
 // The room's shell, world units.
 const WALL_H = 150; // far walls
@@ -335,8 +333,6 @@ const RUG_MEET = "#b8c8d2"; // slate — the team meeting room's rug
 const RUG_LOUNGE = "#bfcbae"; // sage
 const RUG_CAFE = "#e2c893"; // straw
 const RUG_COMMONS = "#d7c2a4"; // jute
-
-const ZONE_INK = "rgba(70,52,34,0.6)";
 
 // Glass partitions.
 const GLASS_H = 112;
@@ -1534,7 +1530,7 @@ function pushStool(
  * with six chairs under a pendant, sized so the ring clears the glass.
  */
 function pushMeetingRoom(items: FloorItem[], seats: Seat[], room: Rect, stoolR: number): void {
-  items.push({ kind: "room", x: room.x, y: room.y, w: room.w, h: room.h, label: "Meeting" });
+  items.push({ kind: "room", x: room.x, y: room.y, w: room.w, h: room.h });
   const cx = room.x + room.w / 2;
   const cy = room.y + room.h / 2;
   const tr = Math.min(room.w, room.h) * 0.22;
@@ -1550,7 +1546,7 @@ function pushMeetingRoom(items: FloorItem[], seats: Seat[], room: Rect, stoolR: 
   });
   items.push({ kind: "pendant", x: cx, y: cy, r: tr * 1.9 });
   const ring = tr + stoolR * 1.5;
-  // Ring starts at 3 o'clock so no chair sits under the signage at the top.
+  // Ring starts at 3 o'clock so the chairs sit clear of the far glass.
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2;
     pushStool(items, seats, cx + Math.cos(a) * ring, cy + Math.sin(a) * ring, stoolR, a);
@@ -1584,7 +1580,7 @@ function buildLobbyFloor(space: SpaceDescriptor): FloorPlan {
   const sr = STOOL_R * W;
 
   // --- Focus desks (far corner): a row of desks with chairs ---
-  items.push({ kind: "rug", x: 0.05 * W, y: 0.06 * H, w: 0.36 * W, h: 0.32 * H, color: RUG_FOCUS, label: "Focus" });
+  items.push({ kind: "rug", x: 0.05 * W, y: 0.06 * H, w: 0.36 * W, h: 0.32 * H, color: RUG_FOCUS });
   for (let i = 0; i < 3; i++) {
     pushDesk(items, seats, (0.1 + i * 0.1) * W, 0.14 * H, 0.085 * W, 0.07 * H, sr, i !== 1);
   }
@@ -1597,7 +1593,7 @@ function buildLobbyFloor(space: SpaceDescriptor): FloorPlan {
   if (space.meetingRoom) pushMeetingRoom(items, seats, space.meetingRoom, sr);
 
   // --- Lounge: couch + coffee table + plant ---
-  items.push({ kind: "rug", x: 0.05 * W, y: 0.6 * H, w: 0.37 * W, h: 0.33 * H, color: RUG_LOUNGE, label: "Lounge" });
+  items.push({ kind: "rug", x: 0.05 * W, y: 0.6 * H, w: 0.37 * W, h: 0.33 * H, color: RUG_LOUNGE });
   items.push({ kind: "couch", x: 0.08 * W, y: 0.66 * H, w: 0.1 * W, h: 0.2 * H, back: "left" });
   // Couch seats (no stool mesh — sit targets along the cushions).
   for (const [sx, sy] of [[0.13, 0.72], [0.13, 0.8], [0.13, 0.88]] as const) {
@@ -1610,7 +1606,7 @@ function buildLobbyFloor(space: SpaceDescriptor): FloorPlan {
   items.push({ kind: "plant", x: 0.37 * W, y: 0.66 * H, r: 0.035 * W, variant: "bush" });
 
   // --- Café: counter + stools + plant ---
-  items.push({ kind: "rug", x: 0.58 * W, y: 0.6 * H, w: 0.37 * W, h: 0.33 * H, color: RUG_CAFE, label: "Café" });
+  items.push({ kind: "rug", x: 0.58 * W, y: 0.6 * H, w: 0.37 * W, h: 0.33 * H, color: RUG_CAFE });
   items.push({ kind: "table", x: 0.62 * W, y: 0.66 * H, w: 0.29 * W, h: 0.065 * H, round: false, tone: "walnut", top: COUNTER_H });
   items.push({ kind: "machine", x: 0.635 * W, y: 0.668 * H, w: 0.035 * W, h: 0.045 * H, z: COUNTER_H });
   for (const mx of [0.72, 0.79, 0.86]) {
@@ -1624,7 +1620,7 @@ function buildLobbyFloor(space: SpaceDescriptor): FloorPlan {
 
   // --- Commons (centre): open gathering circle with a low table ---
   const cr = 0.12 * Math.min(W, H);
-  items.push({ kind: "rugRound", x: 0.5 * W, y: 0.5 * H, r: cr, color: RUG_COMMONS, label: "Commons" });
+  items.push({ kind: "rugRound", x: 0.5 * W, y: 0.5 * H, r: cr, color: RUG_COMMONS });
   items.push({ kind: "table", x: 0.47 * W, y: 0.47 * H, w: 0.06 * W, h: 0.06 * H, round: true, tone: "walnut", top: LOW_TABLE_H });
   items.push({ kind: "plant", x: 0.5 * W, y: 0.5 * H, r: 0.014 * W, variant: "bush" });
   // Soft sit ring around the commons table (no extra stools — keeps the
@@ -2038,23 +2034,7 @@ function paintBackdrop(
   drawVignette(ctx, W, H);
   ctx.restore();
 
-  // Zone signage: billboards along the near edge of each area, where the
-  // furniture (painted later) does not stand.
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  for (const it of plan.items) {
-    if (it.kind === "rug" && it.label) {
-      const p = pt(V, it.x + it.w / 2, it.y + it.h - 12);
-      zoneLabel(ctx, it.label, p.x, p.y, V.scale);
-    } else if (it.kind === "rugRound" && it.label) {
-      const p = pt(V, it.x - it.r * 0.55, it.y - it.r * 0.55);
-      zoneLabel(ctx, it.label, p.x, p.y, V.scale);
-    } else if (it.kind === "room") {
-      // The near corner, clear of the chair ring.
-      const p = pt(V, it.x + it.w - 42, it.y + it.h - 30);
-      zoneLabel(ctx, it.label, p.x, p.y, V.scale);
-    }
-  }
-
   if (grain) {
     ctx.globalAlpha = 0.5;
     ctx.fillStyle = grain;
@@ -2615,9 +2595,6 @@ function drawBoard(
     ctx.fillText(String(count), c.x, c.y + 0.5);
   }
   ctx.restore();
-  // Named like the zones: unlabelled it read as one more frame.
-  const lp = P(b.x + b.w / 2, BOARD_Z0 - 13);
-  zoneLabel(ctx, "Board", lp.x, lp.y, V.scale);
 }
 
 /** Soft darkening toward the edges of the floor, for depth. Floor transform
@@ -3260,32 +3237,6 @@ function drawGlass(ctx: CanvasRenderingContext2D, V: View, seg: WallSeg, pal: Pa
   ctx.lineWidth = Math.max(1, V.scale * 0.7);
   ctx.stroke();
   isoBox(ctx, V, x, y, w, h, GLASS_H, GLASS_H + 2, rail, shade(rail, 0.85), shade(rail, 0.7));
-}
-
-/** Engraved signage: a small title-case label with a light letter-spacing. */
-function zoneLabel(ctx: CanvasRenderingContext2D, text: string, cx: number, y: number, scale: number): void {
-  ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  const fontPx = Math.max(10, Math.round(FONT_ZONE_PX * scale));
-  ctx.font = `600 ${fontPx}px ${FONT_FAMILY}`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  // Manual letter-spacing for a calm, signage feel (portable across WebViews).
-  const letters = text.split("");
-  const sp = 1.4 * scale;
-  let total = 0;
-  for (const ch of letters) total += ctx.measureText(ch).width + sp;
-  total -= sp;
-  let x = cx - total / 2;
-  for (const ch of letters) {
-    const cw = ctx.measureText(ch).width;
-    ctx.fillStyle = "rgba(255,255,255,0.5)";
-    ctx.fillText(ch, x + cw / 2, y + scale);
-    ctx.fillStyle = ZONE_INK;
-    ctx.fillText(ch, x + cw / 2, y);
-    x += cw + sp;
-  }
-  ctx.restore();
 }
 
 /** Paper grain: a small tile of faint noise, repeated over the scene. */
