@@ -61,6 +61,7 @@ import {
   type TeamLayout,
 } from "./protocol.js";
 import { boardGeometry, type BoardGeometry } from "./board.js";
+import { lighten, mixHex, mulHex, parseHex, pickInk, shade } from "./color.js";
 
 // ---------------------------------------------------------------------------
 // Per-frame voice levels handed in by main.ts (decoupled from the audio engine)
@@ -3309,55 +3310,6 @@ function hash01(n: number): number {
   let x = (n | 0) * 374761393 + 668265263;
   x = (x ^ (x >>> 13)) * 1274126177;
   return ((x ^ (x >>> 16)) >>> 0) / 4294967296;
-}
-
-/** Parse #RRGGBB into [r,g,b]; falls back to a warm clay on malformed input. */
-function parseHex(hex: string): [number, number, number] {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
-  if (!m) return [181, 79, 44];
-  const n = parseInt(m[1], 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-}
-
-function toHex(r: number, g: number, b: number): string {
-  const c = (v: number) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, "0");
-  return `#${c(r)}${c(g)}${c(b)}`;
-}
-
-/** Lighten a color toward white by `amount` (0..1) — for the token highlight. */
-function lighten(hex: string, amount: number): string {
-  const [r, g, b] = parseHex(hex);
-  const k = clamp01(amount);
-  return toHex(r + (255 - r) * k, g + (255 - g) * k, b + (255 - b) * k);
-}
-
-/** Scale a color's channels by `k` (<1 darkens) — for sides and shoulders. */
-function shade(hex: string, k: number): string {
-  const [r, g, b] = parseHex(hex);
-  return toHex(r * k, g * k, b * k);
-}
-
-/** Blend two hex colours in RGB. */
-function mixHex(a: string, b: string, t: number): string {
-  const [ar, ag, ab] = parseHex(a);
-  const [br, bg, bb] = parseHex(b);
-  const k = clamp01(t);
-  return toHex(lerp(ar, br, k), lerp(ag, bg, k), lerp(ab, bb, k));
-}
-
-/** Multiply two colours channel-wise (a tint over a material). */
-function mulHex(a: string, tint: string): string {
-  const [ar, ag, ab] = parseHex(a);
-  const [tr, tg, tb] = parseHex(tint);
-  return toHex((ar * tr) / 255, (ag * tg) / 255, (ab * tb) / 255);
-}
-
-/** Choose black or white ink for legibility on a given background colour. */
-function pickInk(hex: string): string {
-  const [r, g, b] = parseHex(hex);
-  // Relative luminance (sRGB approximation).
-  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  return lum > 0.6 ? "rgba(40,30,18,0.95)" : "rgba(255,255,255,0.96)";
 }
 
 /** Rounded-rect path, manually built for WebView portability. */

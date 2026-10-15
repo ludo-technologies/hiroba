@@ -59,6 +59,7 @@ const EN = {
   changeEmail: "Use a different address",
   fieldName: "Display name",
   namePlaceholder: "Your name",
+  fieldAvatar: "Avatar",
   fieldColor: "Your color",
   // Swatch names — the palette's hex codes are meaningless when read aloud.
   colorClay: "Clay",
@@ -279,6 +280,8 @@ const EN = {
   ariaMembers: "Members",
   ariaStatus: "Your status",
   ariaColor: "Avatar color",
+  ariaAvatarPresets: "Avatar presets",
+  avatarPreset: (n: number) => `Avatar ${n}`,
   avatarUpload: "Upload a profile photo",
   avatarRemove: "Remove photo",
   errAvatar: "Couldn't use that image. Try another file.",
@@ -365,6 +368,7 @@ const JA: typeof EN = {
   changeEmail: "別のアドレスを使う",
   fieldName: "表示名",
   namePlaceholder: "名前",
+  fieldAvatar: "アバター",
   fieldColor: "カラー",
   // Swatch names — 読み上げでは hex 値が意味をなさないため色名で。
   colorClay: "テラコッタ",
@@ -584,6 +588,8 @@ const JA: typeof EN = {
   ariaMembers: "メンバー",
   ariaStatus: "自分のステータス",
   ariaColor: "アバターの色",
+  ariaAvatarPresets: "アバターのプリセット",
+  avatarPreset: (n: number) => `アバター ${n}`,
   avatarUpload: "プロフィール写真をアップロード",
   avatarRemove: "写真を削除",
   errAvatar: "この画像は使用できませんでした。別のファイルをお試しください。",

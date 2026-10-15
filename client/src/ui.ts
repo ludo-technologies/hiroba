@@ -28,6 +28,7 @@ import {
 import { CODE_LENGTH, extractInviteCode, sanitizeCode, type OrgSummary } from "./auth.js";
 import { CustomSelect, type SelectOption } from "./select.js";
 import { bindOverlayDismiss } from "./overlay.js";
+import { AVATAR_MAX_CHARS, AVATAR_PRESETS, encodeAvatar, encodePreset, isPresetId, loadImage, presetSvg } from "./avatars.js";
 
 /** Picker order; the first is the default. */
 const TEAM_LAYOUTS: TeamLayout[] = ["meeting", "desks", "lounge", "cafe"];
@@ -39,6 +40,7 @@ const TEAM_LAYOUTS: TeamLayout[] = ["meeting", "desks", "lounge", "cafe"];
 const LS_NAME = "hiroba_name";
 const LS_COLOR = "hiroba_color";
 const LS_AVATAR = "hiroba_avatar";
+const LS_AVATAR_PRESET = "hiroba_avatar_preset";
 const LS_SERVER = "hiroba_server";
 const LS_TOKEN = "hiroba_token";
 const LS_AUTH = "hiroba_auth_server";
@@ -77,15 +79,6 @@ function persistUrlDeviation(key: string, value: string, defaultValue: string): 
   if (value === defaultValue) localStorage.removeItem(key);
   else localStorage.setItem(key, value);
 }
-
-/** Side length the uploaded avatar is centre-cropped + downscaled to.
- *  256 keeps photos crisp now that floor tokens render at ~240 physical px
- *  in a team space on a hi-DPI display. */
-const AVATAR_SIZE = 256;
-
-/** Client-side cap on the encoded data URL; mirrors the server's 64 KB gate
- *  (state.rs MAX_AVATAR_LEN) so an avatar we accept is never silently dropped. */
-const AVATAR_MAX_CHARS = 64 * 1024;
 
 /** Curated friendly palette offered as one-tap swatches. Each carries a
  *  localized name so a swatch announces "Clay", not "#b54f2c" (the catalog is
@@ -157,6 +150,7 @@ const elAvatar = $<HTMLButtonElement>("avatar-preview");
 const elAvatarInitial = $<HTMLSpanElement>("avatar-initial");
 const elAvatarRemove = $<HTMLButtonElement>("avatar-remove");
 const elAvatarFile = $<HTMLInputElement>("avatar-file");
+const elAvatarPresets = $<HTMLDivElement>("avatar-presets");
 
 const elOrgSetup = $<HTMLDivElement>("org-setup");
 const elOrgSetupName = $<HTMLInputElement>("org-setup-name");
@@ -455,7 +449,8 @@ function reconnectCopy(state: { attempt: number; max: number; offline: boolean }
 export class UIManager {
   private callbacks: UICallbacks;
   private custom = false; // whether the current color came from the custom picker
-  private avatar = ""; // uploaded avatar data URL ("" = none, use initial+color)
+  private avatar = ""; // avatar data URL ("" = none, use initial+color)
+  private preset = ""; // built-in preset id the avatar was rendered from ("" = uploaded/none)
   private onboardTimer = 0;
   private roomHintTimer = 0;
 
@@ -550,6 +545,7 @@ export class UIManager {
     });
 
     this._buildSwatches();
+    this._buildPresets();
     this._restoreFromStorage();
     this._bindForm();
     this._bindServerSettings();
@@ -923,6 +919,7 @@ export class UIManager {
   private _onLocaleChanged(): void {
     this._syncLangSwitch();
     this._syncSwatchLabels();
+    this._syncPresetLabels();
 
     // Invite role select labels.
     const role = this.inviteRoleSelect.value || "member";
@@ -2198,6 +2195,74 @@ export class UIManager {
     elJoinColor.value = color;
     this.custom = custom;
     this._syncSwatchSelection();
+    this._syncPresets();
+    this._refreshAvatar();
+    // The preset wears the colour, so it has to be re-rendered.
+    if (this.preset) void this._renderPreset();
+  }
+
+  // -------------------------------------------------------------------------
+  // Built-in avatar presets
+  // -------------------------------------------------------------------------
+
+  private _buildPresets(): void {
+    for (const { id } of AVATAR_PRESETS) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "swatch swatch-preset";
+      b.dataset.preset = id;
+      b.setAttribute("aria-pressed", "false");
+      b.addEventListener("click", () => this._selectPreset(id));
+      elAvatarPresets.appendChild(b);
+    }
+    this._syncPresetLabels();
+    this._syncPresets();
+  }
+
+  /** (Re-)label the presets in the active language. */
+  private _syncPresetLabels(): void {
+    elAvatarPresets.querySelectorAll<HTMLButtonElement>(".swatch-preset").forEach((b, i) => {
+      const label = t.avatarPreset(i + 1);
+      b.setAttribute("aria-label", label);
+      b.title = label;
+    });
+  }
+
+  /** Tint every tile with the current colour and mark the chosen one. */
+  private _syncPresets(): void {
+    const color = elJoinColor.value;
+    for (const b of elAvatarPresets.querySelectorAll<HTMLButtonElement>(".swatch-preset")) {
+      const id = b.dataset.preset ?? "";
+      b.innerHTML = presetSvg(id, color);
+      b.setAttribute("aria-pressed", id === this.preset ? "true" : "false");
+    }
+  }
+
+  private _selectPreset(id: string): void {
+    this.preset = id;
+    localStorage.setItem(LS_AVATAR_PRESET, id);
+    this._syncPresets();
+    void this._renderPreset();
+  }
+
+  /** Rasterize the chosen preset in the current colour into `this.avatar`.
+   *  A stale render (colour or preset changed meanwhile) is dropped. */
+  private async _renderPreset(): Promise<void> {
+    const id = this.preset;
+    const color = elJoinColor.value;
+    try {
+      const data = await encodePreset(id, color);
+      if (id !== this.preset || color !== elJoinColor.value) return;
+      this._setAvatar(data);
+    } catch {
+      this.showError(t.errAvatar);
+    }
+  }
+
+  private _setAvatar(data: string): void {
+    this.avatar = data;
+    localStorage.setItem(LS_AVATAR, data);
+    elJoinError.setAttribute("hidden", "");
     this._refreshAvatar();
   }
 
@@ -2255,59 +2320,15 @@ export class UIManager {
   // Avatar upload (Slack-style profile photo)
   // -------------------------------------------------------------------------
 
-  /**
-   * Centre-crop + downscale the picked image to a small square data URL.
-   * WebP where the WebView can encode it, else JPEG (Safari/WKWebView's
-   * toDataURL silently ignores unsupported types and returns PNG — the
-   * prefix check catches that). The result is persisted immediately so the
-   * photo survives restarts like the name and color do.
-   */
+  /** Encode the picked image like a preset; a photo replaces any preset. */
   private async _setAvatarFromFile(file: File): Promise<void> {
     const url = URL.createObjectURL(file);
     try {
-      const img = new Image();
-      await new Promise<void>((resolve, reject) => {
-        img.onload = () => resolve();
-        img.onerror = () => reject(new Error("image decode failed"));
-        img.src = url;
-      });
-      const side = Math.min(img.naturalWidth, img.naturalHeight);
-      if (side === 0) throw new Error("empty image");
-      const canvas = document.createElement("canvas");
-      canvas.width = canvas.height = AVATAR_SIZE;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("no 2d context");
-      // Flatten transparency onto white (JPEG has no alpha channel).
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, AVATAR_SIZE, AVATAR_SIZE);
-      // A phone photo down to 256² is a steep downscale; the default resampler
-      // aliases badly, and this runs once per upload so quality is free here.
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = "high";
-      ctx.drawImage(
-        img,
-        (img.naturalWidth - side) / 2,
-        (img.naturalHeight - side) / 2,
-        side,
-        side,
-        0,
-        0,
-        AVATAR_SIZE,
-        AVATAR_SIZE,
-      );
-      // Step quality down until the data URL fits the 64 KB gate — a noisy
-      // photo at 256² can overshoot at the first quality.
-      let data = "";
-      for (const q of [0.85, 0.72, 0.6]) {
-        data = canvas.toDataURL("image/webp", q);
-        if (!data.startsWith("data:image/webp")) data = canvas.toDataURL("image/jpeg", q);
-        if (data.length <= AVATAR_MAX_CHARS) break;
-      }
-      if (data.length > AVATAR_MAX_CHARS) throw new Error("avatar too large");
-      this.avatar = data;
-      localStorage.setItem(LS_AVATAR, data);
-      elJoinError.setAttribute("hidden", "");
-      this._refreshAvatar();
+      const data = encodeAvatar(await loadImage(url));
+      this.preset = "";
+      localStorage.removeItem(LS_AVATAR_PRESET);
+      this._syncPresets();
+      this._setAvatar(data);
     } catch {
       this.showError(t.errAvatar);
     } finally {
@@ -2317,7 +2338,10 @@ export class UIManager {
 
   private _clearAvatar(): void {
     this.avatar = "";
+    this.preset = "";
     localStorage.removeItem(LS_AVATAR);
+    localStorage.removeItem(LS_AVATAR_PRESET);
+    this._syncPresets();
     this._refreshAvatar();
   }
 
@@ -2332,6 +2356,8 @@ export class UIManager {
     if (avatar && avatar.startsWith("data:image/") && avatar.length <= AVATAR_MAX_CHARS) {
       this.avatar = avatar;
     }
+    const preset = localStorage.getItem(LS_AVATAR_PRESET);
+    if (preset && isPresetId(preset)) this.preset = preset;
     const server = localStorage.getItem(LS_SERVER);
     const authServer = localStorage.getItem(LS_AUTH);
     // Under Tauri the session lives in the keychain; purge any token a
@@ -2361,6 +2387,9 @@ export class UIManager {
       }
     }
     this._syncSwatchSelection();
+    this._syncPresets();
+    // Re-render the preset so artwork changes between versions reach peers.
+    if (this.preset) void this._renderPreset();
   }
 
   private _persistToStorage(name: string, color: string, serverUrl: string, token: string): void {
