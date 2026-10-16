@@ -36,7 +36,6 @@ export let locale: Locale = detectLocale();
 
 const EN = {
   // Join card
-  brandTag: "Your team's virtual office",
   signInGoogle: "Sign in with Google",
   signInGithub: "Sign in with GitHub",
   signOutAccount: "Sign out of Hiroba",
@@ -345,7 +344,6 @@ const EN = {
 
 const JA: typeof EN = {
   // Join card
-  brandTag: "チームのバーチャルオフィス",
   signInGoogle: "Google でサインイン",
   signInGithub: "GitHub でサインイン",
   signOutAccount: "Hiroba からサインアウト",

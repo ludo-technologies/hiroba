@@ -222,14 +222,6 @@ body {
   color: var(--ink);
 }
 
-.brand-latin {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 1.4px;
-  text-transform: uppercase;
-  color: var(--accent-lo);
-}
-
 /* --- Identity row: live avatar preview + name --- */
 
 .identity {
