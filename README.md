@@ -153,15 +153,12 @@ or usage is collected, and the server ships no analytics SDK. Self-hosted
 builds can disable the check entirely — see
 [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md#auto-update).
 
-## Code Signing Policy
+## Code Signing
 
-Windows installers are code-signed through [SignPath Foundation](https://signpath.org),
-with free code signing provided by [SignPath.io](https://signpath.io). macOS
-builds are signed and notarized under Ludo Technologies' Apple Developer ID.
-Every release is built by GitHub Actions from the tagged commit; nothing is
-built or signed on a developer's machine. The full policy, including how to
-verify a download and what the app sends over the network, is at
-[hirobaoffice.com/code-signing](https://hirobaoffice.com/code-signing).
+macOS builds are signed and notarized under Ludo Technologies' Apple Developer
+ID. Windows installers are not yet code-signed, so SmartScreen warns on first
+launch. Every release is built by GitHub Actions from the tagged commit;
+nothing is built or signed on a developer's machine.
 
 ## License
 

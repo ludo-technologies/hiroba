@@ -120,9 +120,9 @@ OAuthログイン、招待、課金を含むマネージドホスト版は別途
 
 これ以外のテレメトリはありません。組織、フロア、メンバー、通話、アプリの使用状況は一切収集せず、サーバーにも解析SDKは入っていません。セルフホスト用のビルドでは確認自体を無効にできます。[docs/SELF_HOSTING.md](docs/SELF_HOSTING.md#auto-update)を参照してください。
 
-## コード署名ポリシー
+## コード署名
 
-Windows版インストーラーは[SignPath Foundation](https://signpath.org)の証明書で署名しています（署名は[SignPath.io](https://signpath.io)が無償提供）。macOS版はLudo TechnologiesのApple Developer IDで署名・公証済みです。すべてのリリースはタグ付きコミットからGitHub Actionsでビルドされ、開発者のマシンでビルドや署名を行うことはありません。ダウンロードの検証方法やアプリが通信する相手を含むポリシー全文は[hirobaoffice.com/code-signing](https://hirobaoffice.com/code-signing)（英語）にあります。
+macOS版はLudo TechnologiesのApple Developer IDで署名・公証済みです。Windows版インストーラーはまだコード署名していないため、初回起動時にSmartScreenの警告が出ます。すべてのリリースはタグ付きコミットからGitHub Actionsでビルドされ、開発者のマシンでビルドや署名を行うことはありません。
 
 ## ライセンス
 
