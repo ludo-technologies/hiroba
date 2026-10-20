@@ -95,6 +95,10 @@ class Client {
   ok(postedB?.notes[0].authorName === "Aoi", "…and everyone else in the space, with the author's name");
   ok(postedA?.notes[0].removable && postedB?.notes[0].removable, "without accounts everyone may remove any note");
   ok(!("authorSub" in (postedB?.notes[0] ?? {})), "the author's sub never goes on the wire");
+  ok(postedA?.canReact === false, "without accounts nobody may react");
+  A.clear();
+  A.send({ t: "react", id: postedA.notes[0].id, emoji: "👍" });
+  ok(!!(await A.wait((m) => m.t === "error" && m.code === "forbidden")), "…and a reaction is refused with forbidden");
   A.clear();
   A.send({ t: "post_note", text: "again" });
   ok(!!(await A.wait((m) => m.t === "error" && m.code === "note_rate")), "a second post within the cooldown is refused with note_rate");

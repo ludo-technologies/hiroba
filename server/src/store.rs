@@ -6,15 +6,15 @@
 //!
 //!   - which orgs exist (id + display name),
 //!   - each org's space catalog (`create_space` results would otherwise vanish),
-//!   - each space's chat messages (notes) — the only user-authored content
-//!     the server stores.
+//!   - each space's chat messages (notes) and their reactions — the only
+//!     user-authored content the server stores.
 //!
 //! Members, positions, presence, and proximity are connection-lifetime state by
 //! design and are never written here.
 //!
 //! Bundled SQLite behind a mutex, same as `hiroba-auth`'s store and for the
-//! same reason: writes happen only on org creation, `create_space` and note
-//! changes — rare (notes are rate-limited per member), a row or two,
+//! same reason: writes happen only on org creation, `create_space`, note
+//! changes and reactions — rare (both are rate-limited per member), a row or two,
 //! sub-millisecond — so a pool or async wrapper would be overkill.
 
 use std::path::Path;
@@ -22,7 +22,7 @@ use std::sync::Mutex;
 
 use rusqlite::{params, Connection};
 
-use crate::protocol::{meeting_room_for, SpaceDescriptor, SpaceKind, TeamLayout};
+use crate::protocol::{meeting_room_for, Reaction, SpaceDescriptor, SpaceKind, TeamLayout};
 use crate::state::DEFAULT_COLOR;
 
 /// A message in a space's chat.
@@ -38,6 +38,9 @@ pub struct Note {
     pub text: String,
     /// Unix seconds.
     pub ts: u64,
+    /// Who reacted with what, oldest first: `(reaction, reactor's sub)`, each
+    /// pair at most once.
+    pub reactions: Vec<(Reaction, String)>,
 }
 
 /// Everything needed to rebuild one org's in-memory state at startup.
@@ -108,6 +111,15 @@ impl Store {
                ts          INTEGER NOT NULL,
                PRIMARY KEY (org_id, id),
                FOREIGN KEY (org_id, space_id) REFERENCES spaces(org_id, space_id)
+             );
+             -- A note's reactions go when it does.
+             CREATE TABLE IF NOT EXISTS note_reactions (
+               org_id  TEXT NOT NULL,
+               note_id INTEGER NOT NULL,
+               emoji   TEXT NOT NULL,
+               sub     TEXT NOT NULL,
+               PRIMARY KEY (org_id, note_id, emoji, sub),
+               FOREIGN KEY (org_id, note_id) REFERENCES notes(org_id, id) ON DELETE CASCADE
              );",
         )
         .expect("apply schema");
@@ -167,6 +179,12 @@ impl Store {
                  FROM notes WHERE org_id = ?1 ORDER BY id",
             )
             .expect("prepare notes");
+        let mut reactions_stmt = conn
+            .prepare(
+                "SELECT emoji, sub FROM note_reactions
+                 WHERE org_id = ?1 AND note_id = ?2 ORDER BY rowid",
+            )
+            .expect("prepare reactions");
 
         let orgs: Vec<(String, String, u64)> = orgs_stmt
             .query_map([], |row| {
@@ -209,7 +227,7 @@ impl Store {
                     .expect("query spaces")
                     .collect::<Result<_, _>>()
                     .expect("read space row");
-                let notes = notes_stmt
+                let mut notes: Vec<(String, Note)> = notes_stmt
                     .query_map([&org_id], |row| {
                         Ok((
                             row.get(0)?,
@@ -220,12 +238,27 @@ impl Store {
                                 author_color: row.get(4)?,
                                 text: row.get(5)?,
                                 ts: row.get::<_, i64>(6)? as u64,
+                                reactions: Vec::new(),
                             },
                         ))
                     })
                     .expect("query notes")
                     .collect::<Result<_, _>>()
                     .expect("read note row");
+                for (_, note) in &mut notes {
+                    note.reactions = reactions_stmt
+                        .query_map(params![org_id, note.id as i64], |row| {
+                            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                        })
+                        .expect("query reactions")
+                        .map(|row| {
+                            let (emoji, sub) = row.expect("read reaction row");
+                            let reaction = Reaction::parse(&emoji)
+                                .unwrap_or_else(|| panic!("unknown reaction {emoji:?}"));
+                            (reaction, sub)
+                        })
+                        .collect();
+                }
                 OrgCatalog {
                     org_id,
                     org_name,
@@ -324,6 +357,27 @@ impl Store {
             .expect("insert note");
         }
         tx.commit().expect("commit note change");
+    }
+
+    /// Record `sub`'s `reaction` on note `note_id` (`on`), or take it back.
+    pub fn set_reaction(
+        &self,
+        org_id: &str,
+        note_id: u64,
+        reaction: Reaction,
+        sub: &str,
+        on: bool,
+    ) {
+        let sql = if on {
+            "INSERT INTO note_reactions (org_id, note_id, emoji, sub) VALUES (?1, ?2, ?3, ?4)"
+        } else {
+            "DELETE FROM note_reactions WHERE org_id = ?1 AND note_id = ?2 AND emoji = ?3 AND sub = ?4"
+        };
+        self.conn
+            .lock()
+            .expect("db lock")
+            .execute(sql, params![org_id, note_id as i64, reaction.as_str(), sub])
+            .expect("set reaction");
     }
 }
 
@@ -459,6 +513,7 @@ mod tests {
             author_color: "#7ac77a".to_string(),
             text: text.to_string(),
             ts: 1_700_000_000,
+            reactions: Vec::new(),
         }
     }
 
@@ -487,6 +542,45 @@ mod tests {
             .map(|(_, n)| n.id)
             .collect();
         assert_eq!(ids, [2, 3]);
+    }
+
+    #[test]
+    fn reactions_round_trip_and_go_with_their_note() {
+        let store = Store::open_in_memory();
+        store.upsert_org("acme", "Acme");
+        store.insert_space("acme", &SpaceDescriptor::lobby(), 0, 1);
+        store.apply_note_change("acme", &[], Some(("lobby", &note(1, "first"))));
+        store.apply_note_change("acme", &[], Some(("lobby", &note(2, "second"))));
+        store.set_reaction("acme", 1, Reaction::Tada, "u2", true);
+        store.set_reaction("acme", 1, Reaction::ThumbsUp, "u1", true);
+        store.set_reaction("acme", 1, Reaction::ThumbsUp, "u2", true);
+        store.set_reaction("acme", 1, Reaction::Tada, "u2", false);
+        store.set_reaction("acme", 2, Reaction::Heart, "u1", true);
+
+        let notes = store.load_all().remove(0).notes;
+        assert_eq!(
+            notes[0].1.reactions,
+            [
+                (Reaction::ThumbsUp, "u1".to_string()),
+                (Reaction::ThumbsUp, "u2".to_string()),
+            ]
+        );
+
+        store.apply_note_change("acme", &[1], None);
+        let notes = store.load_all().remove(0).notes;
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].1.reactions, [(Reaction::Heart, "u1".to_string())]);
+        let orphans: i64 = store
+            .conn
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT COUNT(*) FROM note_reactions WHERE note_id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(orphans, 0);
     }
 
     #[test]

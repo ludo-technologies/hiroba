@@ -20,8 +20,8 @@ use tokio::sync::{mpsc, Mutex};
 
 use crate::auth::Role;
 use crate::protocol::{
-    NoteInfo, OrgInfo, PeerInfo, PeerPos, Rect, RosterMember, ServerMsg, SpaceDescriptor, Status,
-    TeamLayout,
+    NoteInfo, OrgInfo, PeerInfo, PeerPos, Reaction, ReactionInfo, Rect, RosterMember, ServerMsg,
+    SpaceDescriptor, Status, TeamLayout,
 };
 use crate::store::{Note, OrgCatalog, Store};
 
@@ -40,6 +40,11 @@ pub const MAX_NOTE_CHARS: usize = 500;
 /// Minimum gap between one member's posts. Every post is a DB write plus a
 /// space-wide broadcast; a second between them is chat pace, not flood pace.
 pub const NOTE_COOLDOWN: Duration = Duration::from_secs(1);
+
+/// Minimum gap between one member's reactions. Each is a DB write and a
+/// space-wide resend of the whole chat, like a post; shorter than a post's so
+/// taking back a mis-tap right away goes through.
+pub const REACTION_COOLDOWN: Duration = Duration::from_millis(500);
 
 /// Avatar colour used when a client supplies none, or one that fails
 /// validation. Also what a note stored before notes carried a colour shows.
@@ -137,6 +142,8 @@ pub struct Member {
     pub role: Role,
     /// When this member last posted a note ([`NOTE_COOLDOWN`]).
     pub last_note_at: Option<Instant>,
+    /// When this member last reacted ([`REACTION_COOLDOWN`]).
+    pub last_reaction_at: Option<Instant>,
     /// When this member connected — the stay length on leave.
     pub joined_at: Instant,
     /// The most *other* members in the org at once while this member was
@@ -387,11 +394,24 @@ impl OrgInner {
                 ts: n.ts,
                 mine: is_author(member, n),
                 removable: can_remove(member, n),
+                reactions: Reaction::ALL
+                    .into_iter()
+                    .filter_map(|r| {
+                        let mut by = n.reactions.iter().filter(|(e, _)| *e == r);
+                        let count = by.clone().count();
+                        (count > 0).then(|| ReactionInfo {
+                            emoji: r,
+                            count,
+                            mine: by.any(|(_, s)| member.sub.as_ref() == Some(s)),
+                        })
+                    })
+                    .collect(),
             })
             .collect();
         ServerMsg::Notes {
             space_id: member.space_id.clone(),
             notes,
+            can_react: member.sub.is_some(),
         }
     }
 
@@ -464,7 +484,7 @@ pub enum CreateSpaceOutcome {
     Duplicate(String),
 }
 
-/// Why a `post_note` / `remove_note` was refused.
+/// Why a `post_note` / `remove_note` / `react` was refused.
 #[derive(Debug, PartialEq)]
 pub enum NoteError {
     /// Nothing left of the text after sanitising.
@@ -473,6 +493,10 @@ pub enum NoteError {
     RateLimited,
     /// Neither the note's author nor an admin.
     Forbidden,
+    /// No `sub` to hold a reaction (a server without accounts).
+    Anonymous,
+    /// Reacted again within [`REACTION_COOLDOWN`].
+    ReactionRateLimited,
 }
 
 /// Outcome of a `page` request.
@@ -671,6 +695,7 @@ impl Org {
             sub,
             role,
             last_note_at: None,
+            last_reaction_at: None,
             joined_at: Instant::now(),
             peers_max: others,
             space_id: space_id.clone(),
@@ -1066,6 +1091,7 @@ impl Org {
                 .duration_since(UNIX_EPOCH)
                 .expect("clock after 1970")
                 .as_secs(),
+            reactions: Vec::new(),
         };
 
         let board = &guard.spaces[&space_id].notes;
@@ -1114,6 +1140,54 @@ impl Org {
             .unwrap()
             .notes
             .retain(|n| n.id != note_id);
+        guard.broadcast_notes(&space_id);
+        Ok(())
+    }
+
+    /// Toggle `id`'s `reaction` on note `note_id` in their current space. A
+    /// note that is already gone is not an error, as in [`Org::remove_note`].
+    pub async fn react(&self, id: &str, note_id: u64, reaction: Reaction) -> Result<(), NoteError> {
+        let mut guard = self.inner.lock().await;
+        let Some(member) = guard.members.get(id) else {
+            return Ok(()); // already gone
+        };
+        let Some(sub) = member.sub.clone() else {
+            return Err(NoteError::Anonymous);
+        };
+        if member
+            .last_reaction_at
+            .is_some_and(|at| at.elapsed() < REACTION_COOLDOWN)
+        {
+            return Err(NoteError::ReactionRateLimited);
+        }
+        let space_id = member.space_id.clone();
+        let Some(note) = guard.spaces[&space_id]
+            .notes
+            .iter()
+            .find(|n| n.id == note_id)
+        else {
+            let _ = member.tx.try_send(guard.notes_msg_for(member));
+            return Ok(());
+        };
+        let entry = (reaction, sub);
+        let on = !note.reactions.contains(&entry);
+        if let Some(s) = &self.store {
+            s.set_reaction(&self.id, note_id, reaction, &entry.1, on);
+        }
+        let note = guard
+            .spaces
+            .get_mut(&space_id)
+            .unwrap()
+            .notes
+            .iter_mut()
+            .find(|n| n.id == note_id)
+            .unwrap();
+        if on {
+            note.reactions.push(entry);
+        } else {
+            note.reactions.retain(|r| *r != entry);
+        }
+        guard.members.get_mut(id).unwrap().last_reaction_at = Some(Instant::now());
         guard.broadcast_notes(&space_id);
         Ok(())
     }
@@ -1517,6 +1591,7 @@ mod tests {
                     sub: None,
                     role: Role::Member,
                     last_note_at: None,
+                    last_reaction_at: None,
                     joined_at: Instant::now(),
                     peers_max: 0,
                     space_id: desc.id.clone(),
@@ -1741,6 +1816,103 @@ mod tests {
             org.post_note(&a.id, "two").await,
             Err(NoteError::RateLimited)
         );
+    }
+
+    /// React as if the member's cooldown had already passed.
+    async fn react(org: &Org, conn: &Conn, note_id: u64, reaction: Reaction) {
+        org.inner
+            .lock()
+            .await
+            .members
+            .get_mut(&conn.id)
+            .unwrap()
+            .last_reaction_at = None;
+        org.react(&conn.id, note_id, reaction).await.unwrap();
+    }
+
+    /// `(emoji, count, mine)` per reaction on the first note of `conn`'s board.
+    fn reactions(conn: &mut Conn) -> Vec<(Reaction, usize, bool)> {
+        conn.board()[0]
+            .reactions
+            .iter()
+            .map(|r| (r.emoji, r.count, r.mine))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn a_reaction_toggles_and_is_counted_per_emoji() {
+        let org = Org::new("o", "O", None);
+        let mut a = connect(&org, "A", Some("a"), Role::Member).await;
+        let mut b = connect(&org, "B", Some("b"), Role::Member).await;
+        post(&org, &a, "lunch?").await;
+        let id = a.board()[0].id;
+
+        react(&org, &b, id, Reaction::Heart).await;
+        react(&org, &a, id, Reaction::ThumbsUp).await;
+        react(&org, &b, id, Reaction::ThumbsUp).await;
+        // In the fixed order, not the order they came in.
+        assert_eq!(
+            reactions(&mut a),
+            [(Reaction::ThumbsUp, 2, true), (Reaction::Heart, 1, false)]
+        );
+        assert_eq!(
+            reactions(&mut b),
+            [(Reaction::ThumbsUp, 2, true), (Reaction::Heart, 1, true)]
+        );
+
+        react(&org, &a, id, Reaction::ThumbsUp).await;
+        react(&org, &b, id, Reaction::Heart).await;
+        assert_eq!(reactions(&mut a), [(Reaction::ThumbsUp, 1, false)]);
+    }
+
+    #[tokio::test]
+    async fn reacting_needs_a_sub() {
+        let org = Org::new("o", "O", None);
+        let mut a = connect(&org, "A", None, Role::Admin).await;
+        post(&org, &a, "anonymous").await;
+        let mut can_react = None;
+        while let Ok(msg) = a.rx.try_recv() {
+            if let ServerMsg::Notes { can_react: c, .. } = msg {
+                can_react = Some(c);
+            }
+        }
+        assert_eq!(can_react, Some(false));
+        assert_eq!(
+            org.react(&a.id, 1, Reaction::ThumbsUp).await,
+            Err(NoteError::Anonymous)
+        );
+    }
+
+    #[tokio::test]
+    async fn reactions_are_rate_limited_and_a_gone_note_resyncs() {
+        let org = Org::new("o", "O", None);
+        let mut a = connect(&org, "A", Some("a"), Role::Member).await;
+        post(&org, &a, "hi").await;
+        let id = a.board()[0].id;
+        assert_eq!(org.react(&a.id, id, Reaction::Eyes).await, Ok(()));
+        assert_eq!(
+            org.react(&a.id, id, Reaction::Eyes).await,
+            Err(NoteError::ReactionRateLimited)
+        );
+
+        org.remove_note(&a.id, id).await.unwrap();
+        react(&org, &a, id, Reaction::Eyes).await;
+        assert!(a.board().is_empty());
+    }
+
+    #[tokio::test]
+    async fn reactions_survive_a_restart() {
+        let store = Arc::new(Store::open_in_memory());
+        let org = Org::new("o", "O", Some(store.clone()));
+        let mut a = connect(&org, "A", Some("a"), Role::Member).await;
+        post(&org, &a, "keep me").await;
+        let id = a.board()[0].id;
+        react(&org, &a, id, Reaction::Tada).await;
+
+        let org = Org::from_catalog(store.load_all().remove(0), Some(store));
+        let mut a = connect(&org, "A", Some("a"), Role::Member).await;
+        org.send_notes(&a.id).await;
+        assert_eq!(reactions(&mut a), [(Reaction::Tada, 1, true)]);
     }
 
     #[tokio::test]

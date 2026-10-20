@@ -204,6 +204,61 @@ pub struct PeerPos {
     pub y: f64,
 }
 
+/// What a chat message can be reacted with: a fixed set, so the server never
+/// has to judge what counts as one emoji. Anything else fails to parse.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Reaction {
+    #[serde(rename = "\u{1f44d}")]
+    ThumbsUp,
+    #[serde(rename = "\u{2764}\u{fe0f}")]
+    Heart,
+    #[serde(rename = "\u{1f602}")]
+    Joy,
+    #[serde(rename = "\u{1f389}")]
+    Tada,
+    #[serde(rename = "\u{1f440}")]
+    Eyes,
+    #[serde(rename = "\u{1f64f}")]
+    Pray,
+}
+
+impl Reaction {
+    /// The order a message shows its reactions in.
+    pub const ALL: [Self; 6] = [
+        Self::ThumbsUp,
+        Self::Heart,
+        Self::Joy,
+        Self::Tada,
+        Self::Eyes,
+        Self::Pray,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ThumbsUp => "\u{1f44d}",
+            Self::Heart => "\u{2764}\u{fe0f}",
+            Self::Joy => "\u{1f602}",
+            Self::Tada => "\u{1f389}",
+            Self::Eyes => "\u{1f440}",
+            Self::Pray => "\u{1f64f}",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|r| r.as_str() == s)
+    }
+}
+
+/// One emoji's reactions on a message, as seen by one recipient. Like the
+/// author's, the reactors' `sub`s never go on the wire.
+#[derive(Debug, Clone, Serialize)]
+pub struct ReactionInfo {
+    pub emoji: Reaction,
+    pub count: usize,
+    /// The recipient is among them.
+    pub mine: bool,
+}
+
 /// One message in a space's chat, as seen by one recipient. The author's
 /// `sub` never goes on the wire: `mine` says whether it is the recipient's,
 /// and `removable` whether they may delete it (author or admin).
@@ -221,6 +276,8 @@ pub struct NoteInfo {
     /// The recipient wrote it.
     pub mine: bool,
     pub removable: bool,
+    /// In [`Reaction::ALL`] order; an emoji nobody chose is left out.
+    pub reactions: Vec<ReactionInfo>,
 }
 
 /// Roster (org-scoped) member descriptor — the sidebar view. Has `spaceId` +
@@ -319,6 +376,10 @@ pub enum ClientMsg {
 
     /// Delete a message from the current space's chat (author or admin only).
     RemoveNote { id: u64 },
+
+    /// Add the caller's `emoji` to a message in the current space's chat, or
+    /// take it back if already there.
+    React { id: u64, emoji: Reaction },
 
     /// Explicit leave (optional — closing the socket is equivalent).
     Bye,
@@ -427,6 +488,9 @@ pub enum ServerMsg {
         #[serde(rename = "spaceId")]
         space_id: String,
         notes: Vec<NoteInfo>,
+        /// The recipient may react: they have a `sub` to hold a reaction.
+        #[serde(rename = "canReact")]
+        can_react: bool,
     },
 
     /// Echo of a client `ping`.
@@ -434,7 +498,34 @@ pub enum ServerMsg {
 
     /// A request failed. Codes: auth_failed, org_suspended, space_full,
     /// space_limit, space_exists, unknown_space, forbidden, note_empty,
-    /// note_rate. On auth_failed or org_suspended the server closes the socket
+    /// note_rate, reaction_rate. On auth_failed or org_suspended the server closes the socket
     /// after this frame.
     Error { code: String, message: String },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_reaction_is_its_emoji_on_the_wire_and_in_the_db() {
+        for r in Reaction::ALL {
+            assert_eq!(serde_json::to_value(r).unwrap(), r.as_str());
+            assert_eq!(Reaction::parse(r.as_str()), Some(r));
+        }
+        let msg: ClientMsg =
+            serde_json::from_str(r#"{ "t": "react", "id": 1, "emoji": "❤️" }"#).unwrap();
+        assert!(matches!(
+            msg,
+            ClientMsg::React {
+                emoji: Reaction::Heart,
+                ..
+            }
+        ));
+        // The heart without its variation selector is not the heart.
+        assert!(
+            serde_json::from_str::<ClientMsg>(r#"{ "t": "react", "id": 1, "emoji": "❤" }"#)
+                .is_err()
+        );
+    }
 }

@@ -12,7 +12,8 @@
 //   - a token signed with the wrong secret is rejected,
 //   - two tokens for different orgs are isolated (no cross-tenant roster leak),
 //   - the `role` claim governs the chat (a guest's messages stay theirs across
-//     reconnects; admin: removes any), and an unrecognised role fails the token.
+//     reconnects; admin: removes any), and an unrecognised role fails the token,
+//   - reactions toggle per account and are counted per emoji.
 import crypto from "node:crypto";
 
 const URL = process.env.HIROBA_WS || "ws://127.0.0.1:8798/ws";
@@ -144,6 +145,26 @@ class Client {
   ok(seenByAdm?.notes[0].removable === true, "an admin sees every note as removable");
   Adm.send({ t: "remove_note", id: seenByAdm.notes[0].id });
   ok(!!(await M.wait((m) => m.t === "notes" && m.notes.length === 0)), "an admin's removal reaches the space");
+
+  // ── 6) Reactions ────────────────────────────────────────────────────────
+  M.msgs.length = 0; Adm.msgs.length = 0;
+  M.send({ t: "post_note", text: "react to me" });
+  const reactable = await board(Adm, 1);
+  ok(reactable?.canReact === true, "an account may react");
+  const id = reactable?.notes[0].id;
+  const thumbs = (c, count, mine) =>
+    c.wait((m) => m.t === "notes" && !!m.notes[0]?.reactions.some((r) => r.emoji === "👍" && r.count === count && r.mine === mine));
+  M.send({ t: "react", id, emoji: "👍" });
+  ok(!!(await thumbs(Adm, 1, false)), "a reaction reaches the space, counted but not as the viewer's own");
+  ok(!!(await thumbs(M, 1, true)), "…and shows as the reactor's own to them");
+  Adm.send({ t: "react", id, emoji: "👍" });
+  ok(!!(await thumbs(M, 2, true)), "two members' reactions on one emoji add up");
+  M.send({ t: "react", id, emoji: "👍" });
+  ok(!!(await M.wait((m) => m.t === "error" && m.code === "reaction_rate")), "reacting again within the cooldown is refused with reaction_rate");
+  await sleep(600);
+  M.msgs.length = 0;
+  M.send({ t: "react", id, emoji: "👍" });
+  ok(!!(await thumbs(M, 1, false)), "reacting again takes the reaction back");
 
   A.close(); B.close(); C.close(); D.close(); bogus.close(); G.close(); M.close(); Adm.close();
   await sleep(100);

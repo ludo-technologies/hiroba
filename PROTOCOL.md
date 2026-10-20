@@ -202,6 +202,19 @@ Allowed for the message's author (same token `sub`) and for an `admin`; anyone
 else gets `error` code `forbidden`. An `id` that is no longer in the chat is not
 an error: the requester is re-sent `notes`. On success `notes` goes to the space.
 
+### `react` — add or take back a reaction on a message in the current space's chat
+```json
+{ "t": "react", "id": 12, "emoji": "👍" }
+```
+`emoji` is one of `👍` `❤️` `😂` `🎉` `👀` `🙏` (the heart with its U+FE0F); any
+other value makes the message unparseable, so it is ignored. Adds the
+requester's reaction, or removes it if they had already reacted with that
+emoji. Reactions belong to the token `sub`, so a requester without one
+(a server running without accounts) gets `error` code `forbidden`. One
+reaction per member per half second, else `reaction_rate`. An `id` that is no
+longer in the chat is treated as in `remove_note`. On success `notes` goes to
+the space; a message's reactions go when it does.
+
 ### `move` — update own position within the current space (~tickHz, only when moving)
 ```json
 { "t": "move", "x": 812.0, "y": 430.5 }
@@ -351,8 +364,9 @@ Broadcast to the whole org. Clients replace their catalog.
 
 ### `notes` — a space's chat
 ```json
-{ "t": "notes", "spaceId": "lobby", "notes": [
-  { "id": 12, "authorName": "Aoi", "authorColor": "#7ac77a", "text": "Back at 15:00", "ts": 1789651200, "mine": true, "removable": true }
+{ "t": "notes", "spaceId": "lobby", "canReact": true, "notes": [
+  { "id": 12, "authorName": "Aoi", "authorColor": "#7ac77a", "text": "Back at 15:00", "ts": 1789651200, "mine": true, "removable": true,
+    "reactions": [ { "emoji": "👍", "count": 2, "mine": true } ] }
 ] }
 ```
 Always the whole chat, oldest first; clients replace theirs. Sent to a client
@@ -360,7 +374,11 @@ right after `welcome` and after each `space_snapshot`, and to everyone in the
 space whenever the chat changes. `authorColor` is the author's avatar colour
 when they posted. `ts` is Unix seconds. `mine` and `removable` are computed
 per recipient (`mine`: their own message; `removable`: their own, or they are
-an admin) — the author's `sub` never crosses the wire. A client MUST ignore a `notes` whose `spaceId` is not its current
+an admin) — the author's `sub` never crosses the wire. `reactions` lists each
+emoji someone reacted with, in the order `react` lists them, with how many
+and whether the recipient is among them (`mine`); whose they are never
+crosses the wire either. `canReact` says whether the recipient may `react`
+(they have a `sub`). Servers from before reactions send neither field. A client MUST ignore a `notes` whose `spaceId` is not its current
 space, and a client that never receives one shows no chat.
 
 ### `presence` — org roster upsert (a member joined or changed)
@@ -489,7 +507,8 @@ Tear down the page link to `from`, or dismiss a pending `page_offer` from
 { "t": "error", "code": "space_full", "message": "Team is full (5/5)." }
 ```
 Codes: `auth_failed`, `org_suspended`, `space_full`, `space_limit`,
-`space_exists`, `unknown_space`, `forbidden`, `note_empty`, `note_rate`. On
+`space_exists`, `unknown_space`, `forbidden`, `note_empty`, `note_rate`,
+`reaction_rate`. On
 `auth_failed` or `org_suspended`, the server
 closes the socket after sending this frame.
 
@@ -575,6 +594,7 @@ client                         server
   |  ◀── notes{...}                |  (the new space's chat)
   |                                |
   |  ── post_note / remove_note ─▶ |
+  |  ── react ───────────────────▶ |
   |  ◀── notes{...}                |  (to everyone in the space)
   |                                |
   |  ── page{to} ────────────────▶ |  (DND/offline → page_rejected)

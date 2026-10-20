@@ -246,6 +246,11 @@ pub async fn handle_ws(
                         let _ = tx.send(note_error(e)).await;
                     }
                 }
+                Ok(ClientMsg::React { id, emoji }) => {
+                    if let Err(e) = org.react(&pid, id, emoji).await {
+                        let _ = tx.send(note_error(e)).await;
+                    }
+                }
                 Ok(ClientMsg::Page { to }) => {
                     if let PageOutcome::Rejected(reason) = org.page(&pid, &to).await {
                         let _ = tx
@@ -311,6 +316,14 @@ fn note_error(e: NoteError) -> ServerMsg {
         NoteError::Forbidden => (
             "forbidden",
             "Only its author or an admin can remove a note.".to_string(),
+        ),
+        NoteError::Anonymous => (
+            "forbidden",
+            "Reacting needs an account; this server runs without them.".to_string(),
+        ),
+        NoteError::ReactionRateLimited => (
+            "reaction_rate",
+            "Wait a moment between reactions.".to_string(),
         ),
     };
     ServerMsg::Error {
