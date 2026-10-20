@@ -104,11 +104,15 @@ fn sanitize_note(text: &str) -> Option<String> {
     (!text.is_empty()).then(|| text.to_string())
 }
 
+/// Did `member` write `note`? A note without a `sub` has no author to match.
+fn is_author(member: &Member, note: &Note) -> bool {
+    note.author_sub.is_some() && note.author_sub == member.sub
+}
+
 /// May `member` take `note` down? Its author or an admin. The one rule behind
-/// both `NoteInfo.removable` and `remove_note`. A note without a `sub` has no
-/// author to match, so only an admin can remove it.
+/// both `NoteInfo.removable` and `remove_note`.
 fn can_remove(member: &Member, note: &Note) -> bool {
-    member.role == Role::Admin || (note.author_sub.is_some() && note.author_sub == member.sub)
+    member.role == Role::Admin || is_author(member, note)
 }
 
 // ---------------------------------------------------------------------------
@@ -381,6 +385,7 @@ impl OrgInner {
                 author_color: n.author_color.clone(),
                 text: n.text.clone(),
                 ts: n.ts,
+                mine: is_author(member, n),
                 removable: can_remove(member, n),
             })
             .collect();

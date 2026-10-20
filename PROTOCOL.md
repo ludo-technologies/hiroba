@@ -352,15 +352,15 @@ Broadcast to the whole org. Clients replace their catalog.
 ### `notes` — a space's chat
 ```json
 { "t": "notes", "spaceId": "lobby", "notes": [
-  { "id": 12, "authorName": "Aoi", "authorColor": "#7ac77a", "text": "Back at 15:00", "ts": 1789651200, "removable": true }
+  { "id": 12, "authorName": "Aoi", "authorColor": "#7ac77a", "text": "Back at 15:00", "ts": 1789651200, "mine": true, "removable": true }
 ] }
 ```
 Always the whole chat, oldest first; clients replace theirs. Sent to a client
 right after `welcome` and after each `space_snapshot`, and to everyone in the
 space whenever the chat changes. `authorColor` is the author's avatar colour
-when they posted. `ts` is Unix seconds. `removable` is computed per recipient
-(their own message, or they are an admin) — the author's `sub` never crosses
-the wire. A client MUST ignore a `notes` whose `spaceId` is not its current
+when they posted. `ts` is Unix seconds. `mine` and `removable` are computed
+per recipient (`mine`: their own message; `removable`: their own, or they are
+an admin) — the author's `sub` never crosses the wire. A client MUST ignore a `notes` whose `spaceId` is not its current
 space, and a client that never receives one shows no chat.
 
 ### `presence` — org roster upsert (a member joined or changed)

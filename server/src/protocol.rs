@@ -204,9 +204,9 @@ pub struct PeerPos {
     pub y: f64,
 }
 
-/// One message in a space's chat, as seen by one recipient. The
-/// author's `sub` never goes on the wire; `removable` is the server's answer
-/// to "may *you* take this down" (author or admin).
+/// One message in a space's chat, as seen by one recipient. The author's
+/// `sub` never goes on the wire: `mine` says whether it is the recipient's,
+/// and `removable` whether they may delete it (author or admin).
 #[derive(Debug, Clone, Serialize)]
 pub struct NoteInfo {
     pub id: u64,
@@ -218,6 +218,8 @@ pub struct NoteInfo {
     pub text: String,
     /// Unix seconds, server clock.
     pub ts: u64,
+    /// The recipient wrote it.
+    pub mine: bool,
     pub removable: bool,
 }
 
