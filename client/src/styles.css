@@ -667,6 +667,8 @@ body {
 
 .onboard-row {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   align-items: center;
   gap: 9px;
 }
@@ -1843,9 +1845,13 @@ a.hud-pill {
   left: calc(var(--rail) + 24px);
 }
 
-/* Centre the first-run hint over the office area, not the whole window. */
+/* Centre the first-run hint over the office area, not the whole window.
+ * With `left` at the centre, shrink-to-fit would cap the hint at half the
+ * office and squeeze longer languages, so it sizes to its content instead. */
 .onboard {
   left: calc(var(--rail) + (100% - var(--rail)) / 2);
+  width: max-content;
+  max-width: calc(100% - var(--rail) - 48px);
 }
 
 /* ---------------------------------------------------------------------------
