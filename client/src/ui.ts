@@ -16,7 +16,6 @@
 
 import type { NoteInfo, SpaceDescriptor, TeamLayout } from "./protocol.js";
 import { paintLayoutPreview } from "./render.js";
-import { BOARD_MAX_NOTES } from "./board.js";
 import {
   applyStaticI18n,
   locale,
@@ -196,11 +195,14 @@ const elInviteResultCode = $<HTMLDivElement>("invite-result-code");
 const elInviteCopyLink = $<HTMLButtonElement>("invite-copy-link");
 const elInviteCopyCode = $<HTMLButtonElement>("invite-copy-code");
 const elInviteList = $<HTMLUListElement>("invite-list");
-const elBoardPanel = $<HTMLElement>("board-panel");
-const elBoardCount = $<HTMLSpanElement>("board-count");
-const elBoardNotes = $<HTMLUListElement>("board-notes");
-const elBoardForm = $<HTMLFormElement>("board-form");
-const elBoardInput = $<HTMLInputElement>("board-input");
+const elChatPanel = $<HTMLElement>("chat-panel");
+const elChatSpace = $<HTMLSpanElement>("chat-space");
+const elChatClose = $<HTMLButtonElement>("chat-close");
+const elChatLog = $<HTMLOListElement>("chat-log");
+const elChatForm = $<HTMLFormElement>("chat-form");
+const elChatInput = $<HTMLInputElement>("chat-input");
+const elChatToggle = $<HTMLButtonElement>("chat-toggle");
+const elChatUnread = $<HTMLSpanElement>("chat-unread");
 const elInvitePanelError = $<HTMLParagraphElement>("invite-panel-error");
 
 const elScreenPerm = $<HTMLDivElement>("screen-perm");
@@ -382,10 +384,12 @@ export interface UICallbacks {
   onEnterSpace(spaceId: string): void;
   /** Create a new team space with the given name and layout (FR-14). */
   onCreateSpace(name: string, layout: TeamLayout): void;
-  /** Pin a note to the current space's bulletin board. */
+  /** Post a message to the current space's chat. */
   onPostNote(text: string): void;
-  /** Take a note off the board. */
+  /** Delete a message from the chat. */
   onRemoveNote(id: number): void;
+  /** The HUD chat button or the panel's close button: open / close the chat. */
+  onSetChatOpen(open: boolean): void;
   /** Start a page (cross-space 1:1) with a roster member (FR-10). */
   onPage(memberId: string): void;
   /** Accept an incoming page offer. */
@@ -437,6 +441,27 @@ export interface RosterEntry {
 
 /** The reconnect overlay's message, derived so `showReconnecting` and the
  *  locale re-render can't drift apart. */
+/** Messages by one author closer together than this share a header. */
+const CHAT_RUN_GAP_S = 5 * 60;
+
+/** Local calendar day of a Unix-seconds timestamp, for grouping. */
+function dayKey(ts: number): string {
+  const d = new Date(ts * 1000);
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+/** "Today", "Yesterday", or the date, for a day divider. */
+function dayLabel(ts: number): string {
+  const now = Date.now() / 1000;
+  if (dayKey(ts) === dayKey(now)) return t.chatToday;
+  if (dayKey(ts) === dayKey(now - 86_400)) return t.chatYesterday;
+  return new Date(ts * 1000).toLocaleDateString(locale, {
+    month: "short",
+    day: "numeric",
+    weekday: "short",
+  });
+}
+
 function reconnectCopy(state: { attempt: number; max: number; offline: boolean }): string {
   if (state.offline) return t.reconnectOffline;
   return state.attempt <= 1 ? t.reconnecting : t.reconnectAttempt(state.attempt, state.max);
@@ -482,9 +507,10 @@ export class UIManager {
   private lastScreenReopenVisible = false;
   private lastInvites: InviteEntry[] | null = null;
   private lastNotes: NoteInfo[] = [];
+  private lastChatSpace = "";
   /** Cancels an open "+" name input and its layout picker (null when closed). */
   private cancelCreateSpace: (() => void) | null = null;
-  /** The note last sent, to put back in the input if the server refuses it. */
+  /** The message last sent, to put back in the input if the server refuses it. */
   private sentNote = "";
   private lastMembers: MemberEntry[] | null = null;
   private lastReconnect: { attempt: number; max: number; offline: boolean } | null = null;
@@ -973,7 +999,7 @@ export class UIManager {
     if (this.lastMembers && !elMembersPanel.hasAttribute("hidden")) {
       this.renderMemberList(this.lastMembers);
     }
-    this.renderBoard(this.lastNotes);
+    this.renderChat(this.lastNotes, this.lastChatSpace);
 
     if (this.lastReconnect && !elReconnect.hasAttribute("hidden")) {
       elReconnectMsg.textContent = reconnectCopy(this.lastReconnect);
@@ -2009,65 +2035,127 @@ export class UIManager {
 
   /** Pop a short-lived toast (e.g. "Sora is in do-not-disturb"). */
   // -------------------------------------------------------------------------
-  // Bulletin board
+  // Space chat
   // -------------------------------------------------------------------------
 
-  /** Open / close the board panel (main.ts: we walked up to / away from it). */
-  setBoardVisible(visible: boolean): void {
-    elBoardPanel.hidden = !visible;
-    // A hidden input cannot keep focus; say so explicitly so the movement
-    // keys are ours again the moment the panel closes.
-    if (!visible) elBoardInput.blur();
+  /** Open / close the chat panel. `focus` lands the keyboard in the input
+   *  (opened on purpose from the button); a walk-up open leaves the movement
+   *  keys alone. */
+  setChatVisible(visible: boolean, focus = false): void {
+    elChatPanel.hidden = !visible;
+    elChatToggle.setAttribute("aria-pressed", visible ? "true" : "false");
+    if (visible) {
+      this.scrollChatToEnd();
+      if (focus) elChatInput.focus();
+    } else {
+      // A hidden input cannot keep focus; say so explicitly so the movement
+      // keys are ours again the moment the panel closes.
+      elChatInput.blur();
+    }
   }
 
-  /** The server refused the note: hand it back to fix or re-send, unless
+  /** Unread badge on the HUD chat button (0 hides it). */
+  setChatUnread(count: number): void {
+    elChatUnread.textContent = count > 99 ? "99+" : String(count);
+    elChatUnread.hidden = count === 0;
+  }
+
+  /** The server refused the message: hand it back to fix or re-send, unless
    *  something newer is already being typed. */
-  restoreBoardDraft(): void {
-    if (!elBoardInput.value) elBoardInput.value = this.sentNote;
+  restoreChatDraft(): void {
+    if (!elChatInput.value) elChatInput.value = this.sentNote;
   }
 
-  renderBoard(notes: NoteInfo[]): void {
+  /** The whole chat, oldest first, as a message log: consecutive messages by
+   *  one author within a few minutes share a header, a day change gets a
+   *  divider. Keeps the reader's place unless they were at the end. */
+  renderChat(notes: NoteInfo[], spaceName: string): void {
     this.lastNotes = notes;
-    elBoardCount.textContent = `${notes.length} / ${BOARD_MAX_NOTES}`;
-    elBoardNotes.replaceChildren();
+    this.lastChatSpace = spaceName;
+    elChatSpace.textContent = spaceName;
+    const atEnd = elChatLog.scrollHeight - elChatLog.scrollTop - elChatLog.clientHeight < 48;
+    elChatLog.replaceChildren();
     if (notes.length === 0) {
       const li = document.createElement("li");
-      li.className = "board-empty";
-      li.textContent = t.boardEmpty;
-      elBoardNotes.appendChild(li);
+      li.className = "chat-empty";
+      li.textContent = t.chatEmpty;
+      elChatLog.appendChild(li);
       return;
     }
-    // Newest on top: the list arrives oldest first.
-    for (const note of [...notes].reverse()) {
-      const li = document.createElement("li");
-      li.className = "board-note";
+    let prev: NoteInfo | null = null;
+    for (const note of notes) {
+      const day = dayKey(note.ts);
+      if (!prev || dayKey(prev.ts) !== day) {
+        const li = document.createElement("li");
+        li.className = "chat-day";
+        li.textContent = dayLabel(note.ts);
+        elChatLog.appendChild(li);
+      }
+      const sameRun =
+        prev !== null &&
+        dayKey(prev.ts) === day &&
+        prev.authorName === note.authorName &&
+        prev.authorColor === note.authorColor &&
+        note.ts - prev.ts < CHAT_RUN_GAP_S;
+      elChatLog.appendChild(this.chatMessage(note, !sameRun));
+      prev = note;
+    }
+    if (atEnd) this.scrollChatToEnd();
+  }
 
-      const text = document.createElement("span");
-      text.className = "board-note-text";
-      text.textContent = note.text;
-      li.appendChild(text);
+  private chatMessage(note: NoteInfo, head: boolean): HTMLLIElement {
+    const li = document.createElement("li");
+    li.className = head ? "chat-msg" : "chat-msg is-cont";
+    const when = new Date(note.ts * 1000).toLocaleTimeString(locale, {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+    if (head) {
+      const dot = document.createElement("span");
+      dot.className = "chat-avatar";
+      dot.style.background = note.authorColor;
+      dot.textContent = (note.authorName[0] ?? "?").toUpperCase();
+      li.appendChild(dot);
 
       const meta = document.createElement("span");
-      meta.className = "board-note-meta";
-      const when = new Date(note.ts * 1000).toLocaleString(locale, {
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-      meta.textContent = `${note.authorName} · ${when}`;
+      meta.className = "chat-meta";
+      const name = document.createElement("span");
+      name.className = "chat-name";
+      name.textContent = note.authorName;
+      const time = document.createElement("time");
+      time.className = "chat-time";
+      time.textContent = when;
+      meta.append(name, time);
       li.appendChild(meta);
-
-      if (note.removable) {
-        const remove = document.createElement("button");
-        remove.type = "button";
-        remove.className = "board-note-remove";
-        remove.textContent = t.boardRemove;
-        remove.addEventListener("click", () => this.callbacks.onRemoveNote(note.id));
-        li.appendChild(remove);
-      }
-      elBoardNotes.appendChild(li);
+    } else {
+      // Continuations show their time in the avatar's column on hover.
+      const time = document.createElement("time");
+      time.className = "chat-time chat-time-gutter";
+      time.textContent = when;
+      li.appendChild(time);
     }
+
+    const text = document.createElement("span");
+    text.className = "chat-text";
+    text.textContent = note.text;
+    li.appendChild(text);
+
+    if (note.removable) {
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "chat-delete";
+      remove.title = t.chatDelete;
+      remove.setAttribute("aria-label", t.chatDelete);
+      remove.textContent = "×";
+      remove.addEventListener("click", () => this.callbacks.onRemoveNote(note.id));
+      li.appendChild(remove);
+    }
+    return li;
+  }
+
+  private scrollChatToEnd(): void {
+    elChatLog.scrollTop = elChatLog.scrollHeight;
   }
 
   showToast(message: string, kind: "info" | "error" = "info"): void {
@@ -2415,20 +2503,22 @@ export class UIManager {
     });
     elAvatarRemove.addEventListener("click", () => this._clearAvatar());
 
-    elBoardForm.addEventListener("submit", (e) => {
+    elChatForm.addEventListener("submit", (e) => {
       e.preventDefault();
-      const text = elBoardInput.value.trim();
+      const text = elChatInput.value.trim();
       if (!text) return;
       // Cleared now rather than on the next `notes`: that may be someone
-      // else's change. A refusal reaches only us (restoreBoardDraft).
+      // else's change. A refusal reaches only us (restoreChatDraft).
       this.sentNote = text;
-      elBoardInput.value = "";
+      elChatInput.value = "";
       this.callbacks.onPostNote(text);
     });
     // Escape hands the keyboard back to walking.
-    elBoardInput.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") elBoardInput.blur();
+    elChatInput.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") elChatInput.blur();
     });
+    elChatToggle.addEventListener("click", () => this.callbacks.onSetChatOpen(elChatPanel.hidden));
+    elChatClose.addEventListener("click", () => this.callbacks.onSetChatOpen(false));
 
     elJoinForm.addEventListener("submit", (e) => {
       e.preventDefault();

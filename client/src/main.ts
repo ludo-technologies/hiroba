@@ -95,10 +95,16 @@ interface Session {
   space: SpaceDescriptor;
   /** Full space catalog (drives the tabs). */
   spaces: SpaceDescriptor[];
-  /** The current space's bulletin board; null until the server sends it. */
+  /** The current space's chat; null until the server sends it. */
   notes: NoteInfo[] | null;
-  /** The board panel is open (we are standing by the board). */
-  boardOpen: boolean;
+  /** The chat panel is open. */
+  chatOpen: boolean;
+  /** It opened because we walked up to the board (so walking off closes it). */
+  chatByWalk: boolean;
+  /** We are standing by the board (with hysteresis, see board.ts). */
+  nearBoard: boolean;
+  /** The newest message id seen with the chat open; newer ones are unread. */
+  chatSeenId: number;
 
   /** Org roster, excluding self (drives the sidebar). */
   roster: Map<string, RosterMember>;
@@ -254,6 +260,7 @@ const ui = new UIManager(
     onRevokeInvite: handleRevokeInvite,
     onPostNote: (text) => session?.net.send({ t: "post_note", text }),
     onRemoveNote: (id) => session?.net.send({ t: "remove_note", id }),
+    onSetChatOpen: (open) => setChatOpen(open, false, open),
     onOpenMembersPanel: handleOpenMembersPanel,
     onRemoveMember: handleRemoveMember,
     onOpenBilling: handleOpenBilling,
@@ -380,20 +387,49 @@ function pointToWalk(e: PointerEvent): void {
 let seatClickAnchor: { x: number; y: number } | null = null;
 const SEAT_DRAG_SLOP_PX = 8;
 
+/** Open / close the chat. `byWalk` opens are undone by walking off the
+ *  board; a button open stays until closed on purpose. */
+function setChatOpen(open: boolean, byWalk: boolean, focus = false): void {
+  if (!session) return;
+  session.chatByWalk = open && byWalk;
+  if (open === session.chatOpen) return;
+  session.chatOpen = open;
+  ui.setChatVisible(open, focus);
+  if (open) markChatRead();
+}
+
+/** Everything in the chat so far has been seen: clear the badges. */
+function markChatRead(): void {
+  if (!session?.notes) return;
+  session.chatSeenId = Math.max(session.chatSeenId, ...session.notes.map((n) => n.id));
+  updateChatUnread();
+}
+
+function updateChatUnread(): void {
+  if (!session) return;
+  const unread = session.notes?.filter((n) => n.id > session!.chatSeenId).length ?? 0;
+  renderer.setBoardNotes(session.notes === null ? null : unread);
+  ui.setChatUnread(unread);
+}
+
 /**
- * Open the bulletin board while we stand by it, close it when we walk off.
- * Without a board (`notes` null: between spaces, or a server that has none)
- * it stays closed.
+ * Open the chat when we walk up to the board, close it again when we walk
+ * off — unless it was opened from the button meanwhile. Without a chat
+ * (`notes` null: between spaces, or a server that has none) it stays closed.
  */
 function updateBoardProximity(x: number, y: number): void {
   if (!session) return;
   const board = boardGeometry(session.space);
-  const open =
+  const near =
     session.notes !== null &&
-    boardOpen(session.boardOpen, Math.hypot(x - board.standX, y - board.standY));
-  if (open === session.boardOpen) return;
-  session.boardOpen = open;
-  ui.setBoardVisible(open);
+    boardOpen(session.nearBoard, Math.hypot(x - board.standX, y - board.standY));
+  if (near === session.nearBoard) return;
+  session.nearBoard = near;
+  if (near) {
+    if (!session.chatOpen) setChatOpen(true, true);
+  } else if (session.chatByWalk) {
+    setChatOpen(false, false);
+  }
 }
 
 /** Whether a roster member can be paged (same rules as the sidebar button). */
@@ -1613,7 +1649,10 @@ function initSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[]
     space: msg.space,
     spaces: msg.spaces,
     notes: null,
-    boardOpen: false,
+    chatOpen: false,
+    chatByWalk: false,
+    nearBoard: false,
+    chatSeenId: 0,
     roster,
     offline: new Set(),
     peerPositions,
@@ -1978,8 +2017,9 @@ function bindServerMessages(net: HirobaNet): void {
       muted: session.audio.isMuted,
     };
     renderer.init(space, selfPeer);
-    // The old space's board is gone; the new one follows in its own `notes`.
+    // The old space's chat is gone; the new one follows in its own `notes`.
     session.notes = null;
+    session.nearBoard = false;
     session.input.setSpace(space, you.x, you.y);
 
     session.peerPositions.clear();
@@ -1997,9 +2037,13 @@ function bindServerMessages(net: HirobaNet): void {
   net.on("notes", (e) => {
     // A broadcast from the space we just left can still be in flight.
     if (!session || e.detail.spaceId !== session.spaceId) return;
+    // Arriving in a space, its history is not news; with the chat open,
+    // neither is anything that just came in.
+    const arrived = session.notes === null;
     session.notes = e.detail.notes;
-    renderer.setBoardNotes(session.notes.length);
-    ui.renderBoard(session.notes);
+    if (arrived || session.chatOpen) markChatRead();
+    else updateChatUnread();
+    ui.renderChat(session.notes, spaceName(session.spaceId));
     const { x, y } = session.input.position;
     updateBoardProximity(x, y);
   });
@@ -2104,7 +2148,7 @@ function bindServerMessages(net: HirobaNet): void {
   // --- Errors ---
 
   net.on("error", (e) => {
-    if (e.detail.code === "note_empty" || e.detail.code === "note_rate") ui.restoreBoardDraft();
+    if (e.detail.code === "note_empty" || e.detail.code === "note_rate") ui.restoreChatDraft();
     ui.showToast(e.detail.message, "error");
   });
 }
@@ -2704,7 +2748,8 @@ function teardownSession(): void {
   s.net.close();
 
   canvas.classList.remove("walkable", "can-page", "can-sit", "can-read");
-  ui.setBoardVisible(false);
+  ui.setChatVisible(false);
+  ui.setChatUnread(0);
   renderer.setPageHover(null);
   renderer.reset();
   document.title = "Hiroba";

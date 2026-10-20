@@ -680,7 +680,8 @@ export class Renderer {
     return best ? { x: best.seat.x, y: best.seat.y } : null;
   }
 
-  /** How many notes the board holds, or null for "this space has no board". */
+  /** Unread chat messages, shown as a badge on the board; null for "this
+   *  space has no chat" (the board then is not a place to walk to). */
   setBoardNotes(count: number | null): void {
     this.boardNotes = count;
     this.onWake?.();
@@ -2578,7 +2579,7 @@ function drawBoard(
     ctx.arc(pin.x, pin.y, 1.6 * V.scale, 0, Math.PI * 2);
     ctx.fill();
   }
-  // Note count, as an unread-style badge on the top-right corner.
+  // Unread messages, as a badge on the top-right corner.
   if (count > 0) {
     const c = P(b.x + b.w + 1, BOARD_Z1 + 1);
     const r = 8 * V.scale;

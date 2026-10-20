@@ -1,14 +1,14 @@
 /**
  * The bulletin board: where it hangs in a space, and when walking up to it
- * opens it. Pure geometry — the renderer draws it, main.ts reacts to it.
+ * opens the space's chat. Pure geometry — the renderer draws it, main.ts
+ * reacts to it.
  */
 import type { SpaceDescriptor } from "./protocol.js";
 
-/** Mirrors the server's MAX_NOTE_CHARS / MAX_NOTES_PER_BOARD. */
-export const NOTE_MAX_CHARS = 140;
-export const BOARD_MAX_NOTES = 8;
+/** Mirrors the server's MAX_NOTE_CHARS. */
+export const NOTE_MAX_CHARS = 500;
 
-/** The board opens within OPEN of the stand point and closes past CLOSE
+/** The chat opens within OPEN of the stand point and closes past CLOSE
  *  (world units) — hysteresis, so standing on the edge doesn't flicker it. */
 export const BOARD_OPEN_R = 60;
 export const BOARD_CLOSE_R = 80;

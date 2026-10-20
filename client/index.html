@@ -602,17 +602,31 @@
       </button>
     </div>
 
-    <!-- Bulletin board: opens while you stand by the board in the room -->
-    <section id="board-panel" class="board-panel" hidden aria-labelledby="board-title">
-      <header class="board-head">
-        <h2 id="board-title" data-i18n="boardTitle">Bulletin board</h2>
-        <span id="board-count" class="board-count"></span>
+    <!-- Space chat: docked right. Opens from the HUD button, or by walking
+         up to the board in the room. -->
+    <section id="chat-panel" class="chat-panel" hidden aria-labelledby="chat-title">
+      <header class="chat-head">
+        <h2 id="chat-title" data-i18n="chatTitle">Chat</h2>
+        <span id="chat-space" class="chat-space"></span>
+        <button id="chat-close" type="button" class="chat-close"
+                data-i18n-title="closePanel" data-i18n-arialabel="closePanel">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
       </header>
-      <ul id="board-notes" class="board-notes"></ul>
-      <form id="board-form" class="board-form">
-        <input id="board-input" type="text" maxlength="140" autocomplete="off"
-               data-i18n-placeholder="boardPlaceholder" data-i18n-arialabel="boardPlaceholder" />
-        <button id="board-post" type="submit" data-i18n="boardPost">Pin</button>
+      <ol id="chat-log" class="chat-log"></ol>
+      <form id="chat-form" class="chat-form">
+        <input id="chat-input" type="text" maxlength="500" autocomplete="off"
+               data-i18n-placeholder="chatPlaceholder" data-i18n-arialabel="chatPlaceholder" />
+        <button id="chat-send" type="submit" class="chat-send"
+                data-i18n-title="chatSend" data-i18n-arialabel="chatSend">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 12h15M13 6l6 6-6 6" />
+          </svg>
+        </button>
       </form>
     </section>
 
@@ -661,6 +675,14 @@
           </svg>
         </button>
         <span id="count" class="hud-pill" data-i18n="justYou">Just you</span>
+        <button id="chat-toggle" class="hud-icon-btn chat-toggle" type="button" aria-pressed="false"
+                data-i18n-title="chatTitle" data-i18n-arialabel="chatTitle">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+               stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M20 12a8 8 0 0 1-11.6 7.1L4 20l1.1-3.9A8 8 0 1 1 20 12z" />
+          </svg>
+          <span id="chat-unread" class="chat-unread" hidden></span>
+        </button>
       </div>
       <div class="hud-group">
         <!-- Browser sessions only: the way from "tried it" to "installed it".

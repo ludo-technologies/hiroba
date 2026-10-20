@@ -94,10 +94,12 @@ export interface Peer {
   muted: boolean;
 }
 
-/** One note on a space's bulletin board, as the server shows it to *us*. */
+/** One message in a space's chat, as the server shows it to *us*. */
 export interface NoteInfo {
   id: number;
   authorName: string;
+  /** The author's avatar colour (`#RRGGBB`) when they posted. */
+  authorColor: string;
   text: string;
   /** Unix seconds. */
   ts: number;
@@ -151,13 +153,13 @@ export interface CreateSpaceMsg {
   layout: TeamLayout;
 }
 
-/** Pin a short note to the current space's bulletin board. */
+/** Post a message to the current space's chat. */
 export interface PostNoteMsg {
   t: "post_note";
   text: string;
 }
 
-/** Take a note off the current space's board (author or admin only). */
+/** Delete a message from the current space's chat (author or admin only). */
 export interface RemoveNoteMsg {
   t: "remove_note";
   id: number;
@@ -283,9 +285,9 @@ export interface SpacesMsg {
 }
 
 /**
- * A space's whole bulletin board, oldest first. Follows `welcome` and
- * `space_snapshot`, and is re-sent to the space on every change. A server
- * that never sends it has no boards.
+ * A space's whole chat, oldest first. Follows `welcome` and `space_snapshot`,
+ * and is re-sent to the space on every change. A server that never sends it
+ * has no chat.
  */
 export interface NotesMsg {
   t: "notes";
