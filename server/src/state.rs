@@ -29,20 +29,21 @@ use crate::store::{Note, OrgCatalog, Store};
 /// `create_space` from guests; generous enough for legitimate team use.
 pub const MAX_SPACES_PER_ORG: usize = 64;
 
-/// Notes kept per bulletin board; posting past this takes the oldest down.
-/// The cap is the board's only expiry — it is a wall, not a feed.
-pub const MAX_NOTES_PER_BOARD: usize = 8;
+/// Messages kept per space's chat; posting past this takes the oldest down.
+/// The cap is the chat's only expiry: a room's recent conversation, not an
+/// archive.
+pub const MAX_NOTES_PER_BOARD: usize = 200;
 
-/// Max characters in a note.
-pub const MAX_NOTE_CHARS: usize = 140;
+/// Max characters in a message.
+pub const MAX_NOTE_CHARS: usize = 500;
 
 /// Minimum gap between one member's posts. Every post is a DB write plus a
-/// space-wide broadcast, and a board you can post to at will is a chat.
-pub const NOTE_COOLDOWN: Duration = Duration::from_secs(5);
+/// space-wide broadcast; a second between them is chat pace, not flood pace.
+pub const NOTE_COOLDOWN: Duration = Duration::from_secs(1);
 
 /// Avatar colour used when a client supplies none, or one that fails
-/// validation.
-const DEFAULT_COLOR: &str = "#8a93a6";
+/// validation. Also what a note stored before notes carried a colour shows.
+pub const DEFAULT_COLOR: &str = "#8a93a6";
 
 /// True iff `s` is a strict `#RRGGBB` hex colour (the only shape the client
 /// emits). The colour is relayed verbatim to every other client and rendered
@@ -236,7 +237,7 @@ pub struct SpaceTick {
 struct SpaceState {
     desc: SpaceDescriptor,
     member_ids: HashSet<String>,
-    /// The bulletin board, oldest first.
+    /// The chat, oldest first.
     notes: Vec<Note>,
 }
 
@@ -377,6 +378,7 @@ impl OrgInner {
             .map(|n| NoteInfo {
                 id: n.id,
                 author_name: n.author_name.clone(),
+                author_color: n.author_color.clone(),
                 text: n.text.clone(),
                 ts: n.ts,
                 removable: can_remove(member, n),
@@ -1023,7 +1025,7 @@ impl Org {
     }
 
     // -----------------------------------------------------------------------
-    // Bulletin board (one per space)
+    // Chat (one per space)
     // -----------------------------------------------------------------------
 
     /// Send `id` the board of the space they are in.
@@ -1034,9 +1036,8 @@ impl Org {
         }
     }
 
-    /// Pin a note to the board of `id`'s current space and broadcast the board.
-    /// A guest holds one note per board, so theirs is replaced; past
-    /// [`MAX_NOTES_PER_BOARD`] the oldest comes down.
+    /// Post a message to the chat of `id`'s current space and broadcast it.
+    /// Past [`MAX_NOTES_PER_BOARD`] the oldest comes down.
     pub async fn post_note(&self, id: &str, text: &str) -> Result<(), NoteError> {
         let mut guard = self.inner.lock().await;
         let Some(member) = guard.members.get(id) else {
@@ -1054,6 +1055,7 @@ impl Org {
             id: guard.next_note_id,
             author_sub: member.sub.clone(),
             author_name: member.name.clone(),
+            author_color: member.color.clone(),
             text,
             ts: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -1062,23 +1064,8 @@ impl Org {
         };
 
         let board = &guard.spaces[&space_id].notes;
-        let mut removed: Vec<u64> = Vec::new();
-        if member.role == Role::Guest {
-            removed.extend(
-                board
-                    .iter()
-                    .filter(|n| n.author_sub.is_some() && n.author_sub == member.sub)
-                    .map(|n| n.id),
-            );
-        }
-        let overflow = (board.len() - removed.len() + 1).saturating_sub(MAX_NOTES_PER_BOARD);
-        let oldest: Vec<u64> = board
-            .iter()
-            .map(|n| n.id)
-            .filter(|id| !removed.contains(id))
-            .take(overflow)
-            .collect();
-        removed.extend(oldest);
+        let overflow = (board.len() + 1).saturating_sub(MAX_NOTES_PER_BOARD);
+        let removed: Vec<u64> = board.iter().map(|n| n.id).take(overflow).collect();
 
         // Write-through before the in-memory change, as in `create_space`.
         if let Some(s) = &self.store {
@@ -1621,7 +1608,7 @@ mod tests {
         assert!(a != b, "past-capacity spawns must not stack");
     }
 
-    // -- Bulletin board -----------------------------------------------------
+    // -- Chat ---------------------------------------------------------------
 
     #[test]
     fn note_text_is_one_trimmed_line_capped_by_chars() {
@@ -1641,7 +1628,8 @@ mod tests {
     }
 
     async fn connect(org: &Org, name: &str, sub: Option<&str>, role: Role) -> Conn {
-        let (tx, rx) = mpsc::channel(64);
+        // Room for one `notes` per post when a test fills a whole chat.
+        let (tx, rx) = mpsc::channel(MAX_NOTES_PER_BOARD * 2);
         let welcome = org
             .join(
                 name.to_string(),
@@ -1697,30 +1685,6 @@ mod tests {
             board.last().unwrap().text,
             format!("n{MAX_NOTES_PER_BOARD}")
         );
-    }
-
-    #[tokio::test]
-    async fn a_guest_holds_one_note_per_board_even_across_reconnects() {
-        let org = Org::new("o", "O", None);
-        let g = connect(&org, "G", Some("guest:1"), Role::Guest).await;
-        post(&org, &g, "first").await;
-        org.leave(&g.id).await;
-
-        let mut g = connect(&org, "G", Some("guest:1"), Role::Guest).await;
-        post(&org, &g, "second").await;
-        let texts: Vec<String> = g.board().into_iter().map(|n| n.text).collect();
-        assert_eq!(texts, ["second"]);
-
-        // The other space's board is its own.
-        assert!(matches!(
-            org.enter_space(&g.id, "dev").await,
-            EnterOutcome::Snapshot(_)
-        ));
-        post(&org, &g, "in dev").await;
-        assert_eq!(g.board().len(), 1);
-        org.enter_space(&g.id, "lobby").await;
-        org.send_notes(&g.id).await;
-        assert_eq!(g.board()[0].text, "second");
     }
 
     #[tokio::test]

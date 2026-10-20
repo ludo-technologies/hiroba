@@ -37,7 +37,7 @@ use tracing::{debug, warn};
 const JWKS_TTL: Duration = Duration::from_secs(3600);
 
 /// What a caller may do beyond the baseline every connection gets. Today that
-/// is only the bulletin board: admins remove any note, guests hold one.
+/// is only the space chat: admins delete any message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {

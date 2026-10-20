@@ -6,8 +6,8 @@
 //!
 //!   - which orgs exist (id + display name),
 //!   - each org's space catalog (`create_space` results would otherwise vanish),
-//!   - each space's bulletin-board notes — the only user-authored content the
-//!     server stores.
+//!   - each space's chat messages (notes) — the only user-authored content
+//!     the server stores.
 //!
 //! Members, positions, presence, and proximity are connection-lifetime state by
 //! design and are never written here.
@@ -23,8 +23,9 @@ use std::sync::Mutex;
 use rusqlite::{params, Connection};
 
 use crate::protocol::{meeting_room_for, SpaceDescriptor, SpaceKind, TeamLayout};
+use crate::state::DEFAULT_COLOR;
 
-/// A note pinned to a space's bulletin board.
+/// A message in a space's chat.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Note {
     /// Unique within the org, monotonic: id order is posting order.
@@ -32,6 +33,8 @@ pub struct Note {
     /// The author's token `sub`; None when the server runs without accounts.
     pub author_sub: Option<String>,
     pub author_name: String,
+    /// The author's avatar colour when they posted, snapshotted like the name.
+    pub author_color: String,
     pub text: String,
     /// Unix seconds.
     pub ts: u64,
@@ -100,6 +103,7 @@ impl Store {
                id          INTEGER NOT NULL,
                author_sub  TEXT,
                author_name TEXT NOT NULL,
+               author_color TEXT NOT NULL,
                text        TEXT NOT NULL,
                ts          INTEGER NOT NULL,
                PRIMARY KEY (org_id, id),
@@ -123,6 +127,22 @@ impl Store {
             )
             .expect("add spaces.layout");
         }
+        // Notes from before they carried the author's colour: they show in
+        // the default colour, as a client with no colour of its own would.
+        let has_color: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('notes') WHERE name = 'author_color'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("inspect notes schema");
+        if !has_color {
+            conn.execute(
+                &format!("ALTER TABLE notes ADD COLUMN author_color TEXT NOT NULL DEFAULT '{DEFAULT_COLOR}'"),
+                [],
+            )
+            .expect("add notes.author_color");
+        }
         Self {
             conn: Mutex::new(conn),
         }
@@ -143,7 +163,7 @@ impl Store {
             .expect("prepare spaces");
         let mut notes_stmt = conn
             .prepare(
-                "SELECT space_id, id, author_sub, author_name, text, ts
+                "SELECT space_id, id, author_sub, author_name, author_color, text, ts
                  FROM notes WHERE org_id = ?1 ORDER BY id",
             )
             .expect("prepare notes");
@@ -197,8 +217,9 @@ impl Store {
                                 id: row.get::<_, i64>(1)? as u64,
                                 author_sub: row.get(2)?,
                                 author_name: row.get(3)?,
-                                text: row.get(4)?,
-                                ts: row.get::<_, i64>(5)? as u64,
+                                author_color: row.get(4)?,
+                                text: row.get(5)?,
+                                ts: row.get::<_, i64>(6)? as u64,
                             },
                         ))
                     })
@@ -287,14 +308,15 @@ impl Store {
         }
         if let Some((space_id, note)) = added {
             tx.execute(
-                "INSERT INTO notes (org_id, space_id, id, author_sub, author_name, text, ts)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT INTO notes (org_id, space_id, id, author_sub, author_name, author_color, text, ts)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
                     org_id,
                     space_id,
                     note.id as i64,
                     note.author_sub,
                     note.author_name,
+                    note.author_color,
                     note.text,
                     note.ts as i64,
                 ],
@@ -434,6 +456,7 @@ mod tests {
             id,
             author_sub: Some("u1".to_string()),
             author_name: "Aoi".to_string(),
+            author_color: "#7ac77a".to_string(),
             text: text.to_string(),
             ts: 1_700_000_000,
         }
@@ -464,6 +487,28 @@ mod tests {
             .map(|(_, n)| n.id)
             .collect();
         assert_eq!(ids, [2, 3]);
+    }
+
+    #[test]
+    fn notes_from_before_colours_load_in_the_default_colour() {
+        let conn = Connection::open_in_memory().expect("in-memory sqlite");
+        // The pre-colour schema, verbatim.
+        conn.execute_batch(
+            "CREATE TABLE orgs (id TEXT PRIMARY KEY, name TEXT NOT NULL, next_space_seq INTEGER NOT NULL DEFAULT 1);
+             CREATE TABLE spaces (org_id TEXT NOT NULL, space_id TEXT NOT NULL, name TEXT NOT NULL, kind TEXT NOT NULL,
+               layout TEXT, width REAL NOT NULL, height REAL NOT NULL, near_radius REAL NOT NULL, far_radius REAL NOT NULL,
+               tick_hz INTEGER NOT NULL, capacity INTEGER NOT NULL, ord INTEGER NOT NULL, PRIMARY KEY (org_id, space_id));
+             CREATE TABLE notes (org_id TEXT NOT NULL, space_id TEXT NOT NULL, id INTEGER NOT NULL, author_sub TEXT,
+               author_name TEXT NOT NULL, text TEXT NOT NULL, ts INTEGER NOT NULL, PRIMARY KEY (org_id, id));
+             INSERT INTO orgs (id, name) VALUES ('acme', 'Acme');
+             INSERT INTO spaces VALUES ('acme', 'lobby', 'Lobby', 'lobby', NULL, 800, 600, 150, 180, 12, 5, 0);
+             INSERT INTO notes VALUES ('acme', 'lobby', 1, 'u1', 'Aoi', 'old', 1700000000);",
+        )
+        .expect("legacy schema");
+        let store = Store::init(conn);
+        let (_, loaded) = store.load_all().remove(0).notes.remove(0);
+        assert_eq!(loaded.author_color, DEFAULT_COLOR);
+        assert_eq!(loaded.text, "old");
     }
 
     #[test]

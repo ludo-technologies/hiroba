@@ -194,7 +194,7 @@ pub async fn handle_ws(
         }
     });
 
-    // The lobby's bulletin board. Its own message rather than part of
+    // The lobby's chat. Its own message rather than part of
     // `welcome`, so it always follows the space view it belongs to.
     org.send_notes(&peer_id).await;
 
@@ -290,7 +290,12 @@ pub async fn handle_ws(
         let org_id = org.id().to_string();
         tokio::spawn(async move {
             beacon
-                .guest_left(&org_id, &m.name, m.joined_at.elapsed().as_secs(), m.peers_max)
+                .guest_left(
+                    &org_id,
+                    &m.name,
+                    m.joined_at.elapsed().as_secs(),
+                    m.peers_max,
+                )
                 .await;
         });
     }

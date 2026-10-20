@@ -58,7 +58,7 @@ The `token` carried in `hello` is resolved by the server to an org + identity:
   client in its single configured org as a guest, using the supplied
   `name`/`color`.
 
-A token MAY carry a `role` claim, which today governs only the bulletin board
+A token MAY carry a `role` claim, which today governs only the space chat
 (`post_note` / `remove_note`):
 
 | Mode | Role |
@@ -183,24 +183,24 @@ catalog via `spaces` to the org. A name already in use is rejected with
 `error` code `space_exists`. (Permission to create may be restricted; see
 requirements §9.)
 
-### `post_note` — pin a note to the current space's bulletin board
+### `post_note` — post a message to the current space's chat
 ```json
 { "t": "post_note", "text": "Back at 15:00" }
 ```
-Every space has one board. The server flattens `text` to one line, trims it and
-cuts it at 140 characters; nothing left is `error` code `note_empty`. A board
-keeps its newest 8 notes — posting past that takes the oldest down, and that is
-the only expiry. A `guest` holds one note per board: posting again replaces
-theirs. One post per member per 5 seconds, else `note_rate`. On success the
-board is sent to everyone in the space via `notes` (sender included).
+Every space has one chat. The server flattens `text` to one line, trims it and
+cuts it at 500 characters; nothing left is `error` code `note_empty`. A chat
+keeps its newest 200 messages — posting past that takes the oldest down, and
+that is the only expiry. One post per member per second, else `note_rate`. On
+success the chat is sent to everyone in the space via `notes` (sender
+included).
 
-### `remove_note` — take a note off the current space's board
+### `remove_note` — delete a message from the current space's chat
 ```json
 { "t": "remove_note", "id": 12 }
 ```
-Allowed for the note's author (same token `sub`) and for an `admin`; anyone
-else gets `error` code `forbidden`. An `id` that is not on the board is not an
-error: the requester is re-sent `notes`. On success `notes` goes to the space.
+Allowed for the message's author (same token `sub`) and for an `admin`; anyone
+else gets `error` code `forbidden`. An `id` that is no longer in the chat is not
+an error: the requester is re-sent `notes`. On success `notes` goes to the space.
 
 ### `move` — update own position within the current space (~tickHz, only when moving)
 ```json
@@ -349,18 +349,19 @@ new space. `peers` is that space's current roster (excluding self).
 ```
 Broadcast to the whole org. Clients replace their catalog.
 
-### `notes` — a space's bulletin board
+### `notes` — a space's chat
 ```json
 { "t": "notes", "spaceId": "lobby", "notes": [
-  { "id": 12, "authorName": "Aoi", "text": "Back at 15:00", "ts": 1789651200, "removable": true }
+  { "id": 12, "authorName": "Aoi", "authorColor": "#7ac77a", "text": "Back at 15:00", "ts": 1789651200, "removable": true }
 ] }
 ```
-Always the whole board, oldest first; clients replace theirs. Sent to a client
+Always the whole chat, oldest first; clients replace theirs. Sent to a client
 right after `welcome` and after each `space_snapshot`, and to everyone in the
-space whenever the board changes. `ts` is Unix seconds. `removable` is computed
-per recipient (their own note, or they are an admin) — the author's `sub` never
-crosses the wire. A client MUST ignore a `notes` whose `spaceId` is not its
-current space, and a client that never receives one shows no board.
+space whenever the chat changes. `authorColor` is the author's avatar colour
+when they posted. `ts` is Unix seconds. `removable` is computed per recipient
+(their own message, or they are an admin) — the author's `sub` never crosses
+the wire. A client MUST ignore a `notes` whose `spaceId` is not its current
+space, and a client that never receives one shows no chat.
 
 ### `presence` — org roster upsert (a member joined or changed)
 ```json
@@ -561,7 +562,7 @@ client                         server
   |  ── WS connect ──────────────▶ |
   |  ── hello{token,name,color,avatar} ─▶ |  (validate token → org + identity)
   |  ◀──────── welcome{...}        |  (current space + catalog + org roster)
-  |  ◀──────── notes{...}          |  (the current space's bulletin board)
+  |  ◀──────── notes{...}          |  (the current space's chat)
   |                                |  (broadcast presence to the org)
   |  ── move/mute/signal ────────▶ |  (within current space)
   |  ◀── state (every tick) ────── |
@@ -571,7 +572,7 @@ client                         server
   |                                |
   |  ── enter_space{spaceId} ────▶ |
   |  ◀── space_snapshot{...}       |  (+ presence broadcast: new spaceId)
-  |  ◀── notes{...}                |  (the new space's board)
+  |  ◀── notes{...}                |  (the new space's chat)
   |                                |
   |  ── post_note / remove_note ─▶ |
   |  ◀── notes{...}                |  (to everyone in the space)

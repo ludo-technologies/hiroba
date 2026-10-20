@@ -204,7 +204,7 @@ pub struct PeerPos {
     pub y: f64,
 }
 
-/// One note on a space's bulletin board, as seen by one recipient. The
+/// One message in a space's chat, as seen by one recipient. The
 /// author's `sub` never goes on the wire; `removable` is the server's answer
 /// to "may *you* take this down" (author or admin).
 #[derive(Debug, Clone, Serialize)]
@@ -212,6 +212,9 @@ pub struct NoteInfo {
     pub id: u64,
     #[serde(rename = "authorName")]
     pub author_name: String,
+    /// The author's avatar colour (`#RRGGBB`) when they posted.
+    #[serde(rename = "authorColor")]
+    pub author_color: String,
     pub text: String,
     /// Unix seconds, server clock.
     pub ts: u64,
@@ -309,10 +312,10 @@ pub enum ClientMsg {
     /// End a page link, cancel an outgoing ring, or decline an incoming offer.
     PageEnd { to: String },
 
-    /// Pin a short note to the current space's bulletin board.
+    /// Post a message to the current space's chat.
     PostNote { text: String },
 
-    /// Take a note off the current space's board (author or admin only).
+    /// Delete a message from the current space's chat (author or admin only).
     RemoveNote { id: u64 },
 
     /// Explicit leave (optional — closing the socket is equivalent).
@@ -416,8 +419,8 @@ pub enum ServerMsg {
     /// Relayed WebRTC signaling from another peer.
     Signal { from: String, data: Value },
 
-    /// The full bulletin board of a space, oldest first. Sent after `welcome`
-    /// and `space_snapshot`, and to everyone in the space on every change.
+    /// The full chat of a space, oldest first. Sent after `welcome` and
+    /// `space_snapshot`, and to everyone in the space on every change.
     Notes {
         #[serde(rename = "spaceId")]
         space_id: String,
