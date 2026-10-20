@@ -470,9 +470,13 @@ canvas.addEventListener("pointerdown", (e) => {
     return;
   }
 
-  // The board and the seats are both "walk there": same snap, same drag slop.
-  const seat =
-    renderer.boardAtScreen(e.clientX, e.clientY) ?? renderer.seatAtScreen(e.clientX, e.clientY);
+  // The board opens the chat from wherever we stand; no walk needed.
+  if (renderer.boardAtScreen(e.clientX, e.clientY)) {
+    setChatOpen(true, false, true);
+    return;
+  }
+
+  const seat = renderer.seatAtScreen(e.clientX, e.clientY);
   if (seat) {
     session.input.setMoveTarget(seat.x, seat.y);
     seatClickAnchor = { x: e.clientX, y: e.clientY };
