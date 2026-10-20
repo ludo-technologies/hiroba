@@ -103,7 +103,9 @@ export interface NoteInfo {
   text: string;
   /** Unix seconds. */
   ts: number;
-  /** We may take it down: it is ours, or we are an admin. */
+  /** We wrote it. */
+  mine: boolean;
+  /** We may delete it: it is ours, or we are an admin. */
   removable: boolean;
 }
 

@@ -1857,16 +1857,18 @@ a.hud-pill {
   top: 64px;
   right: 22px;
   bottom: 84px;
-  width: min(340px, calc(100% - var(--rail) - 60px));
+  width: min(380px, calc(100% - var(--rail) - 60px));
   display: flex;
   flex-direction: column;
-  background: var(--paper);
+  /* Whiter than the chrome paper: a wall of text wants more contrast than a
+     button does. */
+  background: #fffdf8;
   border: 1px solid var(--edge-2);
   border-radius: 18px;
-  box-shadow: var(--shadow-hud);
+  box-shadow: var(--shadow-card);
   z-index: 45;
   color: var(--ink);
-  font-size: 13px;
+  font-size: 14px;
   animation: nudge-in 0.3s var(--ease);
 }
 
@@ -1943,6 +1945,25 @@ a.hud-pill {
   background: var(--edge);
 }
 
+/* "New" rule: where the unread began when the panel opened. */
+.chat-new {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 4px 2px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.chat-new::before {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--accent);
+  opacity: 0.6;
+}
+
 /* Avatar column | name + time / text | delete. A continuation (same author,
    moments later) drops the header and keeps the column for its time. */
 .chat-msg {
@@ -1950,20 +1971,40 @@ a.hud-pill {
   display: grid;
   grid-template-columns: 30px 1fr auto;
   grid-template-rows: auto auto;
-  column-gap: 8px;
-  padding: 5px 6px 4px 8px;
-  margin-top: 6px;
+  column-gap: 10px;
+  padding: 6px 8px 5px;
+  margin-top: 10px;
   border-radius: 10px;
 }
 
 .chat-msg.is-cont {
   margin-top: 0;
-  padding-top: 1px;
-  padding-bottom: 1px;
+  padding-top: 3px;
+  padding-bottom: 3px;
 }
 
 .chat-msg:hover {
   background: var(--paper-2);
+}
+
+/* Our own messages: a wash of the accent, so a reply is found at a glance. */
+.chat-msg.is-mine {
+  background: rgba(181, 79, 44, 0.07);
+}
+
+.chat-msg.is-mine:hover {
+  background: rgba(181, 79, 44, 0.13);
+}
+
+/* A run of our own messages reads as one block, not a stack of pills. */
+.chat-msg.is-mine + .chat-msg.is-mine.is-cont {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.chat-msg.is-mine:has(+ .chat-msg.is-mine.is-cont) {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
 }
 
 .chat-avatar {
@@ -2006,7 +2047,7 @@ a.hud-pill {
   grid-column: 1;
   grid-row: 1 / span 2;
   align-self: start;
-  padding-top: 3px;
+  padding-top: 5px;
   font-size: 10px;
   text-align: center;
   opacity: 0;
@@ -2021,7 +2062,17 @@ a.hud-pill {
   grid-column: 2;
   grid-row: 2;
   overflow-wrap: anywhere;
-  line-height: 1.45;
+  line-height: 1.55;
+}
+
+.chat-text a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.chat-text a:hover {
+  color: var(--accent-lo);
 }
 
 .chat-msg.is-cont .chat-text {

@@ -48,10 +48,13 @@ export function mulHex(a: string, tint: string): string {
   return toHex((ar * tr) / 255, (ag * tg) / 255, (ab * tb) / 255);
 }
 
+/** Perceived brightness 0..1 (sRGB approximation). */
+export function luminance(hex: string): number {
+  const [r, g, b] = parseHex(hex);
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+}
+
 /** Choose black or white ink for legibility on a given background colour. */
 export function pickInk(hex: string): string {
-  const [r, g, b] = parseHex(hex);
-  // Relative luminance (sRGB approximation).
-  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  return lum > 0.6 ? "rgba(40,30,18,0.95)" : "rgba(255,255,255,0.96)";
+  return luminance(hex) > 0.6 ? "rgba(40,30,18,0.95)" : "rgba(255,255,255,0.96)";
 }

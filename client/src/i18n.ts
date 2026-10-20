@@ -241,6 +241,7 @@ const EN = {
   chatDelete: "Delete",
   chatToday: "Today",
   chatYesterday: "Yesterday",
+  chatNew: "New",
   leave: "Leave",
   leaveTitle: "Leave the office",
 
@@ -549,6 +550,7 @@ const JA: typeof EN = {
   chatDelete: "削除",
   chatToday: "今日",
   chatYesterday: "昨日",
+  chatNew: "ここから未読",
   leave: "退室",
   leaveTitle: "オフィスから退室",
 

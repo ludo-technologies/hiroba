@@ -105,6 +105,9 @@ interface Session {
   nearBoard: boolean;
   /** The newest message id seen with the chat open; newer ones are unread. */
   chatSeenId: number;
+  /** While open: the first message that was unread when it opened, for the
+   *  "new" rule. Null when it opened on nothing new. */
+  chatNewFrom: number | null;
 
   /** Org roster, excluding self (drives the sidebar). */
   roster: Map<string, RosterMember>;
@@ -394,8 +397,19 @@ function setChatOpen(open: boolean, byWalk: boolean, focus = false): void {
   session.chatByWalk = open && byWalk;
   if (open === session.chatOpen) return;
   session.chatOpen = open;
+  if (open) {
+    session.chatNewFrom = session.notes?.find((n) => n.id > session!.chatSeenId)?.id ?? null;
+    renderChatPanel();
+    markChatRead();
+  } else {
+    session.chatNewFrom = null;
+  }
   ui.setChatVisible(open, focus);
-  if (open) markChatRead();
+}
+
+function renderChatPanel(): void {
+  if (!session?.notes) return;
+  ui.renderChat(session.notes, spaceName(session.spaceId), session.chatNewFrom);
 }
 
 /** Everything in the chat so far has been seen: clear the badges. */
@@ -1653,6 +1667,7 @@ function initSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[]
     chatByWalk: false,
     nearBoard: false,
     chatSeenId: 0,
+    chatNewFrom: null,
     roster,
     offline: new Set(),
     peerPositions,
@@ -2033,7 +2048,7 @@ function bindServerMessages(net: HirobaNet): void {
     session.notes = e.detail.notes;
     if (arrived || session.chatOpen) markChatRead();
     else updateChatUnread();
-    ui.renderChat(session.notes, spaceName(session.spaceId));
+    renderChatPanel();
     const { x, y } = session.input.position;
     updateBoardProximity(x, y);
   });

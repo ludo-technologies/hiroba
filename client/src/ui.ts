@@ -16,6 +16,7 @@
 
 import type { NoteInfo, SpaceDescriptor, TeamLayout } from "./protocol.js";
 import { paintLayoutPreview } from "./render.js";
+import { luminance, mixHex } from "./color.js";
 import {
   applyStaticI18n,
   locale,
@@ -443,6 +444,41 @@ export interface RosterEntry {
 /** Messages by one author closer together than this share a header. */
 const CHAT_RUN_GAP_S = 5 * 60;
 
+/** An author's colour as text on paper: avatar colours run light (they are
+ *  made to carry a white initial), so pull towards the ink until it reads. */
+function nameInk(hex: string): string {
+  let c = hex;
+  for (let i = 0; i < 6 && luminance(c) > 0.42; i++) c = mixHex(c, "#3a2e20", 0.3);
+  return c;
+}
+
+/** Trailing punctuation that is prose, not part of a pasted URL. */
+const URL_TRAIL = /[.,;:!?)\]}>'"。、）」』]+$/;
+
+/** Message text as nodes, with `http(s)://` runs as links that open outside
+ *  the app (same `_blank` as the HUD's download link). */
+function linkify(text: string): Array<Node> {
+  const out: Array<Node> = [];
+  let last = 0;
+  // URL characters only (RFC 3986), so prose glued on in a language without
+  // spaces — "…pdf。あとで" — stays prose.
+  for (const m of text.matchAll(/https?:\/\/[\w\-.~:/?#[\]@!$&'()*+,;=%]+/g)) {
+    let url = m[0];
+    const trail = URL_TRAIL.exec(url)?.[0] ?? "";
+    url = url.slice(0, url.length - trail.length);
+    if (m.index > last) out.push(document.createTextNode(text.slice(last, m.index)));
+    const a = document.createElement("a");
+    a.href = url;
+    a.textContent = url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    out.push(a);
+    last = m.index + url.length;
+  }
+  if (last < text.length) out.push(document.createTextNode(text.slice(last)));
+  return out;
+}
+
 /** Local calendar day of a Unix-seconds timestamp, for grouping. */
 function dayKey(ts: number): string {
   const d = new Date(ts * 1000);
@@ -506,6 +542,7 @@ export class UIManager {
   private lastInvites: InviteEntry[] | null = null;
   private lastNotes: NoteInfo[] = [];
   private lastChatSpace = "";
+  private lastChatNewFrom: number | null = null;
   /** Cancels an open "+" name input and its layout picker (null when closed). */
   private cancelCreateSpace: (() => void) | null = null;
   /** The message last sent, to put back in the input if the server refuses it. */
@@ -990,7 +1027,7 @@ export class UIManager {
     if (this.lastMembers && !elMembersPanel.hasAttribute("hidden")) {
       this.renderMemberList(this.lastMembers);
     }
-    this.renderChat(this.lastNotes, this.lastChatSpace);
+    this.renderChat(this.lastNotes, this.lastChatSpace, this.lastChatNewFrom);
 
     if (this.lastReconnect && !elReconnect.hasAttribute("hidden")) {
       elReconnectMsg.textContent = reconnectCopy(this.lastReconnect);
@@ -2059,10 +2096,13 @@ export class UIManager {
 
   /** The whole chat, oldest first, as a message log: consecutive messages by
    *  one author within a few minutes share a header, a day change gets a
-   *  divider. Keeps the reader's place unless they were at the end. */
-  renderChat(notes: NoteInfo[], spaceName: string): void {
+   *  divider, and the first message not yet read when the panel opened
+   *  (`newFrom`, an id) gets a "new" rule. Keeps the reader's place unless
+   *  they were at the end. */
+  renderChat(notes: NoteInfo[], spaceName: string, newFrom: number | null): void {
     this.lastNotes = notes;
     this.lastChatSpace = spaceName;
+    this.lastChatNewFrom = newFrom;
     elChatSpace.textContent = spaceName;
     const atEnd = elChatLog.scrollHeight - elChatLog.scrollTop - elChatLog.clientHeight < 48;
     elChatLog.replaceChildren();
@@ -2082,8 +2122,17 @@ export class UIManager {
         li.textContent = dayLabel(note.ts);
         elChatLog.appendChild(li);
       }
+      const isNew = newFrom !== null && note.id >= newFrom && (!prev || prev.id < newFrom);
+      if (isNew) {
+        const li = document.createElement("li");
+        li.className = "chat-new";
+        li.textContent = t.chatNew;
+        elChatLog.appendChild(li);
+      }
+      // A run never crosses a divider: what follows one says who is talking.
       const sameRun =
         prev !== null &&
+        !isNew &&
         dayKey(prev.ts) === day &&
         prev.authorName === note.authorName &&
         prev.authorColor === note.authorColor &&
@@ -2097,6 +2146,7 @@ export class UIManager {
   private chatMessage(note: NoteInfo, head: boolean): HTMLLIElement {
     const li = document.createElement("li");
     li.className = head ? "chat-msg" : "chat-msg is-cont";
+    if (note.mine) li.classList.add("is-mine");
     const when = new Date(note.ts * 1000).toLocaleTimeString(locale, {
       hour: "2-digit",
       minute: "2-digit",
@@ -2114,6 +2164,7 @@ export class UIManager {
       const name = document.createElement("span");
       name.className = "chat-name";
       name.textContent = note.authorName;
+      name.style.color = nameInk(note.authorColor);
       const time = document.createElement("time");
       time.className = "chat-time";
       time.textContent = when;
@@ -2129,7 +2180,7 @@ export class UIManager {
 
     const text = document.createElement("span");
     text.className = "chat-text";
-    text.textContent = note.text;
+    text.append(...linkify(note.text));
     li.appendChild(text);
 
     if (note.removable) {
@@ -2145,8 +2196,12 @@ export class UIManager {
     return li;
   }
 
+  /** To the newest message — but never past the "new" rule, so what came in
+   *  while the panel was closed is read from its start. */
   private scrollChatToEnd(): void {
     elChatLog.scrollTop = elChatLog.scrollHeight;
+    const rule = elChatLog.querySelector<HTMLElement>(".chat-new");
+    if (rule && rule.offsetTop < elChatLog.scrollTop + 8) elChatLog.scrollTop = rule.offsetTop - 8;
   }
 
   showToast(message: string, kind: "info" | "error" = "info"): void {
