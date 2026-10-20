@@ -55,6 +55,11 @@ Or download the installer from the
 [latest release](https://github.com/ludo-technologies/hiroba/releases/latest).
 Hiroba updates itself in place, so you only install once.
 
+To uninstall: on Windows, Settings → Apps → Hiroba → Uninstall (or
+`winget uninstall LudoTechnologies.Hiroba`); on macOS, move Hiroba to the Trash
+(or `brew uninstall --cask hiroba`). Settings and the sign-in token live under
+the `org.hiroba.app` identifier in the app-data folder and the OS keychain.
+
 ## How It Works
 
 1. Join your organization's floor and see where everyone is.
@@ -147,6 +152,16 @@ There is no other telemetry: nothing about your org, floor, teammates, calls,
 or usage is collected, and the server ships no analytics SDK. Self-hosted
 builds can disable the check entirely — see
 [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md#auto-update).
+
+## Code Signing Policy
+
+Windows installers are code-signed through [SignPath Foundation](https://signpath.org),
+with free code signing provided by [SignPath.io](https://signpath.io). macOS
+builds are signed and notarized under Ludo Technologies' Apple Developer ID.
+Every release is built by GitHub Actions from the tagged commit; nothing is
+built or signed on a developer's machine. The full policy, including how to
+verify a download and what the app sends over the network, is at
+[hirobaoffice.com/code-signing](https://hirobaoffice.com/code-signing).
 
 ## License
 

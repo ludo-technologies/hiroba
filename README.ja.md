@@ -46,6 +46,8 @@ winget install hiroba
 
 [最新リリース](https://github.com/ludo-technologies/hiroba/releases/latest)からインストーラーを直接ダウンロードすることもできます。Hirobaはアプリ自身が更新されるため、インストールは最初の1回だけです。
 
+アンインストールは、Windowsでは「設定 → アプリ → Hiroba → アンインストール」（または`winget uninstall LudoTechnologies.Hiroba`）、macOSではHirobaをゴミ箱へ移動（または`brew uninstall --cask hiroba`）。設定とサインイントークンは`org.hiroba.app`の名前でアプリデータフォルダとOSのキーチェーンに置かれています。
+
 ## 使い方
 
 1. 組織のフロアに参加すると、全員の居場所が分かります。
@@ -117,6 +119,10 @@ OAuthログイン、招待、課金を含むマネージドホスト版は別途
 公式ビルドは、起動直後と、アプリを開いている間は4時間ごとに`update.hirobaoffice.com`へ新バージョンの有無を確認します。アップデート本体のダウンロード元はGitHub Releasesです。このリクエストから、1日1端末につき1行だけ記録します。プラットフォーム、アーキテクチャ、インストール済みバージョン、そしてCloudflareがIPから判定した国です。端末は、IPとユーザーエージェントをその日の日付でソルトしたハッシュとして記録するため、日をまたいで同一端末を追跡することはできません。記録は90日で削除されます。
 
 これ以外のテレメトリはありません。組織、フロア、メンバー、通話、アプリの使用状況は一切収集せず、サーバーにも解析SDKは入っていません。セルフホスト用のビルドでは確認自体を無効にできます。[docs/SELF_HOSTING.md](docs/SELF_HOSTING.md#auto-update)を参照してください。
+
+## コード署名ポリシー
+
+Windows版インストーラーは[SignPath Foundation](https://signpath.org)の証明書で署名しています（署名は[SignPath.io](https://signpath.io)が無償提供）。macOS版はLudo TechnologiesのApple Developer IDで署名・公証済みです。すべてのリリースはタグ付きコミットからGitHub Actionsでビルドされ、開発者のマシンでビルドや署名を行うことはありません。ダウンロードの検証方法やアプリが通信する相手を含むポリシー全文は[hirobaoffice.com/code-signing](https://hirobaoffice.com/code-signing)（英語）にあります。
 
 ## ライセンス
 

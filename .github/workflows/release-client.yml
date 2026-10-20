@@ -133,6 +133,7 @@ jobs:
 
             After installing, open an invite link or point the app at your server.
             Server self-hosting: [docs/SELF_HOSTING.md](https://github.com/${{ github.repository }}/blob/main/docs/SELF_HOSTING.md)
+            Code signing policy: https://hirobaoffice.com/code-signing (Windows installers are signed through SignPath Foundation)
           generateReleaseNotes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           # Attach latest.json so installed apps can discover this release
