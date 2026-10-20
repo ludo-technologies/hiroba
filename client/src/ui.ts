@@ -222,7 +222,6 @@ const elReconnectCancel = $<HTMLButtonElement>("reconnect-cancel");
 const elHud = $<HTMLDivElement>("hud");
 const elMic = $<HTMLButtonElement>("mic");
 const elMicLabel = $<HTMLSpanElement>("mic-label");
-const elCount = $<HTMLSpanElement>("count");
 const elLeave = $<HTMLButtonElement>("leave");
 
 const elAudioSettingsBtn = $<HTMLButtonElement>("audio-settings-btn");
@@ -496,7 +495,6 @@ export class UIManager {
   // Last values for dynamic chrome so a mid-session locale switch can re-paint
   // without round-tripping through main.ts for UI-owned state.
   private lastMuted = true;
-  private lastPeerCount = 1;
   /** Last value pushed to the level meter's ARIA state (0..100), so a 60 Hz
    *  meter loop only touches the DOM when the rounded level actually moves. */
   private lastMicLevelPct = 0;
@@ -681,12 +679,6 @@ export class UIManager {
     elTabs.setAttribute("hidden", "");
     elReconnect.removeAttribute("hidden");
     elReconnectMsg.textContent = reconnectCopy(this.lastReconnect);
-  }
-
-  /** Update the peer count pill. `total` includes self. */
-  setPeerCount(total: number): void {
-    this.lastPeerCount = total;
-    elCount.textContent = total === 1 ? t.justYou : t.nHere(total);
   }
 
   /**
@@ -973,7 +965,6 @@ export class UIManager {
 
     // HUD chrome that UI owns directly.
     this.setMuted(this.lastMuted);
-    this.setPeerCount(this.lastPeerCount);
     this.setSelfStatus(this.away, this.dnd);
     this.setScreenSharing(this.lastScreenSharing);
     this.setCameraOn(this.lastCameraOn);

@@ -234,7 +234,6 @@ const EN = {
   live: "Live",
   micTitleMuted: "Click or press M to talk (you're muted)",
   micTitleLive: "Click or press M to mute",
-  justYou: "Just you",
   chatTitle: "Chat",
   chatEmpty: "No messages yet. Say hi!",
   chatPlaceholder: "Message…",
@@ -242,7 +241,6 @@ const EN = {
   chatDelete: "Delete",
   chatToday: "Today",
   chatYesterday: "Yesterday",
-  nHere: (n: number) => `${n} here`,
   leave: "Leave",
   leaveTitle: "Leave the office",
 
@@ -544,7 +542,6 @@ const JA: typeof EN = {
   live: "オン",
   micTitleMuted: "クリックか M キーで話す(現在ミュート)",
   micTitleLive: "クリックか M キーでミュート",
-  justYou: "自分だけ",
   chatTitle: "チャット",
   chatEmpty: "まだメッセージはありません。",
   chatPlaceholder: "メッセージを入力…",
@@ -552,7 +549,6 @@ const JA: typeof EN = {
   chatDelete: "削除",
   chatToday: "今日",
   chatYesterday: "昨日",
-  nHere: (n: number) => `${n}人がここに`,
   leave: "退室",
   leaveTitle: "オフィスから退室",
 

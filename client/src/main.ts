@@ -1678,7 +1678,6 @@ function initSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[]
   ui.setCall(null);
   ui.renderTabs(msg.spaces, msg.spaceId);
   rebuildRoster();
-  setPeerCount();
   nudgeShown = false;
   inMeetingRoom = false;
   ui.hideRoomHint();
@@ -1770,12 +1769,6 @@ function syncAvatarStatuses(): boolean {
     changed = renderer.updatePeerStatus(id, member?.status ?? "active") || changed;
   }
   return changed;
-}
-
-/** "Just you" / "N here" for the current space. */
-function setPeerCount(): void {
-  if (!session) return;
-  ui.setPeerCount(session.peerPositions.size + 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -1936,7 +1929,6 @@ function bindServerMessages(net: HirobaNet): void {
     const { peer } = e.detail;
     renderer.upsertPeer(peer);
     session.peerPositions.set(peer.id, { x: peer.x, y: peer.y });
-    setPeerCount();
     wake();
   });
 
@@ -1947,7 +1939,6 @@ function bindServerMessages(net: HirobaNet): void {
     session.peerPositions.delete(id);
     // End their proximity audio; a page link to the same peer (if any) survives.
     session.audio.disconnectProximity(id);
-    setPeerCount();
     wake();
   });
 
@@ -2030,7 +2021,6 @@ function bindServerMessages(net: HirobaNet): void {
 
     ui.renderTabs(session.spaces, spaceId);
     rebuildRoster(); // our own spaceId label changed
-    setPeerCount();
     wake();
   });
 
@@ -2472,7 +2462,6 @@ function handleLocaleChange(): void {
   if (!session) return;
 
   rebuildRoster();
-  setPeerCount();
   ui.setMuted(session.audio.isMuted);
   ui.setSelfStatus(session.away, session.dnd);
   ui.renderTabs(session.spaces, session.spaceId);
