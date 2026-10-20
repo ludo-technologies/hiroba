@@ -88,6 +88,8 @@ interface Session {
 
   /** Our own identity (id is server-assigned, name/color/avatar from the join form). */
   self: { id: string; name: string; color: string; avatar?: string };
+  /** The org we are signed into; keys the per-space chat read marks. */
+  orgId: string;
 
   /** Current space we're present in (the 2D canvas scope). */
   spaceId: string;
@@ -98,7 +100,9 @@ interface Session {
   notes: NoteInfo[] | null;
   /** The chat panel is open. */
   chatOpen: boolean;
-  /** The newest message id seen with the chat open; newer ones are unread. */
+  /** The newest message id seen with the chat open; newer ones are unread.
+   *  Persisted per space (see `LS_CHAT_SEEN`), so what came in while the app
+   *  was closed still counts as new. */
   chatSeenId: number;
   /** While open: the first message that was unread when it opened, for the
    *  "new" rule. Null when it opened on nothing new. */
@@ -148,6 +152,24 @@ const LS_SPEAKER_DEVICE = "hiroba_speaker_device";
  *  which nobody needs to be told twice — a hint that returns on every join
  *  stops reading as onboarding and starts reading as clutter. */
 const LS_MOVE_HINT_SEEN = "hiroba_move_hint_seen";
+/** `{ "<orgId>/<spaceId>": <newest message id seen> }`. Note ids are org-wide
+ *  and monotonic on the server, so a stored id stays meaningful across
+ *  restarts of either side. */
+const LS_CHAT_SEEN = "hiroba_chat_seen";
+
+function readChatSeen(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(LS_CHAT_SEEN);
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, number>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function chatSeenKey(s: Session): string {
+  return `${s.orgId}/${s.spaceId}`;
+}
 
 // Reconnect bookkeeping.
 const MAX_RECONNECT = 6;
@@ -409,6 +431,9 @@ function renderChatPanel(): void {
 function markChatRead(): void {
   if (!session?.notes) return;
   session.chatSeenId = Math.max(session.chatSeenId, ...session.notes.map((n) => n.id));
+  const seen = readChatSeen();
+  seen[chatSeenKey(session)] = session.chatSeenId;
+  localStorage.setItem(LS_CHAT_SEEN, JSON.stringify(seen));
   updateChatUnread();
 }
 
@@ -1633,6 +1658,7 @@ function initSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[]
     input,
     audio,
     self,
+    orgId: msg.org.id,
     spaceId: msg.spaceId,
     space: msg.space,
     spaces: msg.spaces,
@@ -2013,11 +2039,14 @@ function bindServerMessages(net: HirobaNet): void {
   net.on("notes", (e) => {
     // A broadcast from the space we just left can still be in flight.
     if (!session || e.detail.spaceId !== session.spaceId) return;
-    // Arriving in a space, its history is not news; with the chat open,
-    // neither is anything that just came in.
+    // Arriving in a space, pick up where we last left its chat: anything
+    // newer than that is news, even if it was posted while the app was
+    // closed. A space never read shows its whole history as new. With the
+    // chat open, nothing that comes in is news.
     const arrived = session.notes === null;
     session.notes = e.detail.notes;
-    if (arrived || session.chatOpen) markChatRead();
+    if (arrived) session.chatSeenId = readChatSeen()[chatSeenKey(session)] ?? 0;
+    if (session.chatOpen) markChatRead();
     else updateChatUnread();
     renderChatPanel();
   });
