@@ -14,7 +14,7 @@
  * so the layers stay decoupled.
  */
 
-import type { NoteInfo, SpaceDescriptor, TeamLayout } from "./protocol.js";
+import { REACTIONS, type NoteInfo, type Reaction, type SpaceDescriptor, type TeamLayout } from "./protocol.js";
 import { paintLayoutPreview } from "./render.js";
 import { luminance, mixHex } from "./color.js";
 import {
@@ -388,6 +388,8 @@ export interface UICallbacks {
   onPostNote(text: string): void;
   /** Delete a message from the chat. */
   onRemoveNote(id: number): void;
+  /** Add our reaction to a message, or take it back. */
+  onReact(id: number, emoji: Reaction): void;
   /** The HUD chat button or the panel's close button: open / close the chat. */
   onSetChatOpen(open: boolean): void;
   /** Start a page (cross-space 1:1) with a roster member (FR-10). */
@@ -543,6 +545,7 @@ export class UIManager {
   private lastNotes: NoteInfo[] = [];
   private lastChatSpace = "";
   private lastChatNewFrom: number | null = null;
+  private lastChatCanReact = false;
   /** Cancels an open "+" name input and its layout picker (null when closed). */
   private cancelCreateSpace: (() => void) | null = null;
   /** The message last sent, to put back in the input if the server refuses it. */
@@ -1027,7 +1030,7 @@ export class UIManager {
     if (this.lastMembers && !elMembersPanel.hasAttribute("hidden")) {
       this.renderMemberList(this.lastMembers);
     }
-    this.renderChat(this.lastNotes, this.lastChatSpace, this.lastChatNewFrom);
+    this.renderChat(this.lastNotes, this.lastChatSpace, this.lastChatNewFrom, this.lastChatCanReact);
 
     if (this.lastReconnect && !elReconnect.hasAttribute("hidden")) {
       elReconnectMsg.textContent = reconnectCopy(this.lastReconnect);
@@ -2097,12 +2100,14 @@ export class UIManager {
   /** The whole chat, oldest first, as a message log: consecutive messages by
    *  one author within a few minutes share a header, a day change gets a
    *  divider, and the first message not yet read when the panel opened
-   *  (`newFrom`, an id) gets a "new" rule. Keeps the reader's place unless
-   *  they were at the end. */
-  renderChat(notes: NoteInfo[], spaceName: string, newFrom: number | null): void {
+   *  (`newFrom`, an id) gets a "new" rule. Without `canReact` reactions show
+   *  but cannot be added. Keeps the reader's place unless they were at the
+   *  end. */
+  renderChat(notes: NoteInfo[], spaceName: string, newFrom: number | null, canReact: boolean): void {
     this.lastNotes = notes;
     this.lastChatSpace = spaceName;
     this.lastChatNewFrom = newFrom;
+    this.lastChatCanReact = canReact;
     elChatSpace.textContent = spaceName;
     const atEnd = elChatLog.scrollHeight - elChatLog.scrollTop - elChatLog.clientHeight < 48;
     elChatLog.replaceChildren();
@@ -2137,13 +2142,13 @@ export class UIManager {
         prev.authorName === note.authorName &&
         prev.authorColor === note.authorColor &&
         note.ts - prev.ts < CHAT_RUN_GAP_S;
-      elChatLog.appendChild(this.chatMessage(note, !sameRun));
+      elChatLog.appendChild(this.chatMessage(note, !sameRun, canReact));
       prev = note;
     }
     if (atEnd) this.scrollChatToEnd();
   }
 
-  private chatMessage(note: NoteInfo, head: boolean): HTMLLIElement {
+  private chatMessage(note: NoteInfo, head: boolean, canReact: boolean): HTMLLIElement {
     const li = document.createElement("li");
     li.className = head ? "chat-msg" : "chat-msg is-cont";
     if (note.mine) li.classList.add("is-mine");
@@ -2182,6 +2187,41 @@ export class UIManager {
     text.className = "chat-text";
     text.append(...linkify(note.text));
     li.appendChild(text);
+
+    const reactions = note.reactions ?? [];
+    if (reactions.length > 0) {
+      const row = document.createElement("div");
+      row.className = "chat-reactions";
+      for (const r of reactions) {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "chat-reaction";
+        chip.disabled = !canReact;
+        chip.setAttribute("aria-pressed", String(r.mine));
+        const count = document.createElement("span");
+        count.textContent = String(r.count);
+        chip.append(r.emoji, count);
+        chip.addEventListener("click", () => this.callbacks.onReact(note.id, r.emoji));
+        row.appendChild(chip);
+      }
+      li.appendChild(row);
+    }
+
+    if (canReact) {
+      const bar = document.createElement("div");
+      bar.className = "chat-react-bar";
+      bar.setAttribute("role", "group");
+      bar.setAttribute("aria-label", t.chatReact);
+      for (const emoji of REACTIONS) {
+        const pick = document.createElement("button");
+        pick.type = "button";
+        pick.className = "chat-react";
+        pick.textContent = emoji;
+        pick.addEventListener("click", () => this.callbacks.onReact(note.id, emoji));
+        bar.appendChild(pick);
+      }
+      li.appendChild(bar);
+    }
 
     if (note.removable) {
       const remove = document.createElement("button");

@@ -98,6 +98,8 @@ interface Session {
   spaces: SpaceDescriptor[];
   /** The current space's chat; null until the server sends it. */
   notes: NoteInfo[] | null;
+  /** We may react to its messages (the server holds our reactions by account). */
+  canReact: boolean;
   /** The chat panel is open. */
   chatOpen: boolean;
   /** The newest message id seen with the chat open; newer ones are unread.
@@ -280,6 +282,7 @@ const ui = new UIManager(
     onRevokeInvite: handleRevokeInvite,
     onPostNote: (text) => session?.net.send({ t: "post_note", text }),
     onRemoveNote: (id) => session?.net.send({ t: "remove_note", id }),
+    onReact: (id, emoji) => session?.net.send({ t: "react", id, emoji }),
     onSetChatOpen: (open) => setChatOpen(open, open),
     onOpenMembersPanel: handleOpenMembersPanel,
     onRemoveMember: handleRemoveMember,
@@ -424,7 +427,7 @@ function setChatOpen(open: boolean, focus = false): void {
 
 function renderChatPanel(): void {
   if (!session?.notes) return;
-  ui.renderChat(session.notes, spaceName(session.spaceId), session.chatNewFrom);
+  ui.renderChat(session.notes, spaceName(session.spaceId), session.chatNewFrom, session.canReact);
 }
 
 /** Everything in the chat so far has been seen: clear the badges. */
@@ -1663,6 +1666,7 @@ function initSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[]
     space: msg.space,
     spaces: msg.spaces,
     notes: null,
+    canReact: false,
     chatOpen: false,
     chatSeenId: 0,
     chatNewFrom: null,
@@ -2045,6 +2049,7 @@ function bindServerMessages(net: HirobaNet): void {
     // chat open, nothing that comes in is news.
     const arrived = session.notes === null;
     session.notes = e.detail.notes;
+    session.canReact = e.detail.canReact ?? false;
     if (arrived) session.chatSeenId = readChatSeen()[chatSeenKey(session)] ?? 0;
     if (session.chatOpen) markChatRead();
     else updateChatUnread();

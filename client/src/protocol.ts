@@ -94,6 +94,19 @@ export interface Peer {
   muted: boolean;
 }
 
+/** What a chat message can be reacted with, in the order a message shows
+ *  them. Mirrors the server's `Reaction`. */
+export const REACTIONS = ["👍", "❤️", "😂", "🎉", "👀", "🙏"] as const;
+export type Reaction = (typeof REACTIONS)[number];
+
+/** One emoji's reactions on a message, as the server shows them to *us*. */
+export interface ReactionInfo {
+  emoji: Reaction;
+  count: number;
+  /** We are among them. */
+  mine: boolean;
+}
+
 /** One message in a space's chat, as the server shows it to *us*. */
 export interface NoteInfo {
   id: number;
@@ -107,6 +120,9 @@ export interface NoteInfo {
   mine: boolean;
   /** We may delete it: it is ours, or we are an admin. */
   removable: boolean;
+  /** In `REACTIONS` order, emoji nobody chose left out. A server from before
+   *  reactions sends none. */
+  reactions?: ReactionInfo[];
 }
 
 /**
@@ -165,6 +181,13 @@ export interface PostNoteMsg {
 export interface RemoveNoteMsg {
   t: "remove_note";
   id: number;
+}
+
+/** Add our `emoji` to a message in the current space's chat, or take it back. */
+export interface ReactMsg {
+  t: "react";
+  id: number;
+  emoji: Reaction;
 }
 
 /** Position update, sent at ~tickHz only when the position changed. */
@@ -234,6 +257,7 @@ export type ClientMsg =
   | CreateSpaceMsg
   | PostNoteMsg
   | RemoveNoteMsg
+  | ReactMsg
   | MoveMsg
   | MuteMsg
   | SetStatusMsg
@@ -295,6 +319,9 @@ export interface NotesMsg {
   t: "notes";
   spaceId: string;
   notes: NoteInfo[];
+  /** We may `react` (we have an account). A server from before reactions
+   *  sends none. */
+  canReact?: boolean;
 }
 
 /** Org roster upsert (a member joined or changed). Upsert by `id`. */
@@ -406,7 +433,8 @@ export interface ErrorMsg {
     | "unknown_space"
     | "forbidden"
     | "note_empty"
-    | "note_rate";
+    | "note_rate"
+    | "reaction_rate";
   message: string;
 }
 
