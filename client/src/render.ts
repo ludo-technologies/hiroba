@@ -681,18 +681,17 @@ export class Renderer {
   }
 
   /** Unread chat messages, shown as a badge on the board; null for "this
-   *  space has no chat" (the board then is not a place to walk to). */
+   *  space has no chat" (the board then is not drawn, nor clickable). */
   setBoardNotes(count: number | null): void {
     this.boardNotes = count;
     this.onWake?.();
   }
 
-  /** Hit-test the bulletin board (on the far wall). Returns where to stand
-   *  to read it. */
-  boardAtScreen(clientX: number, clientY: number): { x: number; y: number } | null {
+  /** Is the pointer on the bulletin board (on the far wall)? */
+  boardAtScreen(clientX: number, clientY: number): boolean {
     const { space } = this;
     const b = this.plan?.board;
-    if (!space || !b || this.boardNotes === null) return null;
+    if (!space || !b || this.boardNotes === null) return false;
     const p = this._canvasPx(clientX, clientY);
     const V = this._view(space);
     // Test the board's wall-mounted parallelogram directly: un-project at a
@@ -701,10 +700,10 @@ export class Renderer {
     for (let z = BOARD_Z0 - 4; z <= BOARD_Z1 + 4; z += 4) {
       const w = this._toWorldAt(p.x, p.y, z, V);
       if (Math.abs(w.y) <= 2.5 / V.cam.pitch && w.x >= b.x && w.x <= b.x + b.w) {
-        return { x: b.standX, y: b.standY };
+        return true;
       }
     }
-    return null;
+    return false;
   }
 
   /** Highlight a pageable peer under the pointer, or clear the hover ring. */
@@ -1645,8 +1644,7 @@ function buildLobbyFloor(space: SpaceDescriptor): FloorPlan {
 
 /**
  * Team rooms. Radii on the server already make the whole room one group call,
- * so a layout only sets the furniture and where people sit. Every plan keeps
- * the board's top-left stand point clear.
+ * so a layout only sets the furniture and where people sit.
  */
 const TEAM_FLOORS: Record<TeamLayout, (space: SpaceDescriptor) => FloorPlan> = {
   meeting: buildMeetingFloor,
@@ -2539,7 +2537,7 @@ function drawWindow(
   ctx.fill();
 }
 
-/** The bulletin board hangs on the right wall above its stand point. */
+/** The bulletin board hangs on the top wall. */
 function drawBoard(
   ctx: CanvasRenderingContext2D,
   V: View,
