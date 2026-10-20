@@ -64,3 +64,38 @@ test("setLocale persists the choice under hiroba_locale", () => {
     setLocale(start);
   });
 });
+
+test("setLocale reaches Spanish and French and rejects unknown locales", () => {
+  withLocalStorage({}, () => {
+    const start = locale;
+    setLocale("es");
+    assert.equal(t.fieldLanguage, "Idioma");
+    assert.equal(setLocale("fr"), true);
+    assert.equal(t.fieldLanguage, "Langue");
+    assert.equal(setLocale("de"), false);
+    assert.equal(locale, "fr");
+    setLocale(start);
+  });
+});
+
+test("a fresh boot picks the locale from navigator.language's primary subtag", async () => {
+  const prev = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  try {
+    for (const [language, expected] of [
+      ["es-419", "es"],
+      ["fr-CA", "fr"],
+      ["ja-JP", "ja"],
+      ["de-DE", "en"],
+    ]) {
+      Object.defineProperty(globalThis, "navigator", {
+        value: { language },
+        configurable: true,
+      });
+      // A query string forces a new module instance, i.e. a fresh boot.
+      const mod = await import(`../.test-build/i18n.js?lang=${language}`);
+      assert.equal(mod.locale, expected, language);
+    }
+  } finally {
+    Object.defineProperty(globalThis, "navigator", prev);
+  }
+});

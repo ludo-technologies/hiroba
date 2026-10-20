@@ -19,11 +19,11 @@ import { paintLayoutPreview } from "./render.js";
 import { luminance, mixHex } from "./color.js";
 import {
   applyStaticI18n,
+  isLocale,
   locale,
   setLocale,
   spaceLabel,
   t,
-  type Locale,
 } from "./i18n.js";
 import { CODE_LENGTH, extractInviteCode, sanitizeCode, type OrgSummary } from "./auth.js";
 import { CustomSelect, type SelectOption } from "./select.js";
@@ -943,14 +943,14 @@ export class UIManager {
     bindOverlayDismiss(elServerSettings, () => this.hideServerSettings());
   }
 
-  /** Wire EN | JA switchers on the server-settings dialog and audio-settings panel. */
+  /** Wire the language switchers on the server-settings dialog and audio-settings panel. */
   private _bindLangSwitch(): void {
     this._syncLangSwitch();
     const onClick = (e: Event) => {
       const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-lang]");
       if (!btn) return;
-      const next = btn.dataset.lang as Locale | undefined;
-      if (next !== "en" && next !== "ja") return;
+      const next = btn.dataset.lang;
+      if (!isLocale(next)) return;
       if (!setLocale(next)) return;
       this._onLocaleChanged();
     };
