@@ -326,6 +326,9 @@ type Palette = Record<MaterialKey, string> & { tint: string };
 const BOARD_BADGE = "#b54f2c"; // note count (the UI accent)
 const BOARD_Z0 = 62; // the board hangs between these heights on the wall
 const BOARD_Z1 = 118;
+/** World units the board's click target extends past its frame on every
+ *  side: a near miss should open the chat, not send us walking. */
+const BOARD_HIT_PAD = 14;
 const GLOW = "255,196,120"; // lamp light, rgb
 
 // Zone rugs — woven, muted, distinct.
@@ -696,10 +699,14 @@ export class Renderer {
     const V = this._view(space);
     // Test the board's wall-mounted parallelogram directly: un-project at a
     // few heights and accept when the point lands on the wall (y ≈ 0)
-    // between the board's edges.
-    for (let z = BOARD_Z0 - 4; z <= BOARD_Z1 + 4; z += 4) {
+    // within the padded board.
+    for (let z = BOARD_Z0 - BOARD_HIT_PAD; z <= BOARD_Z1 + BOARD_HIT_PAD; z += 4) {
       const w = this._toWorldAt(p.x, p.y, z, V);
-      if (Math.abs(w.y) <= 2.5 / V.cam.pitch && w.x >= b.x && w.x <= b.x + b.w) {
+      if (
+        Math.abs(w.y) <= 2.5 / V.cam.pitch &&
+        w.x >= b.x - BOARD_HIT_PAD &&
+        w.x <= b.x + b.w + BOARD_HIT_PAD
+      ) {
         return true;
       }
     }
