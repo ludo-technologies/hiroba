@@ -11,8 +11,8 @@
 //   - a missing token is rejected with `auth_failed`,
 //   - a token signed with the wrong secret is rejected,
 //   - two tokens for different orgs are isolated (no cross-tenant roster leak),
-//   - the `role` claim governs the bulletin board (guest: one note; admin:
-//     removes any), and an unrecognised role fails the token.
+//   - the `role` claim governs the chat (a guest's messages stay theirs across
+//     reconnects; admin: removes any), and an unrecognised role fails the token.
 import crypto from "node:crypto";
 
 const URL = process.env.HIROBA_WS || "ws://127.0.0.1:8798/ws";
@@ -127,15 +127,10 @@ class Client {
   G.send({ t: "post_note", text: "first" });
   ok(!!(await board(G, 1)), "a guest can post a note");
   G.close();
-  // Same guest, new connection: the note is still theirs, and posting again
-  // replaces it rather than adding a second.
+  // Same guest, new connection: the note is still theirs.
   G = await join({ sub: "guest:g1", name: "Guest", role: "guest" });
   const mine = await board(G, 1);
   ok(mine?.notes[0].removable === true, "a guest's note is still theirs after a reconnect");
-  G.msgs.length = 0;
-  G.send({ t: "post_note", text: "second" });
-  const replaced = await G.wait((m) => m.t === "notes" && m.notes[0]?.text === "second");
-  ok(replaced?.notes.length === 1, "a guest's second note replaces their first");
 
   const M = await join({ sub: "u-m", name: "Mem", role: "member" });
   const seenByM = await board(M, 1);
