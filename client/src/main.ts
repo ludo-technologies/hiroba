@@ -859,11 +859,12 @@ async function handleCreateOrg(name: string): Promise<void> {
   try {
     // Billing currency follows the UI locale, mirroring the pricing the user
     // was shown (¥300 on the ja site, $2 elsewhere). Stripe pins it for the
-    // org's lifetime; self-host auth backends just ignore the field.
+    // org's lifetime. The locale itself picks the language of the welcome
+    // mail; self-host auth backends just ignore both fields.
     const claims = await upgradeProvisional(
       token,
       "/orgs",
-      { name, currency: locale === "ja" ? "jpy" : "usd" },
+      { name, currency: locale === "ja" ? "jpy" : "usd", locale },
       (status) =>
         status === 401 ? t.errSessionExpired : t.errOrgCreate,
     );
