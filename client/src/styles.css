@@ -1648,6 +1648,28 @@ a.hud-pill {
   z-index: 120;
 }
 
+/* With the chat open, the video panel steps aside instead of covering it.
+   Wide window: beside the chat, shrunk to the room left over (the breakpoint
+   is where that room drops below 360px: rail 244 + 30 gap + 360 + 12 gap +
+   380 chat + 22 margin). Narrow window: chat-width, stacked above the chat,
+   which starts below it. Fullscreen is meant to cover everything, so it is
+   left alone. */
+.screen-panel:not(.fullscreen):has(~ .chat-panel:not([hidden])) {
+  right: calc(22px + 380px + 12px);
+  width: min(560px, calc(100vw - var(--rail) - 444px));
+}
+
+@media (max-width: 1047px) {
+  .screen-panel:not(.fullscreen):has(~ .chat-panel:not([hidden])) {
+    right: 22px;
+    width: min(380px, calc(100vw - var(--rail) - 60px));
+  }
+
+  .screen-panel:not([hidden]):not(.fullscreen) ~ .chat-panel {
+    top: calc(64px + 12px + min(380px, calc(100vw - var(--rail) - 60px)) * 10 / 16);
+  }
+}
+
 .screen-head {
   flex: 0 0 auto;
   height: 36px;
