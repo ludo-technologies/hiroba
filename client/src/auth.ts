@@ -328,6 +328,12 @@ export function extractInviteCode(raw: string): string {
   return m ? m[1] : raw.trim();
 }
 
+/** The shareable form of an invite token: the auth server's landing page,
+ *  which offers "open in app"; the join form accepts it pasted as-is too. */
+export function inviteLinkUrl(authBase: string, token: string): string {
+  return `${authBase}/invite/${token}`;
+}
+
 /**
  * Parse a `hiroba://invite/<token>` deep link (the "open in app" button on
  * the invite landing page). Returns the token, or null for any other URL.

@@ -52,6 +52,7 @@ import {
   guestLogin,
   loadGuestId,
   InviteRejectedError,
+  inviteLinkUrl,
   isLive,
   isTauri,
   listOrgs,
@@ -978,21 +979,28 @@ async function handleSendInviteEmails(
   }
 }
 
+/** POST /invites: mint a single-use invite with `role`; resolves to its token. */
+async function issueInvite(role: "member" | "admin"): Promise<string> {
+  if (!authSession) throw new Error(t.errIssueInvite);
+  const resp = await fetch(`${ui.getAuthUrl()}/invites`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${authSession.token}`,
+    },
+    body: JSON.stringify({ role }),
+  });
+  if (!resp.ok) throw new Error(t.errIssueInvite);
+  const data: { invite: string } = await resp.json();
+  return data.invite;
+}
+
 /** Mint a member invite and put its landing-page link on the clipboard. */
 async function handleCopyInviteLink(): Promise<void> {
   if (!authSession) return;
   try {
-    const resp = await fetch(`${ui.getAuthUrl()}/invites`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${authSession.token}`,
-      },
-      body: JSON.stringify({ role: "member" }),
-    });
-    if (!resp.ok) throw new Error(t.errIssueInvite);
-    const data: { invite: string } = await resp.json();
-    await navigator.clipboard.writeText(`${ui.getAuthUrl()}/invite/${data.invite}`);
+    const token = await issueInvite("member");
+    await navigator.clipboard.writeText(inviteLinkUrl(ui.getAuthUrl(), token));
     ui.showToast(t.inviteLinkCopied);
   } catch {
     ui.showError(t.errIssueInvite);
@@ -1046,17 +1054,17 @@ async function handleIssueInvite(role: "member" | "admin"): Promise<void> {
   if (!authSession) return;
   ui.setInviteIssueBusy(true);
   try {
-    const resp = await fetch(`${ui.getAuthUrl()}/invites`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${authSession.token}`,
-      },
-      body: JSON.stringify({ role }),
-    });
-    if (!resp.ok) throw new Error(t.errIssueInvite);
-    const data: { invite: string } = await resp.json();
-    ui.showInviteResult(data.invite, ui.getAuthUrl());
+    const token = await issueInvite(role);
+    // The link goes straight to the clipboard. The browser may refuse that
+    // once the click's user activation has lapsed behind the request; the
+    // panel then still shows the link with its own copy button.
+    let copied = true;
+    try {
+      await navigator.clipboard.writeText(inviteLinkUrl(ui.getAuthUrl(), token));
+    } catch {
+      copied = false;
+    }
+    ui.showInviteResult(token, copied);
     await refreshInviteList();
   } catch {
     ui.showInvitePanelError(t.errIssueInvite);

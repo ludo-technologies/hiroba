@@ -28,6 +28,15 @@
     <!-- The office floor: full-bleed canvas behind everything -->
     <canvas id="space"></canvas>
 
+    <!-- Icon sprite: <svg class="icon"><use href="#i-…"> in markup here and
+         in rows ui.ts builds, so each outline exists once. -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true" focusable="false">
+      <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5" /><path d="M3.5 7.5 12 13l8.5-5.5" /></symbol>
+      <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1" /><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1" /></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5 9.5 17 19 7" /></symbol>
+      <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></symbol>
+    </svg>
+
     <!-- Join overlay (guest entry); hidden once connected -->
     <div id="join" class="overlay">
       <form id="join-form" class="card" novalidate>
@@ -404,9 +413,9 @@
               class="admin-menu-item"
               type="button"
               role="menuitem"
-              data-i18n="manageInvitesTitle"
+              data-i18n="inviteMembers"
             >
-              Manage invitations
+              Invite members
             </button>
             <button
               id="members-panel-btn"
@@ -484,48 +493,95 @@
       </footer>
     </aside>
 
-    <!-- Invite management panel (admin): issue / list / revoke org invites -->
+    <!-- Invite panel (admin): invite by e-mail or by a link to share, then
+         list / revoke pending invites. The role at the top applies to both
+         methods; on a server that can't mail, the method cards go away and
+         the link path stands alone with a note saying why. -->
     <div id="invite-panel" class="overlay" hidden>
       <div class="card invite-card" role="dialog" aria-modal="true" aria-labelledby="invite-panel-title">
         <header class="invite-head">
-          <span id="invite-panel-title" class="invite-title" data-i18n="manageInvitesTitle">Manage invitations</span>
+          <span id="invite-panel-title" class="invite-title" data-i18n="inviteMembers">Invite members</span>
           <button id="invite-panel-close" type="button" class="ghost-btn" data-i18n="closePanel">Close</button>
         </header>
 
-        <div id="invite-email-row" class="invite-email-row">
+        <div class="field">
+          <span id="invite-role-label" class="field-label" data-i18n="inviteRole">Role for the person you invite</span>
+          <div id="invite-role" class="segmented" role="group" aria-labelledby="invite-role-label">
+            <button type="button" class="segmented-btn" data-role="member" aria-pressed="true" data-i18n="roleMember">Member</button>
+            <button type="button" class="segmented-btn" data-role="admin" aria-pressed="false" data-i18n="roleAdmin">Admin</button>
+          </div>
+        </div>
+
+        <div id="invite-method-field" class="field">
+          <span id="invite-method-label" class="field-label" data-i18n="inviteHow">How do you want to reach them?</span>
+          <div id="invite-method" class="invite-methods" role="group" aria-labelledby="invite-method-label">
+            <button type="button" class="invite-method" data-method="mail" aria-pressed="true">
+              <span class="invite-method-title">
+                <svg class="icon" width="18" height="18" aria-hidden="true"><use href="#i-mail" /></svg>
+                <span data-i18n="inviteMethodMail">Send by email</span>
+              </span>
+              <span class="invite-method-desc" data-i18n="inviteMethodMailDesc">Hiroba emails them a link to join</span>
+            </button>
+            <button type="button" class="invite-method" data-method="link" aria-pressed="false">
+              <span class="invite-method-title">
+                <svg class="icon" width="18" height="18" aria-hidden="true"><use href="#i-link" /></svg>
+                <span data-i18n="inviteMethodLink">Share a link</span>
+              </span>
+              <span class="invite-method-desc" data-i18n="inviteMethodLinkDesc">You paste it into Slack or a chat yourself</span>
+            </button>
+          </div>
+        </div>
+
+        <div id="invite-mail" class="invite-body">
+          <label for="invite-email" class="invite-hint" data-i18n="inviteMailHint">Enter email addresses and Hiroba sends each one a link to join. Separate several with commas.</label>
           <input
             id="invite-email"
             type="text"
             inputmode="email"
             placeholder="aoi@example.com, ren@example.com"
             data-i18n-placeholder="inviteEmailsPlaceholder"
-            data-i18n-arialabel="fieldInviteEmails"
-            aria-label="Email addresses"
             spellcheck="false"
             autocapitalize="off"
             autocomplete="off"
           />
-          <button id="invite-email-send" type="button" data-i18n="sendInvites">Send invites</button>
+          <button id="invite-email-send" type="button" class="invite-primary" data-i18n="sendInvites">Send email invites</button>
         </div>
 
-        <div class="invite-issue">
-          <label class="field invite-role-field">
-            <span class="field-label" data-i18n="inviteRole">Role</span>
-            <div id="invite-role"></div>
-          </label>
-          <button id="invite-issue-btn" type="button" data-i18n="issueInvite">Issue invite</button>
-        </div>
-
-        <div id="invite-result" class="invite-result" hidden>
-          <div id="invite-result-code" class="invite-result-code"></div>
-          <div class="invite-result-actions">
-            <button id="invite-copy-link" type="button" class="ghost-btn" data-i18n="copyInviteLink">Copy link</button>
-            <button id="invite-copy-code" type="button" class="ghost-btn" data-i18n="copyInviteCode">Copy code</button>
+        <div id="invite-link" class="invite-body" hidden>
+          <!-- Only without a mailer: names the one path the cards would have offered. -->
+          <div id="invite-link-head" class="invite-link-head" hidden>
+            <svg class="icon" width="18" height="18" aria-hidden="true"><use href="#i-link" /></svg>
+            <span data-i18n="shareInviteLink">Share an invite link</span>
           </div>
+          <div id="invite-link-idle" class="invite-body">
+            <p class="invite-hint" data-i18n="inviteLinkHint">Creates one link to join and copies it. Paste it to your teammate in Slack or a chat. One link admits one person.</p>
+            <button id="invite-issue-btn" type="button" class="invite-primary" data-i18n="createInviteLink">Copy a new invite link</button>
+          </div>
+          <div id="invite-result" class="invite-body" hidden>
+            <p class="invite-result-status" role="status">
+              <svg class="icon" width="18" height="18" aria-hidden="true"><use href="#i-check" /></svg>
+              <span id="invite-result-status-text"></span>
+            </p>
+            <div class="invite-result-row">
+              <div id="invite-result-link" class="invite-result-link"></div>
+              <button id="invite-copy-link" type="button" class="ghost-btn invite-copy-btn" data-i18n="copy">Copy</button>
+            </div>
+            <p class="invite-hint invite-hint-mute" data-i18n="inviteLinkHowTo">They join by opening the link, or by pasting it into the app's invite link field.</p>
+            <button id="invite-issue-again-btn" type="button" class="ghost-btn invite-again-btn" data-i18n="createAnotherInviteLink">Make a link for one more person</button>
+          </div>
+          <p id="invite-no-email" class="invite-hint invite-hint-mute invite-notice" hidden>
+            <svg class="icon" width="14" height="14" aria-hidden="true"><use href="#i-info" /></svg>
+            <span data-i18n="inviteNoEmailNotice">This server has no email set up, so invites go out as links only.</span>
+          </p>
         </div>
+
+        <div class="invite-divider"></div>
 
         <div class="field">
-          <span class="field-label" data-i18n="activeInvites">Active invites</span>
+          <div class="invite-list-head">
+            <span class="field-label" data-i18n="activeInvites">Pending invites</span>
+            <span id="invite-count" class="invite-count" hidden></span>
+          </div>
           <ul id="invite-list" class="invite-list"></ul>
         </div>
 

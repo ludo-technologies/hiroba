@@ -25,7 +25,7 @@ import {
   spaceLabel,
   t,
 } from "./i18n.js";
-import { CODE_LENGTH, extractInviteCode, sanitizeCode, type OrgSummary } from "./auth.js";
+import { CODE_LENGTH, extractInviteCode, inviteLinkUrl, sanitizeCode, type OrgSummary } from "./auth.js";
 import { CustomSelect, type SelectOption } from "./select.js";
 import { bindOverlayDismiss } from "./overlay.js";
 import { AVATAR_MAX_CHARS, AVATAR_PRESETS, encodeAvatar, encodePreset, isPresetId, loadImage, presetSvg } from "./avatars.js";
@@ -186,15 +186,23 @@ const elInvitePanel = $<HTMLDivElement>("invite-panel");
 const elInvitePanelBtn = $<HTMLButtonElement>("invite-panel-btn");
 const elRosterInviteBtn = $<HTMLButtonElement>("roster-invite-btn");
 const elInvitePanelClose = $<HTMLButtonElement>("invite-panel-close");
-const elInviteRoleHost = $<HTMLElement>("invite-role");
-const elInviteEmailRow = $<HTMLDivElement>("invite-email-row");
+const elInviteRoleGroup = $<HTMLDivElement>("invite-role");
+const elInviteMethodField = $<HTMLDivElement>("invite-method-field");
+const elInviteMethodGroup = $<HTMLDivElement>("invite-method");
+const elInviteMail = $<HTMLDivElement>("invite-mail");
 const elInviteEmail = $<HTMLInputElement>("invite-email");
 const elInviteEmailSend = $<HTMLButtonElement>("invite-email-send");
+const elInviteLink = $<HTMLDivElement>("invite-link");
+const elInviteLinkHead = $<HTMLDivElement>("invite-link-head");
+const elInviteLinkIdle = $<HTMLDivElement>("invite-link-idle");
 const elInviteIssueBtn = $<HTMLButtonElement>("invite-issue-btn");
+const elInviteIssueAgainBtn = $<HTMLButtonElement>("invite-issue-again-btn");
 const elInviteResult = $<HTMLDivElement>("invite-result");
-const elInviteResultCode = $<HTMLDivElement>("invite-result-code");
+const elInviteResultStatus = $<HTMLSpanElement>("invite-result-status-text");
+const elInviteResultLink = $<HTMLDivElement>("invite-result-link");
 const elInviteCopyLink = $<HTMLButtonElement>("invite-copy-link");
-const elInviteCopyCode = $<HTMLButtonElement>("invite-copy-code");
+const elInviteNoEmail = $<HTMLParagraphElement>("invite-no-email");
+const elInviteCount = $<HTMLSpanElement>("invite-count");
 const elInviteList = $<HTMLUListElement>("invite-list");
 const elChatPanel = $<HTMLElement>("chat-panel");
 const elChatSpace = $<HTMLSpanElement>("chat-space");
@@ -315,6 +323,34 @@ export interface InviteEntry {
 
 /** Where an invite-by-e-mail request came from, so the outcome lands there. */
 export type InviteSource = "setup" | "panel";
+
+/** Role the invite panel gives the next invite. */
+type InviteRole = "member" | "admin";
+/** How the panel offers to invite: Hiroba mails a link, or the admin shares one. */
+type InviteMethod = "mail" | "link";
+
+/** Put `text` on the clipboard and flash the button's label to confirm. */
+function copyToClipboard(btn: HTMLButtonElement, text: string, idleLabel: string): void {
+  void navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = t.copied;
+    window.setTimeout(() => (btn.textContent = idleLabel), 1400);
+  });
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/** An `<svg class="icon"><use>` of one symbol from the sprite in index.html. */
+function spriteIcon(symbol: string, className: string): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("class", `icon ${className}`);
+  svg.setAttribute("width", "16");
+  svg.setAttribute("height", "16");
+  svg.setAttribute("aria-hidden", "true");
+  const use = document.createElementNS(SVG_NS, "use");
+  use.setAttribute("href", `#${symbol}`);
+  svg.appendChild(use);
+  return svg;
+}
 
 /** The hosted trial as the join card and sidebar show it. */
 export interface TrialDisplay {
@@ -526,9 +562,12 @@ export class UIManager {
   private away = false;
   private dnd = false;
 
-  // Invite issued last (for the copy buttons) + the auth base to build links.
-  private inviteToken = "";
-  private inviteAuthBase = "";
+  /** Role the next invite from the panel gets (its segmented control). */
+  private inviteRole: InviteRole = "member";
+  /** The link created last from the panel, and whether it reached the
+   *  clipboard; kept so a locale switch can re-paint the status line and
+   *  the list can mark the row. */
+  private lastInviteResult: { token: string; copied: boolean } | null = null;
 
   // Last values for dynamic chrome so a mid-session locale switch can re-paint
   // without round-tripping through main.ts for UI-owned state.
@@ -578,7 +617,6 @@ export class UIManager {
   private lastOrgs: OrgSummary[] = [];
   private lastOrgSlug = "";
 
-  private readonly inviteRoleSelect: CustomSelect;
   private readonly orgSelect: CustomSelect;
   private readonly micSelect: CustomSelect;
   private readonly speakerSelect: CustomSelect;
@@ -588,13 +626,6 @@ export class UIManager {
     this.tauri = opts.tauri;
     applyStaticI18n(); // resolve data-i18n* before the user can read the DOM
 
-    this.inviteRoleSelect = new CustomSelect(elInviteRoleHost, {
-      options: [
-        { value: "member", label: t.roleMember },
-        { value: "admin", label: t.roleAdmin },
-      ],
-      value: "member",
-    });
     this.orgSelect = new CustomSelect(elAuthOrgSelect, {
       onChange: (orgSlug) => this.callbacks.onSwitchOrg(orgSlug),
       ariaLabel: t.orgSwitchAria,
@@ -979,16 +1010,6 @@ export class UIManager {
     this._syncSwatchLabels();
     this._syncPresetLabels();
 
-    // Invite role select labels.
-    const role = this.inviteRoleSelect.value || "member";
-    this.inviteRoleSelect.setOptions(
-      [
-        { value: "member", label: t.roleMember },
-        { value: "admin", label: t.roleAdmin },
-      ],
-      role,
-    );
-
     // Join / auth / org-setup button labels.
     this.setConnecting(elJoinBtn.dataset.connecting === "true");
     this.setLoginBusy(this.lastLoginBusy);
@@ -1020,10 +1041,7 @@ export class UIManager {
     }
 
     // Admin panels, if they have data already loaded.
-    if (this.inviteToken) {
-      elInviteCopyLink.textContent = t.copyInviteLink;
-      elInviteCopyCode.textContent = t.copyInviteCode;
-    }
+    this._renderInviteResultStatus();
     if (this.lastInvites && !elInvitePanel.hasAttribute("hidden")) {
       this.renderInviteList(this.lastInvites);
     }
@@ -1251,8 +1269,18 @@ export class UIManager {
   setEmailInvitesAvailable(available: boolean): void {
     this.emailInvitesAvailable = available;
     elInviteSetup.classList.toggle("no-email", !available);
-    if (available) elInviteEmailRow.removeAttribute("hidden");
-    else elInviteEmailRow.setAttribute("hidden", "");
+    // The panel: nothing to choose without a mailer, so the method cards go
+    // and the link path gets a heading plus a note on why it stands alone.
+    if (available) {
+      elInviteMethodField.removeAttribute("hidden");
+      elInviteLinkHead.setAttribute("hidden", "");
+      elInviteNoEmail.setAttribute("hidden", "");
+    } else {
+      elInviteMethodField.setAttribute("hidden", "");
+      elInviteLinkHead.removeAttribute("hidden");
+      elInviteNoEmail.removeAttribute("hidden");
+      this._setInviteMethod("link");
+    }
     this._renderInviteSetup();
   }
 
@@ -1437,19 +1465,45 @@ export class UIManager {
   showInvitePanel(): void {
     elInvitePanel.removeAttribute("hidden");
     elInvitePanelError.setAttribute("hidden", "");
+    this.lastInviteResult = null;
     elInviteResult.setAttribute("hidden", "");
+    elInviteLinkIdle.removeAttribute("hidden");
+    elInviteCount.setAttribute("hidden", "");
     elInviteList.replaceChildren();
+    this._setInviteMethod("mail");
   }
 
   hideInvitePanel(): void {
-    this.inviteRoleSelect.close();
     elInvitePanel.setAttribute("hidden", "");
+  }
+
+  private _setInviteRole(role: InviteRole): void {
+    this.inviteRole = role;
+    for (const btn of elInviteRoleGroup.querySelectorAll<HTMLButtonElement>("[data-role]")) {
+      btn.setAttribute("aria-pressed", String(btn.dataset.role === role));
+    }
+  }
+
+  /** Show one method's form. Without a mailer only the link path exists. */
+  private _setInviteMethod(method: InviteMethod): void {
+    if (!this.emailInvitesAvailable) method = "link";
+    for (const btn of elInviteMethodGroup.querySelectorAll<HTMLButtonElement>("[data-method]")) {
+      btn.setAttribute("aria-pressed", String(btn.dataset.method === method));
+    }
+    if (method === "mail") {
+      elInviteMail.removeAttribute("hidden");
+      elInviteLink.setAttribute("hidden", "");
+    } else {
+      elInviteMail.setAttribute("hidden", "");
+      elInviteLink.removeAttribute("hidden");
+    }
   }
 
   setInviteIssueBusy(busy: boolean): void {
     this.lastInviteIssueBusy = busy;
     elInviteIssueBtn.disabled = busy;
-    elInviteIssueBtn.textContent = busy ? t.issuingInvite : t.issueInvite;
+    elInviteIssueAgainBtn.disabled = busy;
+    elInviteIssueBtn.textContent = busy ? t.creatingInviteLink : t.createInviteLink;
   }
 
   showInvitePanelError(msg: string): void {
@@ -1462,35 +1516,52 @@ export class UIManager {
     if (sent.length > 0) elInviteEmail.value = failed.join(", ");
   }
 
-  /** Show the freshly issued invite with copy-link / copy-code actions. */
-  showInviteResult(token: string, authBase: string): void {
-    this.inviteToken = token;
-    this.inviteAuthBase = authBase;
-    elInviteResultCode.textContent = token;
-    elInviteCopyLink.textContent = t.copyInviteLink;
-    elInviteCopyCode.textContent = t.copyInviteCode;
+  /** Show the link just created from the panel in place of the create
+   *  button. `copied` says whether it already reached the clipboard. */
+  showInviteResult(token: string, copied: boolean): void {
+    this.lastInviteResult = { token, copied };
+    elInviteResultLink.textContent = inviteLinkUrl(this.getAuthUrl(), token);
+    this._renderInviteResultStatus();
+    elInviteLinkIdle.setAttribute("hidden", "");
     elInviteResult.removeAttribute("hidden");
   }
 
-  /** Rebuild the active-invite list. */
+  private _renderInviteResultStatus(): void {
+    if (!this.lastInviteResult) return;
+    elInviteResultStatus.textContent = this.lastInviteResult.copied
+      ? t.inviteLinkReady
+      : t.inviteLinkReadyNoClipboard;
+  }
+
+  /** Rebuild the pending-invite list: each row says how the invite went out
+   *  (mailed to an address, or a link to share), its role, expiry and who
+   *  issued it. Link rows can be copied again; every row can be revoked. */
   renderInviteList(invites: InviteEntry[]): void {
     this.lastInvites = invites;
     elInviteList.replaceChildren();
     if (invites.length === 0) {
+      elInviteCount.setAttribute("hidden", "");
       const li = document.createElement("li");
       li.className = "invite-empty";
       li.textContent = t.noActiveInvites;
       elInviteList.appendChild(li);
       return;
     }
+    elInviteCount.textContent = String(invites.length);
+    elInviteCount.removeAttribute("hidden");
     for (const inv of invites) {
+      const byMail = inv.email !== null;
       const li = document.createElement("li");
       li.className = "invite-row";
+      if (inv.token === this.lastInviteResult?.token) li.classList.add("is-fresh");
+      li.appendChild(spriteIcon(byMail ? "i-mail" : "i-link", "invite-row-icon"));
 
-      const role = document.createElement("span");
-      role.className = "invite-row-role";
-      role.textContent = inv.role === "admin" ? t.roleAdmin : t.roleMember;
-      li.appendChild(role);
+      const main = document.createElement("div");
+      main.className = "invite-row-main";
+      const primary = document.createElement("span");
+      primary.className = "invite-row-primary";
+      primary.textContent = inv.email ?? t.inviteLinkLabel;
+      main.appendChild(primary);
 
       const meta = document.createElement("span");
       meta.className = "invite-row-meta";
@@ -1500,14 +1571,25 @@ export class UIManager {
         hour: "2-digit",
         minute: "2-digit",
       });
-      const parts = [t.inviteExpiresAt(expiry)];
-      if (inv.email) parts.push(t.inviteSentTo(inv.email));
-      if (inv.creator) parts.push(t.inviteByCreator(inv.creator));
+      const parts = [inv.role === "admin" ? t.roleAdmin : t.roleMember, t.inviteExpiresAt(expiry)];
+      if (inv.creator) parts.push(byMail ? t.inviteSentBy(inv.creator) : t.inviteCreatedBy(inv.creator));
       meta.textContent = parts.join(" · ");
+      main.appendChild(meta);
       // The row truncates on narrow panels; the tooltip repeats what is shown
       // rather than leaking the invite token into a hover.
-      meta.title = meta.textContent;
-      li.appendChild(meta);
+      li.title = `${primary.textContent} · ${meta.textContent}`;
+      li.appendChild(main);
+
+      if (!byMail) {
+        const copyBtn = document.createElement("button");
+        copyBtn.type = "button";
+        copyBtn.className = "invite-row-copy-btn";
+        copyBtn.textContent = t.copy;
+        copyBtn.addEventListener("click", () =>
+          copyToClipboard(copyBtn, inviteLinkUrl(this.getAuthUrl(), inv.token), t.copy),
+        );
+        li.appendChild(copyBtn);
+      }
 
       const revoke = document.createElement("button");
       revoke.type = "button";
@@ -1619,8 +1701,7 @@ export class UIManager {
         return;
       }
       elInvitePanelError.setAttribute("hidden", "");
-      const role = this.inviteRoleSelect.value === "admin" ? "admin" : "member";
-      this.callbacks.onSendInviteEmails(emails, role, "panel");
+      this.callbacks.onSendInviteEmails(emails, this.inviteRole, "panel");
     };
     elInviteEmailSend.addEventListener("click", sendFromPanel);
     elInviteEmail.addEventListener("keydown", (e) => {
@@ -1631,27 +1712,26 @@ export class UIManager {
     });
     elInvitePanelClose.addEventListener("click", () => this.hideInvitePanel());
     bindOverlayDismiss(elInvitePanel, () => this.hideInvitePanel());
-    elInviteIssueBtn.addEventListener("click", () => {
-      const role = this.inviteRoleSelect.value === "admin" ? "admin" : "member";
-      this.callbacks.onIssueInvite(role);
-    });
-    const copy = (btn: HTMLButtonElement, text: string, idleLabel: string) => {
-      void navigator.clipboard.writeText(text).then(() => {
-        btn.textContent = t.copied;
-        window.setTimeout(() => (btn.textContent = idleLabel), 1400);
-      });
-    };
-    elInviteCopyLink.addEventListener("click", () => {
-      if (!this.inviteToken) return;
-      copy(
-        elInviteCopyLink,
-        `${this.inviteAuthBase}/invite/${this.inviteToken}`,
-        t.copyInviteLink,
+    for (const btn of elInviteRoleGroup.querySelectorAll<HTMLButtonElement>("[data-role]")) {
+      btn.addEventListener("click", () =>
+        this._setInviteRole(btn.dataset.role === "admin" ? "admin" : "member"),
       );
-    });
-    elInviteCopyCode.addEventListener("click", () => {
-      if (!this.inviteToken) return;
-      copy(elInviteCopyCode, this.inviteToken, t.copyInviteCode);
+    }
+    for (const btn of elInviteMethodGroup.querySelectorAll<HTMLButtonElement>("[data-method]")) {
+      btn.addEventListener("click", () =>
+        this._setInviteMethod(btn.dataset.method === "link" ? "link" : "mail"),
+      );
+    }
+    const issue = () => this.callbacks.onIssueInvite(this.inviteRole);
+    elInviteIssueBtn.addEventListener("click", issue);
+    elInviteIssueAgainBtn.addEventListener("click", issue);
+    elInviteCopyLink.addEventListener("click", () => {
+      if (!this.lastInviteResult) return;
+      copyToClipboard(
+        elInviteCopyLink,
+        inviteLinkUrl(this.getAuthUrl(), this.lastInviteResult.token),
+        t.copy,
+      );
     });
   }
 

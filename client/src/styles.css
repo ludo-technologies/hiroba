@@ -2590,7 +2590,8 @@ a.hud-pill {
   color: var(--ink-soft);
 }
 
-.setup-primary {
+.setup-primary,
+.invite-primary {
   padding: 14px;
   background: linear-gradient(180deg, var(--accent-hi), var(--accent));
   color: #fff;
@@ -2605,18 +2606,28 @@ a.hud-pill {
   transition: filter 0.15s, transform 0.08s;
 }
 
-.setup-primary:hover:not(:disabled) {
+.setup-primary:hover:not(:disabled),
+.invite-primary:hover:not(:disabled) {
   filter: brightness(1.05);
 }
 
-.setup-primary:active:not(:disabled) {
+.setup-primary:active:not(:disabled),
+.invite-primary:active:not(:disabled) {
   transform: translateY(1px);
 }
 
-.setup-primary:disabled {
+.setup-primary:disabled,
+.invite-primary:disabled {
   opacity: 0.6;
   cursor: progress;
   filter: saturate(0.75);
+}
+
+.invite-primary {
+  width: 100%;
+  padding: 11px 18px;
+  font-size: 13.5px;
+  letter-spacing: 0;
 }
 
 #org-setup-back {
@@ -2658,35 +2669,181 @@ a.hud-pill {
   color: var(--ink);
 }
 
-.invite-issue {
-  display: flex;
-  align-items: flex-end;
-  gap: 10px;
-}
-
-/* Invite by address: the input takes the row, the send button sits beside it. */
-.invite-email-row {
-  display: flex;
-  align-items: stretch;
-  gap: 10px;
-}
-
-.invite-email-row > input {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.invite-email-row > button {
+/* Sprite icons (<svg class="icon"><use href="#i-…">): outlines in the
+   current text color. */
+.icon {
   flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-.invite-email-row[hidden] {
+/* Role picker: a two-way segmented control at the top of the panel, so it
+   reads as applying to both methods below it. */
+.segmented {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  background: #ecdfc8;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-btn);
+}
+
+.segmented-btn {
+  flex: 1 1 0;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+.segmented-btn[aria-pressed="true"] {
+  background: #fffdf8;
+  color: var(--ink);
+  box-shadow: 0 1px 3px rgba(60, 40, 20, 0.18);
+}
+
+/* "How do you want to reach them?": two cards, each naming its method and
+   what happens next, so e-mail vs link is a choice rather than two primary
+   buttons side by side. */
+.invite-methods {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+#invite-method-field[hidden] {
   display: none;
 }
 
-.invite-role-field {
-  flex: 0 0 auto;
-  width: 148px;
+.invite-method {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  text-align: left;
+  padding: 12px 14px;
+  background: #fffdf8;
+  border: 1.5px solid var(--edge);
+  border-radius: var(--radius-btn);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.invite-method:hover {
+  border-color: var(--edge-2);
+}
+
+.invite-method[aria-pressed="true"] {
+  background: rgba(181, 79, 44, 0.12);
+  border-color: var(--accent);
+}
+
+.invite-method-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.invite-method-title > .icon {
+  color: var(--ink-mute);
+}
+
+.invite-method[aria-pressed="true"] .invite-method-title > .icon {
+  color: var(--accent);
+}
+
+.invite-method-desc {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+
+/* The chosen method's form. */
+.invite-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.invite-body[hidden] {
+  display: none;
+}
+
+.invite-hint {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.invite-hint-mute {
+  font-size: 12px;
+  color: var(--ink-mute);
+}
+
+.invite-link-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.invite-link-head > .icon {
+  color: var(--accent);
+}
+
+.invite-link-head[hidden],
+.invite-notice[hidden] {
+  display: none;
+}
+
+.invite-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.invite-notice > .icon {
+  margin-top: 2px;
+}
+
+.invite-divider {
+  height: 1px;
+  background: var(--edge);
+}
+
+.invite-list-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.invite-count {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  background: #ecdfc8;
+  border-radius: var(--radius-pill);
+  padding: 1px 7px;
+}
+
+.invite-count[hidden] {
+  display: none;
 }
 
 /* --- Custom select (listbox) — shared chrome for role / device pickers --- */
@@ -2848,53 +3005,58 @@ a.hud-pill {
   transition: width 90ms linear;
 }
 
-#invite-issue-btn,
-#invite-email-send {
-  flex: 1 1 auto;
-  padding: 10px 18px;
-  background: linear-gradient(180deg, var(--accent-hi), var(--accent));
-  color: #fff;
-  font: inherit;
-  font-size: 13.5px;
-  font-weight: 700;
-  border: none;
-  border-radius: var(--radius-btn);
-  cursor: pointer;
-  box-shadow: var(--glow-accent), inset 0 1px 0 rgba(255, 255, 255, 0.3);
-  transition: filter 0.15s, transform 0.08s;
-}
-
-#invite-issue-btn:hover:not(:disabled),
-#invite-email-send:hover:not(:disabled) {
-  filter: brightness(1.05);
-}
-
-#invite-issue-btn:disabled,
-#invite-email-send:disabled {
-  opacity: 0.6;
-  cursor: progress;
-}
-
-.invite-result {
+/* The link just created: a status line, the URL with its copy button, and
+   how the other person uses it. */
+.invite-result-status {
+  margin: 0;
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 700;
+  color: var(--sage);
 }
 
-.invite-result[hidden] {
-  display: none;
+/* Sits on the first line when the status wraps. */
+.invite-result-status > .icon {
+  margin-top: 1px;
 }
 
-.invite-result-code {
+.invite-result-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.invite-result-link {
+  flex: 1 1 auto;
+  min-width: 0;
   background: #fffdf8;
   border: 1px solid var(--edge-2);
   border-radius: var(--radius-btn);
-  padding: 12px 14px;
+  padding: 10px 12px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 13px;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--ink);
-  word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   user-select: all;
+}
+
+.invite-copy-btn {
+  flex: 0 0 auto;
+  padding: 0 16px;
+  font-weight: 700;
+  border-radius: var(--radius-btn);
+}
+
+.invite-again-btn {
+  align-self: flex-start;
+  font-size: 12.5px;
+  padding: 7px 14px;
 }
 
 .invite-result-actions {
@@ -2927,6 +3089,40 @@ a.hud-pill {
   color: var(--ink);
 }
 
+/* Pending-invite rows: how it went out (mail / link), to whom, then details. */
+.invite-row-icon {
+  color: var(--ink-mute);
+}
+
+.invite-row.is-fresh {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px rgba(181, 79, 44, 0.35);
+}
+
+.invite-row.is-fresh .invite-row-icon {
+  color: var(--accent);
+}
+
+.invite-row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.invite-row-primary {
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.invite-row-main > .invite-row-meta {
+  font-size: 11px;
+}
+
 .invite-row-meta {
   flex: 1 1 auto;
   color: var(--ink-mute);
@@ -2941,8 +3137,10 @@ a.hud-pill {
   color: var(--ink-soft);
 }
 
-/* Always visible — destructive, but must be discoverable on touch / keyboard. */
-.invite-revoke-btn {
+/* Row actions. Revoke is always visible — destructive, but it must be
+   discoverable on touch / keyboard; copy re-shares a link invite. */
+.invite-revoke-btn,
+.invite-row-copy-btn {
   flex: 0 0 auto;
   border: 1px solid var(--edge);
   background: transparent;
@@ -2960,6 +3158,18 @@ a.hud-pill {
 .invite-revoke-btn:focus-visible {
   background: rgba(184, 72, 48, 0.1);
   border-color: rgba(184, 72, 48, 0.35);
+}
+
+.invite-row-copy-btn {
+  color: var(--ink-soft);
+  border-color: var(--edge-2);
+}
+
+.invite-row-copy-btn:hover,
+.invite-row-copy-btn:focus-visible {
+  color: var(--ink);
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .invite-empty {
