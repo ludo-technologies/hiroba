@@ -1689,11 +1689,14 @@ a.hud-pill {
   background: rgba(255, 255, 255, 0.2);
 }
 
+/* No `height: 100%` here: WebKit resolves it against the panel's aspect-ratio
+   height and then grows the panel by the header on top of that (389px instead
+   of 350px at 560px wide). Flex alone hands the video the space under the
+   header in both engines. */
 #screen-video {
   flex: 1 1 auto;
   min-height: 0;
   width: 100%;
-  height: 100%;
   display: block;
   object-fit: contain;
   background: #0f0c09;
