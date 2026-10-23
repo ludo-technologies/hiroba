@@ -1,0 +1,172 @@
+# Publish hiroba-server for self-hosters on every tag: a multi-arch container
+# image on GHCR and static Linux binaries on the GitHub Release.
+#
+#   ghcr.io/ludo-technologies/hiroba-server:<version>, :latest   linux/amd64 + linux/arm64
+#   hiroba-server-linux-{x86_64,aarch64} + SHA256SUMS            release assets
+#
+# Each architecture builds natively on its own runner (a QEMU-emulated Rust
+# build takes the better part of an hour). The per-arch images are pushed by
+# digest and stitched into one manifest list afterwards. A manual run
+# (workflow_dispatch) publishes only the `edge` image tag, so the pipeline can
+# be exercised without cutting a release.
+
+name: Release server
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+concurrency:
+  group: release-server-${{ github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/hiroba-server
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            arch: x86_64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=server-${{ matrix.arch }}
+          cache-to: type=gha,scope=server-${{ matrix.arch }},mode=max
+
+      # Same build (served from cache), stopping at the stage that holds only
+      # the static binary.
+      - name: Extract the binary
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile
+          platforms: ${{ matrix.platform }}
+          target: binary
+          outputs: type=local,dest=out
+          cache-from: type=gha,scope=server-${{ matrix.arch }}
+
+      - name: Stage digest and binary
+        run: |
+          mkdir -p digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "digests/${digest#sha256:}"
+          mv out/hiroba-server "hiroba-server-linux-${{ matrix.arch }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.arch }}
+          path: digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.arch }}
+          path: hiroba-server-linux-${{ matrix.arch }}
+          if-no-files-found: error
+          retention-days: 1
+
+  image:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          # v0.2.1 → 0.2.1 (+ latest unless prerelease); manual runs → edge.
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=edge,enable=${{ github.event_name == 'workflow_dispatch' }}
+
+      - name: Create the manifest list
+        working-directory: digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.IMAGE }}@sha256:%s ' *)
+
+      - name: Inspect
+        run: docker buildx imagetools inspect ${{ env.IMAGE }}:${{ steps.meta.outputs.version }}
+
+  binaries:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: bin
+          pattern: binary-*
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: bin
+        run: sha256sum hiroba-server-linux-* > SHA256SUMS
+
+      # The desktop workflow owns the Release (title, notes, prerelease flag)
+      # and creates it once its first installer is built, which can be twenty
+      # minutes after the tag lands. Attach to that release instead of racing
+      # it to create one with different metadata.
+      - name: Wait for the Release
+        run: |
+          for _ in $(seq 1 90); do
+            if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "Release $GITHUB_REF_NAME did not appear within 45 minutes" >&2
+          exit 1
+
+      - name: Upload
+        run: gh release upload "$GITHUB_REF_NAME" bin/* --repo "$GITHUB_REPOSITORY" --clobber
