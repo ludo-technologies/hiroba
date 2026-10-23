@@ -1,0 +1,7 @@
+# server/Dockerfile builds from the repository root and only needs the two
+# Rust crates; keep the Tauri client, docs and build output out of the context.
+*
+!common/
+!server/
+common/target/
+server/target/

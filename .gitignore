@@ -38,6 +38,9 @@ node_modules
 .dev.vars
 .wrangler/
 
+# Docker Compose config (copy of .env.example; may hold TURN/auth secrets)
+/.env
+
 # OS / editor
 .DS_Store
 *.log

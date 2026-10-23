@@ -1,0 +1,35 @@
+# Internet-facing self-host: hiroba-server behind Caddy, which obtains and
+# renews the TLS certificate for HIROBA_DOMAIN by itself and proxies the
+# WebSocket. Copy .env.example to .env, set HIROBA_DOMAIN (its DNS record must
+# already point at this host), open ports 80 and 443, then:
+#
+#   docker compose up -d
+#
+# Clients connect to wss://<HIROBA_DOMAIN>/ws. Upgrade with
+# `docker compose pull && docker compose up -d`. See docs/SELF_HOSTING.md §3.
+services:
+  hiroba:
+    image: ghcr.io/ludo-technologies/hiroba-server:latest
+    restart: unless-stopped
+    # Every HIROBA_* variable in .env reaches the server (org name, TURN, auth,
+    # CORS …). HIROBA_DB is preset to /data/hiroba.db inside the image.
+    env_file: .env
+    volumes:
+      - hiroba_data:/data
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    command: caddy reverse-proxy --from ${HIROBA_DOMAIN:?set HIROBA_DOMAIN in .env} --to hiroba:8787
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy_data:/data
+    depends_on:
+      - hiroba
+
+volumes:
+  hiroba_data:
+  caddy_data:
