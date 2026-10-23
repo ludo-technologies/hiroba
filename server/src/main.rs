@@ -11,7 +11,7 @@
 ///      - GET /health → "ok"
 ///      - GET /ice    → ICE/TURN config (STUN + short-lived TURN credentials)
 ///      - GET /ws     → WebSocket upgrade
-///   5. Bind on HIROBA_ADDR (default 0.0.0.0:8787) and serve until Ctrl-C.
+///   5. Bind on HIROBA_ADDR (default 0.0.0.0:8787) and serve until Ctrl-C / SIGTERM.
 use std::env;
 use std::sync::Arc;
 
@@ -216,14 +216,34 @@ async fn main() {
 
     info!(addr = %addr, "hiroba-server listening");
 
-    // ── Serve (graceful shutdown on Ctrl-C) ──────────────────────────────
+    // ── Serve (graceful shutdown on Ctrl-C / SIGTERM) ────────────────────
     axum::serve(listener, app)
-        .with_graceful_shutdown(async {
-            tokio::signal::ctrl_c()
-                .await
-                .expect("failed to install Ctrl-C handler");
-            info!("shutdown signal received");
-        })
+        .with_graceful_shutdown(shutdown_signal())
         .await
         .expect("server error");
+}
+
+/// Resolves on Ctrl-C or SIGTERM. SIGTERM is what `docker stop`, systemd and
+/// every orchestrator send first; ignoring it means sitting out their grace
+/// period and then being SIGKILLed.
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl-C handler");
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+    tokio::select! {
+        _ = ctrl_c => {}
+        _ = terminate => {}
+    }
+    info!("shutdown signal received");
 }
