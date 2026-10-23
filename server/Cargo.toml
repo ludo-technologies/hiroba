@@ -23,7 +23,7 @@ futures-util = "0.3"
 # Auth (FR-13 / §9): JWT verification for the OAuth/OIDC hosted path. HS256
 # shared-secret + RS256 via a fetched JWKS. Guest (self-host) pulls none of
 # this machinery at runtime.
-jsonwebtoken = "9"
+jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
 # JWKS fetch for the OIDC path (rustls → no system OpenSSL dependency).
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 # TURN ephemeral credentials (NFR-07 / §7.4): coturn REST-API HMAC-SHA1 scheme.
