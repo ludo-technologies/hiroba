@@ -1,7 +1,7 @@
 # Packaging
 
-How the desktop client reaches users, and what has to exist before a `v*` tag
-can complete.
+How the desktop client and the server reach users, and what has to exist
+before a `v*` tag can complete.
 
 | Channel | Artifact | Job in `.github/workflows/release-client.yml` |
 | --- | --- | --- |
@@ -18,7 +18,27 @@ paths then write the same per-machine install.
 The two packaging jobs are skipped for prerelease tags (any tag containing `-`,
 matching the `prerelease` flag on the release itself).
 
+The server ships from `.github/workflows/release-server.yml` on the same tags:
+
+| Channel | Artifact | Job |
+| --- | --- | --- |
+| GHCR (`ghcr.io/ludo-technologies/hiroba-server`) | `:<version>`, `:latest` (not for prereleases); linux/amd64 + linux/arm64 | `build` → `image` |
+| GitHub Releases | `hiroba-server-linux-{x86_64,aarch64}`, `SHA256SUMS` | `binaries` |
+
+Both come from one `server/Dockerfile` build per architecture, each on a native
+runner. `binaries` waits for `publish-tauri` to create the Release instead of
+creating it itself, so the Release keeps the desktop workflow's title and
+notes. Running the workflow by hand (workflow_dispatch) publishes only the
+`:edge` image tag. It needs no secrets beyond `GITHUB_TOKEN`.
+
 ## One-time setup
+
+### GHCR
+
+The first push creates the `hiroba-server` package. New GHCR packages start
+private unless the org's package-creation default says otherwise, so after the
+first run check the package's visibility under the org's Packages settings and
+make it public.
 
 ### Homebrew tap
 

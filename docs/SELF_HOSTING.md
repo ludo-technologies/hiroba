@@ -42,7 +42,28 @@ even with everyone connected all day.
 
 Each user runs the **desktop client** themselves and points it at your server URL.
 
-## 2. Build the server binary
+## 2. Get the server
+
+Three ways to the same `hiroba-server`; pick one.
+
+**Container image (recommended).** Built for linux/amd64 and linux/arm64 on
+every release, tagged with the release version (`:0.2.2` for v0.2.2) and
+`:latest`:
+
+```bash
+docker pull ghcr.io/ludo-technologies/hiroba-server:latest
+```
+
+**Prebuilt Linux binary.** Every GitHub Release carries
+`hiroba-server-linux-x86_64` and `hiroba-server-linux-aarch64` (plus
+`SHA256SUMS`). They are statically linked and run on any Linux distribution:
+
+```bash
+curl -LO https://github.com/ludo-technologies/hiroba/releases/latest/download/hiroba-server-linux-x86_64
+chmod +x hiroba-server-linux-x86_64 && mv hiroba-server-linux-x86_64 hiroba-server
+```
+
+**Build from source** (any OS with a Rust toolchain):
 
 ```bash
 git clone <your-fork-or-this-repo> hiroba
@@ -52,9 +73,47 @@ cargo build --release
 ```
 
 Copy `target/release/hiroba-server` to your host. That one file is the entire
-deployment.
+deployment. `docker build -f server/Dockerfile -t hiroba-server .` from the
+repository root builds the container image the same way CI does.
 
 ## 3. Run it
+
+### Docker, plain `ws://` (LAN, or behind a proxy you already run)
+
+```bash
+docker run -d --name hiroba --restart unless-stopped \
+  -p 8787:8787 -v hiroba-data:/data \
+  -e HIROBA_ORG=acme -e HIROBA_ORG_NAME=Acme \
+  ghcr.io/ludo-technologies/hiroba-server:latest
+```
+
+Inside the image `HIROBA_DB` is preset to `/data/hiroba.db`, so the volume
+keeps orgs, spaces and chat across restarts and upgrades; without one the file
+lives in the container and goes away with it. Point clients at
+`ws://YOUR_HOST:8787/ws`. To upgrade, `docker pull` the image, `docker rm -f
+hiroba`, and run the same command again.
+
+### Docker Compose with automatic TLS (internet-facing)
+
+[`compose.yaml`](../compose.yaml) runs the server behind
+[Caddy](https://caddyserver.com/), which obtains and renews a Let's Encrypt
+certificate for your domain, redirects HTTP to HTTPS and proxies the
+WebSocket, so none of the nginx setup in [§5](#5-networking) is needed. Your
+domain's DNS record must point at the host, and ports 80 and 443 must be open.
+
+```bash
+mkdir hiroba && cd hiroba
+curl -LO https://raw.githubusercontent.com/ludo-technologies/hiroba/main/compose.yaml
+curl -Lo .env https://raw.githubusercontent.com/ludo-technologies/hiroba/main/.env.example
+$EDITOR .env          # HIROBA_DOMAIN, HIROBA_ORG, HIROBA_ORG_NAME
+docker compose up -d
+```
+
+Clients connect to `wss://<HIROBA_DOMAIN>/ws`. Any variable from [§4](#4-configuration)
+to [§6](#6-authentication-optional) added to `.env` reaches the server. Upgrade with
+`docker compose pull && docker compose up -d`.
+
+### The binary directly
 
 ```bash
 # Defaults to 0.0.0.0:8787
@@ -101,7 +160,7 @@ sudo systemctl enable --now hiroba
 | `HIROBA_ADDR`     | `0.0.0.0:8787` | Address:port the server binds to.             |
 | `HIROBA_ORG`      | `ludo`         | Default/guest org (tenant) id. Also the fallback tenant for tokens with no `org` claim. |
 | `HIROBA_ORG_NAME` | `Ludo`         | Org display name shown atop the roster.       |
-| `HIROBA_DB`       | *(unset → in-memory)* | Path to a SQLite file persisting orgs, space catalogs and chat messages across restarts (created on first boot). Unset keeps the fully DB-less profile; spaces created and messages posted at runtime are then lost on restart. |
+| `HIROBA_DB`       | *(unset → in-memory)* | Path to a SQLite file persisting orgs, space catalogs and chat messages across restarts (created on first boot). Unset keeps the fully DB-less profile; spaces created and messages posted at runtime are then lost on restart. The container image presets `/data/hiroba.db`. |
 | `HIROBA_CORS_ALLOW_ORIGINS` | *(unset → any)* | Comma-separated CORS origin allow-list for the HTTP endpoints (`/ice`, `/health`). See below. |
 | `RUST_LOG`        | `info`         | Log verbosity (`error`/`warn`/`info`/…).      |
 
@@ -184,7 +243,8 @@ users create more team spaces from the client (the `+` tab).
 
 Open the chosen TCP port (default **8787**) to your users. For internet exposure,
 put the server behind a TLS-terminating reverse proxy and have clients use
-`wss://`:
+`wss://`. The Compose setup in [§3](#3-run-it) does this with Caddy; with
+nginx:
 
 ```nginx
 # nginx: terminate TLS and proxy the WebSocket

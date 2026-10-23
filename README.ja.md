@@ -110,7 +110,13 @@ npm run tauri build
 
 ## セルフホスト
 
-サーバーにメディアサーバーもデータベースも必要ありません（`HIROBA_DB`を指定するとSQLiteを任意で利用できます）。デプロイ、設定、ファイアウォール／NAT、TURNサーバーが必要になる条件については、[docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)を参照してください。
+サーバーにメディアサーバーもデータベースも必要ありません（`HIROBA_DB`を指定するとSQLiteを任意で利用できます）。リリースごとにamd64/arm64のコンテナイメージと、静的リンクされたLinuxバイナリを公開しています。
+
+```bash
+docker run -d -p 8787:8787 -v hiroba-data:/data ghcr.io/ludo-technologies/hiroba-server
+```
+
+リポジトリの`compose.yaml`を使うと、Caddyによる自動TLS付きで起動できます。デプロイ、設定、ファイアウォール／NAT、TURNサーバーが必要になる条件については、[docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)を参照してください。
 
 OAuthログイン、招待、課金を含むマネージドホスト版は別途提供しており、このリポジトリには含まれていません。
 

@@ -133,8 +133,16 @@ Homebrew tap, and winget — see [docs/PACKAGING.md](docs/PACKAGING.md).
 ## Self-Hosting
 
 The server needs no media server and no database (SQLite is optional via
-`HIROBA_DB`). See [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md) for deployment,
-configuration, firewall/NAT notes, and when you might need a TURN server.
+`HIROBA_DB`). A container image for amd64/arm64 and static Linux binaries ship
+with every release:
+
+```bash
+docker run -d -p 8787:8787 -v hiroba-data:/data ghcr.io/ludo-technologies/hiroba-server
+```
+
+`compose.yaml` in this repository adds Caddy for automatic TLS. See
+[docs/SELF_HOSTING.md](docs/SELF_HOSTING.md) for deployment, configuration,
+firewall/NAT notes, and when you might need a TURN server.
 
 A managed hosted edition (OAuth sign-in, invites, billing) is offered separately
 and is not part of this repository.
