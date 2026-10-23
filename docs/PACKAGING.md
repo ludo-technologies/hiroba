@@ -44,7 +44,7 @@ make it public.
 
 1. Create the public repo `ludo-technologies/homebrew-hiroba` containing
    `Casks/hiroba.rb`.
-2. Add a repository secret `HOMEBREW_TAP_TOKEN` to this repo: a token with
+2. Add a secret `HOMEBREW_TAP_TOKEN` to the `release` environment: a token with
    `contents: write` on the tap. `GITHUB_TOKEN` cannot push to another
    repository, so the job fails without it.
 
@@ -67,7 +67,8 @@ The release action only adds versions to a package that already exists in
 
 1. Fork `microsoft/winget-pkgs` into the account that will own the PRs.
 2. Create a **classic** PAT with the `public_repo` scope (fine-grained tokens
-   are not supported by the action) and add it to this repo as `WINGET_TOKEN`.
+   are not supported by the action) and add it to the `release` environment
+   as `WINGET_TOKEN`.
 3. Submit the first version with [komac](https://github.com/russellbanks/Komac),
    which reads the MSI and fills in the product code, install scope, and
    checksums:

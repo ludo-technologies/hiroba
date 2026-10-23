@@ -5,6 +5,9 @@
 #   2. git tag v0.1.0 && git push origin v0.1.0
 #   3. Wait for all matrix jobs; assets appear on the Release page.
 #
+# Every secret below is an environment secret of `release`, which only `v*`
+# tags may deploy to, so no other ref or workflow can read the signing keys.
+#
 # macOS signing + notarization (REQUIRED for macOS releases):
 # Keeping every release under the same Team ID also preserves access to the
 # session token stored in Keychain across auto-updates.
@@ -29,6 +32,7 @@ concurrency:
 
 jobs:
   publish-tauri:
+    environment: release
     permissions:
       contents: write
     strategy:
@@ -164,6 +168,7 @@ jobs:
   update-homebrew-tap:
     needs: publish-tauri
     if: ${{ !contains(github.ref_name, '-') }}
+    environment: release
     runs-on: ubuntu-latest
     steps:
       - name: Checkout tap
@@ -230,6 +235,7 @@ jobs:
   publish-winget:
     needs: publish-tauri
     if: ${{ !contains(github.ref_name, '-') }}
+    environment: release
     runs-on: ubuntu-latest
     steps:
       - uses: vedantmgoyal9/winget-releaser@b7370d4d152efdce803a26cc6ca9eee58cb2ad54 # v2
