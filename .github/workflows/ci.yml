@@ -1,0 +1,67 @@
+# Build and test every pull request (Dependabot's included) and every push to
+# main: the unit suites of `make test`, plus the client builds a release runs.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: |
+            common
+            server
+
+      - run: cargo test --locked --manifest-path common/Cargo.toml
+
+      - run: cargo test --locked --manifest-path server/Cargo.toml
+
+  client:
+    # macOS builds the Tauri crate without the WebKitGTK packages Linux needs.
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: client/src-tauri
+
+      - run: npm ci
+
+      - run: npm test
+
+      # Also produces the dist/ that the Tauri crate embeds at compile time.
+      - run: npm run build
+        env:
+          VITE_HIROBA_SERVER: wss://example.invalid/ws
+          VITE_HIROBA_AUTH_SERVER: https://example.invalid
+
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
