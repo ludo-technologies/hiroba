@@ -1903,7 +1903,7 @@ function updateNudge(): void {
 }
 
 /** Who a screen share started now would reach: the call while one is live
- *  (it takes over the screen as it does the ears), otherwise the group place
+ *  (it takes over the ears, so the share follows), otherwise the group place
  *  we stand in — a team space, or the lobby's meeting room. */
 function shareTarget(s: Session): ShareTarget {
   if (s.pages.size > 0) return "call";
@@ -2142,6 +2142,7 @@ function bindServerMessages(net: HirobaNet): void {
     session.ringingIn.delete(peer);
     void session.audio.connect(peer, initiator, "page");
     session.pages.set(peer, session.roster.get(peer)?.name ?? peer);
+    syncVideoViews();
     // Voice goes live only after both sides have accepted (PROTOCOL.md §page).
     void goLiveForPage();
     updateCallBanner();
@@ -2283,18 +2284,21 @@ async function requestWindowAttention(active: boolean): Promise<void> {
   }
 }
 
-/** Pick the best remote video to show (a screen share beats a camera, then
- *  earliest-started wins). While a call is live only its peers count: the
- *  call takes over the screen as it does the ears. */
+/** Pick the best remote video to show: a call peer's beats the group place's
+ *  (a room share stays on screen through a call until the call brings its
+ *  own), then a screen share beats a camera, then earliest-started wins. */
 function preferredRemoteVideo(): { peerId: string; stream: MediaStream; mode: "screen" | "camera" | null } | null {
   if (!session) return null;
-  let first: { peerId: string; stream: MediaStream; mode: "screen" | "camera" | null } | null = null;
+  let best: { peerId: string; stream: MediaStream; mode: "screen" | "camera" | null } | null = null;
+  let bestRank = -1;
   for (const [peerId, entry] of session.remoteVideos) {
-    if (session.pages.size > 0 && !session.pages.has(peerId)) continue;
-    if (entry.mode === "screen") return { peerId, ...entry };
-    first ??= { peerId, ...entry };
+    const rank = (session.pages.has(peerId) ? 2 : 0) + (entry.mode === "screen" ? 1 : 0);
+    if (rank > bestRank) {
+      best = { peerId, ...entry };
+      bestRank = rank;
+    }
   }
-  return first;
+  return best;
 }
 
 function syncScreenReopenButton(): void {
