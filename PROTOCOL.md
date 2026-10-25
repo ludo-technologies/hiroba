@@ -556,12 +556,13 @@ Screen share and camera are mutually exclusive on one sender.
 
 Who receives video is decided by the sender, by what the video was started
 for:
-- **During a page** — page peers only (the camera is always this). It ends
-  when the last page does; it never carries on to proximity peers.
-- **Outside a page** — a screen share goes to the *group place* the sender
-  stands in: every proximity peer anywhere in a team space, or, in the lobby,
-  the peers inside the meeting room with them. It ends when the sender leaves
-  the place (walks out of the room, switches space) or a page goes live.
+- **During a page** — page peers only. It ends when the last page does; it
+  never carries on to proximity peers.
+- **Outside a page** — a screen share or camera goes to the *group place* the
+  sender stands in: every proximity peer anywhere in a team space, or, in the
+  lobby, the peers inside the meeting room with them. It ends when the sender
+  leaves the place (walks out of the room, switches space) or a page goes
+  live.
 
 No server change is involved: these are ordinary proximity links, and
 `signal` already relays within a space.

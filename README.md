@@ -68,10 +68,10 @@ the `org.hiroba.app` identifier in the app-data folder and the OS keychain.
 4. Leave Hiroba running so the floor is there when your team needs it.
 
 Voice is peer-to-peer over WebRTC. There is no always-on video, recording, or
-media server. You can share your screen with everyone in a team space or the
-lobby's meeting room, or with the teammate you are calling. In a call you can
-also turn on your camera, with the room behind you blurred or replaced by a
-picture; that happens on your own device.
+media server. You can share your screen or turn on your camera for everyone
+in a team space or the lobby's meeting room, or for the teammate you are
+calling. The room behind you can be blurred or replaced by a picture; that
+happens on your own device.
 
 ## Architecture
 
