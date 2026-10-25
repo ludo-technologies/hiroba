@@ -26,6 +26,7 @@
  *    Audio nodes so the audio graph doesn't leak.
  */
 
+import type { BackgroundEffect, BackgroundEffectKind, CameraBackground } from "./background.js";
 import { rectContains, type SignalData, type SpaceDescriptor } from "./protocol.js";
 
 /**
@@ -98,6 +99,10 @@ export type LinkKind = "proximity" | "page";
  * the room once the call ends, nor a room's into a call.
  */
 type VideoScope = "call" | "place";
+
+/** The camera background effect could not start; the camera keeps sending
+ *  what it sent before (or, if it was off, stays off). */
+export class BackgroundEffectError extends Error {}
 
 // ---------------------------------------------------------------------------
 // Internal per-peer state
@@ -272,6 +277,13 @@ export class AudioEngine {
   private pendingVideoMode: "screen" | "camera" | null = null;
   /** What the current (or in-flight) local video is for — see VideoScope. */
   private videoScope: VideoScope = "call";
+
+  /** What the user wants behind them on camera — see setCameraBackground. */
+  private cameraBackground: CameraBackground = { kind: "none" };
+  /** The raw camera while it is on. Sent as is when there is no background;
+   *  otherwise only `backgroundEffect` reads it, and peers get its output. */
+  private cameraSource: MediaStream | null = null;
+  private backgroundEffect: BackgroundEffect | null = null;
 
   /** Positions from the last `updateGains`; a place share follows them. */
   private selfPos: { x: number; y: number } | null = null;
@@ -982,7 +994,9 @@ export class AudioEngine {
    * Start sending the user's camera to **page** (1:1 call) peers only.
    * Mutually exclusive with screen share — starting this stops any active
    * screen share first. Same perfect-negotiation renegotiation path as mic
-   * and screen-share changes.
+   * and screen-share changes. With a background chosen, the effect is in
+   * place before the first frame leaves — the raw room is never sent — and
+   * if it cannot start, neither does the camera (BackgroundEffectError).
    */
   async startCamera(): Promise<void> {
     if (this.videoMode === "camera") return;
@@ -998,11 +1012,100 @@ export class AudioEngine {
         stream.getTracks().forEach((t) => t.stop());
         throw new Error("no video track from getUserMedia");
       }
-      this._startVideo("camera", stream, track);
+      const background = this.cameraBackground;
+      let effect: BackgroundEffect | null = null;
+      if (background.kind !== "none") {
+        try {
+          effect = await this._createBackgroundEffect(stream, background);
+        } catch (err) {
+          stream.getTracks().forEach((t) => t.stop());
+          throw err;
+        }
+        if (this.videoEpoch !== epoch) {
+          effect.stop();
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+      }
+      this.cameraSource = stream;
+      this.backgroundEffect = effect;
+      this._startVideo("camera", effect?.stream ?? stream, effect?.track ?? track);
       track.addEventListener("ended", () => this.stopCamera(), { once: true });
+      // Picked while the camera was starting.
+      if (this.cameraBackground !== background) await this._applyCameraBackground();
     } finally {
       if (this.videoEpoch === epoch) this.pendingVideoMode = null;
     }
+  }
+
+  /**
+   * Choose what goes behind the user on camera: at once on a live camera, and
+   * on every later start. Rejects with BackgroundEffectError when the effect
+   * cannot start; a live camera then keeps sending what it sent before.
+   */
+  async setCameraBackground(background: CameraBackground): Promise<void> {
+    this.cameraBackground = background;
+    await this._applyCameraBackground();
+  }
+
+  /** Bring the live camera in line with `cameraBackground`. */
+  private async _applyCameraBackground(): Promise<void> {
+    const source = this.cameraSource;
+    if (!source) return;
+    const background = this.cameraBackground;
+    if (background.kind === "none") {
+      if (this.backgroundEffect) this._swapCameraEffect(null);
+      return;
+    }
+    if (this.backgroundEffect) {
+      this.backgroundEffect.setBackground(background);
+      return;
+    }
+    const effect = await this._createBackgroundEffect(source, background);
+    // Superseded while the model loaded: the camera went off, or a later pick
+    // (which runs this too) won.
+    if (this.cameraSource !== source || this.cameraBackground !== background || this.backgroundEffect) {
+      effect.stop();
+      return;
+    }
+    this._swapCameraEffect(effect);
+  }
+
+  /** Load the effect module (first use only) and start `background` on `source`. */
+  private async _createBackgroundEffect(
+    source: MediaStream,
+    background: BackgroundEffectKind,
+  ): Promise<BackgroundEffect> {
+    try {
+      const { BackgroundEffect } = await import("./background.js");
+      const effect: BackgroundEffect = await BackgroundEffect.create(source, background, (err) => {
+        console.error("[audio] background effect failed:", err);
+        // It has stopped; its last frame must not stay frozen on the other end.
+        if (this.backgroundEffect === effect) this.stopCamera();
+      });
+      return effect;
+    } catch (err) {
+      console.error("[audio] background effect could not start:", err);
+      throw new BackgroundEffectError(String(err));
+    }
+  }
+
+  /** Send `effect`'s output — or the raw camera, if null — in place of what
+   *  the camera sends now, then stop the effect it replaces. */
+  private _swapCameraEffect(effect: BackgroundEffect | null): void {
+    const source = this.cameraSource!;
+    const previous = this.backgroundEffect;
+    this.backgroundEffect = effect;
+    this._startVideo("camera", effect?.stream ?? source, effect?.track ?? source.getVideoTracks()[0]);
+    previous?.stop();
+  }
+
+  /** Stop the raw camera and any background effect on it. */
+  private _releaseCamera(): void {
+    this.backgroundEffect?.stop();
+    this.backgroundEffect = null;
+    this.cameraSource?.getTracks().forEach((t) => t.stop());
+    this.cameraSource = null;
   }
 
   /** Stop the local camera and renegotiate every live peer connection.
@@ -1040,7 +1143,15 @@ export class AudioEngine {
       this.sendSignal?.(entry.id, { kind: "video-mode", mode });
     }
 
-    if (previousTrack && previousTrack !== track && previousTrack.readyState !== "ended") {
+    // A background swap keeps the raw camera running under the new track;
+    // whatever else the new video replaces is done.
+    if (mode !== "camera") this._releaseCamera();
+    if (
+      previousTrack &&
+      previousTrack !== track &&
+      previousTrack.readyState !== "ended" &&
+      !this.cameraSource?.getTracks().includes(previousTrack)
+    ) {
       previousTrack.stop();
     }
     this.onLocalVideo?.(stream, mode);
@@ -1065,6 +1176,7 @@ export class AudioEngine {
       });
     }
     this.videoStream = null;
+    this._releaseCamera();
     this.onLocalVideo?.(null, null);
   }
 
