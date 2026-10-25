@@ -14,7 +14,7 @@
  */
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
-import { AudioEngine, spatialGain } from "../.test-build/audio.js";
+import { AudioEngine, inGroupPlace, spatialGain } from "../.test-build/audio.js";
 
 // --- Minimal Web API mocks -------------------------------------------------
 
@@ -165,9 +165,11 @@ class FakePC {
   fire(type, ev) {
     for (const cb of this._listeners[type] || []) cb(ev);
   }
-  addTrack() {
+  addTrack(track) {
+    (this.added ||= []).push(track);
     return FakePC.makeSender?.();
   }
+  removeTrack() {}
   getTransceivers() {
     return [];
   }
@@ -237,6 +239,9 @@ function installMocks() {
 const SPACE = {
   id: "lobby", name: "Lobby", kind: "lobby",
   width: 1600, height: 1000, nearRadius: 300, farRadius: 360, tickHz: 12, capacity: 32,
+};
+const TEAM = {
+  ...SPACE, id: "dev", name: "Dev", kind: "team", width: 800, height: 600, nearRadius: 1100, farRadius: 1100,
 };
 
 // --- Tests -----------------------------------------------------------------
@@ -543,7 +548,8 @@ test("an uninterrupted screen share still starts normally", async () => {
 
   const local = [];
   const eng = new AudioEngine();
-  eng.init(SPACE, () => {}, () => {}, undefined, () => {}, (stream, mode) => local.push(mode));
+  eng.init(TEAM, () => {}, () => {}, undefined, () => {}, (stream, mode) => local.push(mode));
+  eng.updateGains({ x: 100, y: 100 }, new Map()); // standing in the team space
 
   const sharing = eng.startScreenShare();
   capture.release();
@@ -774,4 +780,151 @@ test("spatialGain: the meeting room is full volume inside and soundproof across"
   assert.equal(spatialGain(LOBBY, { x: 470, y: 50 }, { x: 490, y: 50 }), 0);
   // No room (a team space): plain distance.
   assert.equal(spatialGain(SPACE, { x: 490, y: 50 }, { x: 470, y: 50 }), 1 - 20 / 300);
+});
+
+// --- Screen share in a group place (a team space, or the meeting room) ------
+
+const IN_ROOM = { x: 600, y: 100 };
+const OUT_OF_ROOM = { x: 300, y: 400 };
+
+/** Connect peers and return each one's PC by id. */
+async function connectAll(eng, ids, kind = "proximity") {
+  const pcs = {};
+  for (const id of ids) {
+    await eng.connect(id, true, kind);
+    pcs[id] = FakePC.instances.at(-1);
+  }
+  return pcs;
+}
+
+/** Start a screen share whose picker returns straight away. */
+async function shareScreen(eng) {
+  const capture = deferredCapture();
+  navigator.mediaDevices.getDisplayMedia = capture.request;
+  const sharing = eng.startScreenShare();
+  capture.release();
+  await sharing;
+  return capture;
+}
+
+test("inGroupPlace: anywhere in a team space, only inside the lobby's meeting room", () => {
+  assert.equal(inGroupPlace(TEAM, { x: 10, y: 10 }), true);
+  assert.equal(inGroupPlace(LOBBY, IN_ROOM), true);
+  assert.equal(inGroupPlace(LOBBY, OUT_OF_ROOM), false);
+});
+
+test("a screen share in the meeting room reaches the people inside, not the floor outside", async () => {
+  installMocks();
+  FakePC.makeSender = () => fakeSender([]);
+  const eng = new AudioEngine();
+  eng.init(LOBBY, () => {}, () => {});
+  const pcs = await connectAll(eng, ["in", "out"]);
+  eng.updateGains(IN_ROOM, new Map([["in", { x: 700, y: 200 }], ["out", { x: 470, y: 100 }]]));
+
+  const capture = await shareScreen(eng);
+  assert.equal(eng.isScreenSharing, true);
+  assert.ok(pcs.in.added?.includes(capture.track), "the peer in the room gets the screen");
+  assert.ok(!pcs.out.added?.includes(capture.track), "the peer through the wall does not");
+});
+
+test("walking out of the meeting room ends the share", async () => {
+  installMocks();
+  FakePC.makeSender = () => fakeSender([]);
+  const eng = new AudioEngine();
+  eng.init(LOBBY, () => {}, () => {});
+  const positions = new Map([["in", { x: 700, y: 200 }]]);
+  await connectAll(eng, ["in"]);
+  eng.updateGains(IN_ROOM, positions);
+  const capture = await shareScreen(eng);
+
+  eng.updateGains(OUT_OF_ROOM, positions);
+  assert.equal(eng.isScreenSharing, false, "the share ended at the door");
+  assert.equal(capture.track.stopped, true, "the capture was released");
+});
+
+test("walking out of the meeting room with the picker still open cancels the share", async () => {
+  installMocks();
+  const capture = deferredCapture();
+  navigator.mediaDevices.getDisplayMedia = capture.request;
+  const eng = new AudioEngine();
+  eng.init(LOBBY, () => {}, () => {});
+  eng.updateGains(IN_ROOM, new Map());
+
+  const sharing = eng.startScreenShare();
+  eng.updateGains(OUT_OF_ROOM, new Map());
+  capture.release();
+  await sharing;
+
+  assert.equal(capture.track.stopped, true, "the late capture stopped itself");
+  assert.equal(eng.isScreenSharing, false);
+});
+
+test("a screen share from the open floor, outside any place, does not start", async () => {
+  installMocks();
+  const eng = new AudioEngine();
+  eng.init(LOBBY, () => {}, () => {});
+  eng.updateGains(OUT_OF_ROOM, new Map());
+
+  const capture = await shareScreen(eng);
+  assert.equal(eng.isScreenSharing, false);
+  assert.equal(capture.track.stopped, true);
+});
+
+test("a call taking over ends a share meant for the room", async () => {
+  installMocks();
+  FakePC.makeSender = () => fakeSender([]);
+  const eng = new AudioEngine();
+  eng.init(TEAM, () => {}, () => {});
+  const pcs = await connectAll(eng, ["mate"]);
+  eng.updateGains({ x: 100, y: 100 }, new Map([["mate", { x: 400, y: 300 }]]));
+  const capture = await shareScreen(eng);
+  assert.ok(pcs.mate.added?.includes(capture.track), "the room gets the screen");
+
+  const caller = (await connectAll(eng, ["9"], "page"))["9"];
+  assert.equal(eng.isScreenSharing, false, "the room's share does not carry into the call");
+  assert.ok(!caller.added?.includes(capture.track), "the caller never got it");
+});
+
+test("a screen shared in a call ends with the call and never reaches the room", async () => {
+  installMocks();
+  FakePC.makeSender = () => fakeSender([]);
+  const eng = new AudioEngine();
+  eng.init(TEAM, () => {}, () => {});
+  const pcs = await connectAll(eng, ["mate"]);
+  const caller = (await connectAll(eng, ["9"], "page"))["9"];
+  eng.updateGains({ x: 100, y: 100 }, new Map([["mate", { x: 400, y: 300 }]]));
+
+  const capture = await shareScreen(eng);
+  assert.ok(caller.added?.includes(capture.track), "the call gets the screen");
+  assert.ok(!pcs.mate.added?.includes(capture.track), "the room does not");
+
+  eng.endPage("9");
+  assert.equal(eng.isScreenSharing, false, "hanging up stops the share");
+  assert.ok(!pcs.mate.added?.includes(capture.track), "it did not fall through to the room");
+});
+
+test("switching spaces ends a share meant for the room left behind", async () => {
+  installMocks();
+  const eng = new AudioEngine();
+  eng.init(TEAM, () => {}, () => {});
+  eng.updateGains({ x: 100, y: 100 }, new Map());
+  const capture = await shareScreen(eng);
+
+  eng.disconnectAllProximity();
+  assert.equal(eng.isScreenSharing, false);
+  assert.equal(capture.track.stopped, true);
+});
+
+test("a room peer's screen reaches the viewer, not only a caller's", async () => {
+  installMocks();
+  const seen = [];
+  const eng = new AudioEngine();
+  eng.init(TEAM, () => {}, () => {}, undefined, (peerId, stream, mode) => seen.push({ peerId, stream, mode }));
+  const pc = (await connectAll(eng, ["mate"]))["mate"];
+
+  const track = fakeVideoTrack();
+  const stream = new FakeMediaStream([track]);
+  pc.fire("track", { streams: [stream], track });
+  await eng.handleSignal("mate", { kind: "video-mode", mode: "screen" });
+  assert.deepEqual(seen.at(-1), { peerId: "mate", stream, mode: "screen" });
 });

@@ -53,6 +53,17 @@ export function spatialGain(
 }
 
 /**
+ * Whether `pos` stands in a group place, where everyone is linked to everyone
+ * at once: anywhere in a team space (its radii span the room — PROTOCOL.md
+ * §Space configuration) or inside the lobby's meeting room. A screen share
+ * started outside a call goes to the place, not just to whoever is near.
+ */
+export function inGroupPlace(space: SpaceDescriptor, pos: { x: number; y: number }): boolean {
+  if (space.kind === "team") return true;
+  return space.meetingRoom !== undefined && rectContains(space.meetingRoom, pos);
+}
+
+/**
  * Fallback ICE servers if `init()` is called without an explicit list (e.g.
  * unit tests). The real client resolves these from config.ts so a hosted build
  * can inject TURN (NFR-07); see config.getIceServers().
@@ -75,6 +86,18 @@ const STUN_SERVERS: RTCIceServer[] = [
  * with a near peer falls back to proximity audio instead of going silent.
  */
 export type LinkKind = "proximity" | "page";
+
+/**
+ * What a local video was started for, which fixes who it may ever reach:
+ *  - "call"  — the live page links. The camera is always this, and so is a
+ *    screen share started during a call. Ends when the last call does.
+ *  - "place" — everyone in the group place we stand in (see inGroupPlace): a
+ *    screen share started outside a call. Ends when we leave the place or a
+ *    call takes over.
+ * A video never moves between the two: a call's screen must not carry on to
+ * the room once the call ends, nor a room's into a call.
+ */
+type VideoScope = "call" | "place";
 
 // ---------------------------------------------------------------------------
 // Internal per-peer state
@@ -247,6 +270,12 @@ export class AudioEngine {
    *  assigned yet, and the OS keeps recording the screen after the user left. */
   private videoEpoch = 0;
   private pendingVideoMode: "screen" | "camera" | null = null;
+  /** What the current (or in-flight) local video is for — see VideoScope. */
+  private videoScope: VideoScope = "call";
+
+  /** Positions from the last `updateGains`; a place share follows them. */
+  private selfPos: { x: number; y: number } | null = null;
+  private peerPositions: ReadonlyMap<string, { x: number; y: number }> = new Map();
 
   /**
    * ICE servers used for every RTCPeerConnection. Resolved from config.ts by
@@ -325,15 +354,15 @@ export class AudioEngine {
     if (existing) {
       if (kind === "page") existing.page = true;
       else existing.proximity = true;
-      // A page link may open on an existing proximity PC; attach our video
-      // now if we already have one active (page-only — see _addVideoTrack).
-      if (kind === "page") this._addVideoTrack(existing);
-      return;
+    } else {
+      // initiator == impolite, so polite = !initiator
+      this._ensurePeer(peerId, /* polite */ !initiator, kind);
+      // No manual offer here: adding the track (now or on unmute) triggers
+      // onnegotiationneeded, which drives the offer through perfect negotiation.
     }
-    // initiator == impolite, so polite = !initiator
-    this._ensurePeer(peerId, /* polite */ !initiator, kind);
-    // No manual offer here: adding the track (now or on unmute) triggers
-    // onnegotiationneeded, which drives the offer through perfect negotiation.
+    // The new link may be in our video's audience — or, when a call opens,
+    // end a share meant for the place around us.
+    this._syncVideoLinks();
   }
 
   /** Hard-close and forget a peer regardless of membership (used on teardown). */
@@ -365,6 +394,8 @@ export class AudioEngine {
     if (!entry) return;
     entry.page = false;
     if (!entry.proximity) this._dropPeer(entry);
+    // The last call ending ends the video shared in it.
+    this._syncVideoLinks();
   }
 
   /**
@@ -373,6 +404,10 @@ export class AudioEngine {
    * link survives the move (PROTOCOL.md §"enter_space").
    */
   disconnectAllProximity(): void {
+    // A place share belongs to the space we are leaving. Ended here, not on the
+    // next frame: until then the positions are the old space's, and anywhere
+    // in a team space counts as the place.
+    if (this.videoScope === "place") this._endVideo();
     for (const entry of this.peers.values()) {
       entry.proximity = false;
       if (!entry.page) this._dropPeer(entry);
@@ -550,6 +585,9 @@ export class AudioEngine {
    * While any page link is live the space audio is fully muted (product
    * decision): page takes over the ears, and proximity gain is restored when
    * the page ends.
+   *
+   * The same positions decide who a place share reaches, so this also keeps
+   * our video in step with people walking in and out of the meeting room.
    */
   updateGains(
     selfPos: { x: number; y: number },
@@ -558,6 +596,8 @@ export class AudioEngine {
     if (!this.space) return;
     const space = this.space;
     const paging = this.hasPage();
+    this.selfPos = selfPos;
+    this.peerPositions = peerPositions;
 
     for (const [id, entry] of this.peers) {
       if (!entry.gainNode) continue;
@@ -577,6 +617,7 @@ export class AudioEngine {
       }
       entry.gainNode.gain.value = spatialGain(space, selfPos, pos);
     }
+    this._syncVideoLinks();
   }
 
   // -------------------------------------------------------------------------
@@ -830,15 +871,16 @@ export class AudioEngine {
   }
 
   /**
-   * Start sharing the user's screen/window to **page** (1:1 call) peers only.
-   * The browser picker must be launched from a user gesture, so UI calls this
-   * directly from the share button. Adding/removing the video track relies on
-   * the same perfect-negotiation path as mic changes. Mutually exclusive with
-   * the camera — starting this stops any active camera first.
+   * Start sharing the user's screen/window: to the call while one is live,
+   * otherwise to the group place we stand in (see VideoScope). The browser
+   * picker must be launched from a user gesture, so UI calls this directly
+   * from the share button. Adding/removing the video track relies on the same
+   * perfect-negotiation path as mic changes. Mutually exclusive with the
+   * camera — starting this stops any active camera first.
    */
   async startScreenShare(): Promise<void> {
     if (this.videoMode === "screen") return;
-    const epoch = this._beginVideoAcquire("screen");
+    const epoch = this._beginVideoAcquire("screen", this.hasPage() ? "call" : "place");
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
@@ -868,8 +910,9 @@ export class AudioEngine {
   }
 
   /** Open an acquisition window for `mode`; any earlier one goes stale. */
-  private _beginVideoAcquire(mode: "screen" | "camera"): number {
+  private _beginVideoAcquire(mode: "screen" | "camera", scope: VideoScope): number {
     this.pendingVideoMode = mode;
+    this.videoScope = scope;
     return ++this.videoEpoch;
   }
 
@@ -943,7 +986,7 @@ export class AudioEngine {
    */
   async startCamera(): Promise<void> {
     if (this.videoMode === "camera") return;
-    const epoch = this._beginVideoAcquire("camera");
+    const epoch = this._beginVideoAcquire("camera", "call");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: true,
@@ -972,11 +1015,12 @@ export class AudioEngine {
 
   /**
    * Assign a newly-acquired video track/stream as the active local video and
-   * push it to every page peer. If switching modes (e.g. screen → camera)
-   * while a peer already holds a sender from the previous track, swap it in
-   * place via `replaceTrack` — no renegotiation, no gap in the local preview,
-   * and a single "video-mode" signal per peer instead of a remove-then-add
-   * pair that would briefly tell the peer "video stopped" mid-switch.
+   * push it to its audience (see _videoAudience). If switching modes (e.g.
+   * screen → camera) while a peer already holds a sender from the previous
+   * track, swap it in place via `replaceTrack` — no renegotiation, no gap in
+   * the local preview, and a single "video-mode" signal per peer instead of a
+   * remove-then-add pair that would briefly tell the peer "video stopped"
+   * mid-switch.
    */
   private _startVideo(mode: "screen" | "camera", stream: MediaStream, track: MediaStreamTrack): void {
     const previousTrack = this.videoTrack;
@@ -985,25 +1029,23 @@ export class AudioEngine {
     this.videoMode = mode;
 
     for (const entry of this.peers.values()) {
-      if (!entry.page) continue;
       const sender = entry.videoSender;
-      if (sender) {
-        this._queueVideoUpdate(entry, async () => {
-          if (entry.videoSender !== sender || this.videoTrack !== track) return;
-          await sender.replaceTrack(track);
-          if (entry.videoSender !== sender || this.videoTrack !== track) return;
-          await this._applyVideoEncoding(sender, mode);
-        });
-        this.sendSignal?.(entry.id, { kind: "video-mode", mode });
-      } else {
-        this._addVideoTrack(entry);
-      }
+      if (!sender || !this._videoAudience(entry)) continue;
+      this._queueVideoUpdate(entry, async () => {
+        if (entry.videoSender !== sender || this.videoTrack !== track) return;
+        await sender.replaceTrack(track);
+        if (entry.videoSender !== sender || this.videoTrack !== track) return;
+        await this._applyVideoEncoding(sender, mode);
+      });
+      this.sendSignal?.(entry.id, { kind: "video-mode", mode });
     }
 
     if (previousTrack && previousTrack !== track && previousTrack.readyState !== "ended") {
       previousTrack.stop();
     }
     this.onLocalVideo?.(stream, mode);
+    // Adds a sender for everyone in the audience who has none yet.
+    this._syncVideoLinks();
   }
 
   /** Tear down whatever local video (screen or camera) is currently active. */
@@ -1024,6 +1066,44 @@ export class AudioEngine {
     }
     this.videoStream = null;
     this.onLocalVideo?.(null, null);
+  }
+
+  /** End local video, live or still being acquired. */
+  private _endVideo(): void {
+    this._cancelVideoAcquire(null);
+    if (this.videoMode !== null) this._stopVideo();
+  }
+
+  /**
+   * Whether our local video should reach this peer, by what it was started
+   * for: a call's video goes to call peers only, a place share to every
+   * proximity peer standing in the same group place as us.
+   */
+  private _videoAudience(entry: PeerConn): boolean {
+    if (this.videoScope === "call") return entry.page;
+    const pos = this.peerPositions.get(entry.id);
+    return entry.proximity && pos !== undefined && this._inPlace() && inGroupPlace(this.space!, pos);
+  }
+
+  /** Whether we stand in a group place, as of the last `updateGains`. */
+  private _inPlace(): boolean {
+    return this.space !== null && this.selfPos !== null && inGroupPlace(this.space, this.selfPos);
+  }
+
+  /**
+   * Bring every link's video in line with its audience, after anything that
+   * can change it: a link opening or a call ending, local video starting, or
+   * someone moving. First ends a video whose reason is gone — a call's when
+   * the last call ends, a place share when we leave the place or a call takes
+   * over — so it never falls through to whoever happens to be around.
+   */
+  private _syncVideoLinks(): void {
+    const paging = this.hasPage();
+    if (this.videoScope === "call" ? !paging : paging || !this._inPlace()) this._endVideo();
+    for (const entry of this.peers.values()) {
+      if (this._videoAudience(entry)) this._addVideoTrack(entry);
+      else this._removeVideoTrack(entry);
+    }
   }
 
   /**
@@ -1130,11 +1210,13 @@ export class AudioEngine {
 
     // Remote audio/video arrives here. We always addTrack WITH a stream, so
     // ev.streams[0] is reliably populated for both mic and screen share.
+    // Video is taken from any link: the sender decides who it reaches (a call,
+    // or a place share), and main.ts decides which one is shown.
     pc.addEventListener("track", (ev) => {
       const stream = ev.streams[0] ?? new MediaStream([ev.track]);
       if (ev.track.kind === "audio" || !ev.track.kind) {
         this._attachRemoteAudioStream(entry, stream);
-      } else if (ev.track.kind === "video" && entry.page) {
+      } else if (ev.track.kind === "video") {
         this._attachRemoteVideoStream(entry, stream, ev.track);
       }
     });
@@ -1147,13 +1229,10 @@ export class AudioEngine {
         console.error("[audio] addTrack error:", err);
       }
     }
-    if (this.videoTrack && this.videoStream && entry.page) this._addVideoTrack(entry);
-
     return entry;
   }
 
   private _addVideoTrack(entry: PeerConn): void {
-    if (!entry.page) return;
     const { videoTrack: track, videoStream: stream, videoMode: mode } = this;
     if (!track || !stream || !mode || entry.videoSender) return;
     try {
