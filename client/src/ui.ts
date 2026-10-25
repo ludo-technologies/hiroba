@@ -459,6 +459,10 @@ export interface UICallbacks {
 /** Call banner mode: live conversation vs ring states. */
 export type CallBannerMode = "in_call" | "outgoing" | "incoming";
 
+/** Who a screen share would reach right now: the live call, the group place
+ *  we stand in, or nobody (no share button). */
+export type ShareTarget = "call" | "place" | null;
+
 /**
  * A roster row, fully prepared by main.ts (which knows the space catalog and
  * self state). The UI just renders it.
@@ -577,6 +581,7 @@ export class UIManager {
   private lastMicLevelPct = 0;
   private lastCall: { mode: CallBannerMode; text: string } | null = null;
   private lastScreenSharing = false;
+  private lastShareTarget: ShareTarget = null;
   private lastCameraOn = false;
   private lastScreenFullscreen = false;
   private lastScreenReopenVisible = false;
@@ -2044,8 +2049,20 @@ export class UIManager {
   setScreenSharing(sharing: boolean): void {
     this.lastScreenSharing = sharing;
     elScreenShare.textContent = sharing ? t.stopSharing : t.shareScreen;
-    elScreenShare.title = sharing ? t.stopSharingTitle : t.shareScreenTitle;
+    elScreenShare.title = sharing
+      ? t.stopSharingTitle
+      : this.lastShareTarget === "place"
+        ? t.shareScreenRoomTitle
+        : t.shareScreenTitle;
     elScreenShare.setAttribute("aria-pressed", sharing ? "true" : "false");
+  }
+
+  /** Show the share button while there is someone to share with, and say who. */
+  setShareTarget(target: ShareTarget): void {
+    this.lastShareTarget = target;
+    if (target) elScreenShare.removeAttribute("hidden");
+    else elScreenShare.setAttribute("hidden", "");
+    this.setScreenSharing(this.lastScreenSharing);
   }
 
   /** Reflect whether the local user is currently sending their camera. */

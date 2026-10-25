@@ -1556,9 +1556,7 @@ a.hud-pill {
   background: var(--danger);
 }
 
-#screen-share,
 #camera-toggle,
-#screen-reopen,
 #call-accept,
 #hangup {
   border: none;
@@ -1572,21 +1570,14 @@ a.hud-pill {
   transition: filter 0.15s;
 }
 
-#screen-share,
 #camera-toggle {
   background: var(--sage);
 }
 
-#screen-reopen {
-  background: var(--accent-lo);
-}
-
-#screen-reopen[hidden],
 #call-accept[hidden] {
   display: none;
 }
 
-#screen-share[aria-pressed="true"],
 #camera-toggle[aria-pressed="true"] {
   background: var(--accent);
 }
@@ -1599,21 +1590,15 @@ a.hud-pill {
   background: var(--danger);
 }
 
-#screen-share:hover,
 #camera-toggle:hover,
-#screen-reopen:hover,
 #call-accept:hover,
 #hangup:hover {
   filter: brightness(1.08);
 }
 
 /* Hide in-call-only controls while ringing. */
-.call-banner[data-mode="incoming"] #screen-share,
 .call-banner[data-mode="incoming"] #camera-toggle,
-.call-banner[data-mode="incoming"] #screen-reopen,
-.call-banner[data-mode="outgoing"] #screen-share,
-.call-banner[data-mode="outgoing"] #camera-toggle,
-.call-banner[data-mode="outgoing"] #screen-reopen {
+.call-banner[data-mode="outgoing"] #camera-toggle {
   display: none;
 }
 
@@ -2264,6 +2249,18 @@ a.hud-pill {
 
 .chat-send:hover {
   background: var(--accent-hi);
+}
+
+/* HUD screen share: there only while someone can see it (call or group place). */
+#screen-share[hidden],
+#screen-reopen[hidden] {
+  display: none;
+}
+
+#screen-share[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 /* HUD chat button: the unread count sits on its shoulder. */

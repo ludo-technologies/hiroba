@@ -23,7 +23,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { HirobaNet } from "./net.js";
 import { Renderer, type FrameLevels, type RenderActivity } from "./render.js";
 import { InputHandler, isTypingTarget } from "./input.js";
-import { AudioEngine, spatialGain } from "./audio.js";
+import { AudioEngine, inGroupPlace, spatialGain } from "./audio.js";
 import {
   UIManager,
   type InviteEntry,
@@ -31,6 +31,7 @@ import {
   type JoinFormValues,
   type MemberEntry,
   type RosterEntry,
+  type ShareTarget,
 } from "./ui.js";
 import {
   isLowRateFrameDue,
@@ -246,6 +247,7 @@ let audioSettingsTimer = 0;
 let moveHintActive = false;
 let nudgeShown = false;
 let inMeetingRoom = false;
+let shareTargetShown: ShareTarget = null;
 let connectAbort: AbortController | null = null;
 
 // Idle → away (NFR-01: dim + go quiet after inactivity).
@@ -1707,6 +1709,8 @@ function initSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[]
   nudgeShown = false;
   inMeetingRoom = false;
   ui.hideRoomHint();
+  shareTargetShown = null;
+  ui.setShareTarget(null);
 }
 
 // ---------------------------------------------------------------------------
@@ -1853,6 +1857,7 @@ function runFrame(now: number): void {
   }
 
   updateNudge();
+  syncShareButton();
 
   if (
     shouldKeepAwake(
@@ -1894,6 +1899,24 @@ function updateNudge(): void {
     inMeetingRoom = inRoom;
     if (inRoom) ui.showRoomHint();
     else ui.hideRoomHint();
+  }
+}
+
+/** Who a screen share started now would reach: the call while one is live
+ *  (it takes over the screen as it does the ears), otherwise the group place
+ *  we stand in — a team space, or the lobby's meeting room. */
+function shareTarget(s: Session): ShareTarget {
+  if (s.pages.size > 0) return "call";
+  return inGroupPlace(s.space, s.input.position) ? "place" : null;
+}
+
+/** Offer the share button only while there is someone to share with. */
+function syncShareButton(): void {
+  if (!session) return;
+  const target = shareTarget(session);
+  if (target !== shareTargetShown) {
+    shareTargetShown = target;
+    ui.setShareTarget(target);
   }
 }
 
@@ -2151,10 +2174,6 @@ function bindServerMessages(net: HirobaNet): void {
     if (wasIncoming && e.detail.reason === "timeout") ui.showToast(t.pageMissed(name));
     session.remoteVideos.delete(from);
     syncVideoViews();
-    if (session.pages.size === 0) {
-      stopScreenShare();
-      stopCamera();
-    }
     updateCallBanner();
     syncIncomingAlert();
     void restoreMuteAfterPage();
@@ -2216,18 +2235,8 @@ function updateCallBanner(): void {
     } else {
       ui.setCall({ mode: "in_call", text: t.inCallN(n) });
     }
-    syncScreenReopenButton();
     return;
   }
-
-  // Not in a live page: hide screen-share chrome.
-  ui.setScreenSharing(false);
-  ui.setCameraOn(false);
-  ui.setScreenShareView(null, "");
-  ui.setScreenReopenVisible(false);
-  session.visibleScreen = null;
-  session.screenDismissed = false;
-  session.localPromoted = false;
 
   if (focus?.mode === "incoming") {
     ui.setCall({ mode: "incoming", text: t.pageIncoming(focus.name) });
@@ -2238,7 +2247,6 @@ function updateCallBanner(): void {
     return;
   }
   ui.setCall(null);
-  syncScreenReopenButton();
 }
 
 /**
@@ -2275,13 +2283,14 @@ async function requestWindowAttention(active: boolean): Promise<void> {
   }
 }
 
-/** Pick the best remote video to show (page peers only; a screen share beats
- *  a camera, then earliest-started wins). */
+/** Pick the best remote video to show (a screen share beats a camera, then
+ *  earliest-started wins). While a call is live only its peers count: the
+ *  call takes over the screen as it does the ears. */
 function preferredRemoteVideo(): { peerId: string; stream: MediaStream; mode: "screen" | "camera" | null } | null {
   if (!session) return null;
   let first: { peerId: string; stream: MediaStream; mode: "screen" | "camera" | null } | null = null;
   for (const [peerId, entry] of session.remoteVideos) {
-    if (!session.pages.has(peerId)) continue;
+    if (session.pages.size > 0 && !session.pages.has(peerId)) continue;
     if (entry.mode === "screen") return { peerId, ...entry };
     first ??= { peerId, ...entry };
   }
@@ -2305,7 +2314,6 @@ function videoTitle(mode: "screen" | "camera" | null, peerName: string): string 
 
 function handleRemoteVideo(peerId: string, stream: MediaStream | null, mode: "screen" | "camera" | null): void {
   if (!session) return;
-  if (!session.pages.has(peerId)) return;
 
   if (stream) {
     session.remoteVideos.set(peerId, { stream, mode });
@@ -2350,7 +2358,7 @@ function syncVideoViews(): void {
 
   if (remote && !session.localPromoted) {
     session.visibleScreen = { kind: "remote", peerId: remote.peerId };
-    ui.setScreenShareView(remote.stream, videoTitle(remote.mode, session.pages.get(remote.peerId) ?? remote.peerId));
+    ui.setScreenShareView(remote.stream, videoTitle(remote.mode, session.roster.get(remote.peerId)?.name ?? remote.peerId));
     ui.setSelfView(local);
   } else if (local) {
     session.visibleScreen = { kind: "local" };
@@ -2582,13 +2590,13 @@ function handleHangUp(): void {
   if (focus.mode === "in_call") {
     for (const id of session.pages.keys()) {
       session.net.send({ t: "page_end", to: id });
-      session.audio.endPage(id); // keeps proximity audio if still near
+      // Keeps proximity audio if still near; the last one ends the call's video.
+      session.audio.endPage(id);
+      session.remoteVideos.delete(id);
     }
     session.pages.clear();
-    session.remoteVideos.clear();
     session.screenDismissed = false;
-    stopScreenShare();
-    stopCamera();
+    syncVideoViews();
     void restoreMuteAfterPage();
   } else if (focus.mode === "incoming") {
     session.net.send({ t: "page_end", to: focus.peerId });
@@ -2608,13 +2616,19 @@ async function handleScreenShareToggle(): Promise<void> {
   if (!session) return;
   const activeSession = session;
   markActive();
-  if (activeSession.pages.size === 0) return;
-  const pagePeers = new Set(activeSession.pages.keys());
 
   if (activeSession.audio.isScreenSharing) {
     stopScreenShare();
     return;
   }
+
+  // Who this share is for. The permission prompt below can outlive the call
+  // or the room it was opened in, and the share must not then start in front
+  // of someone else.
+  const target = shareTarget(activeSession);
+  if (!target) return;
+  const pagePeers = new Set(activeSession.pages.keys());
+  const spaceId = activeSession.spaceId;
 
   // macOS gates whole-display capture behind the Screen Recording permission,
   // and a missing grant doesn't error — it yields black frames. Preflight in
@@ -2640,7 +2654,10 @@ async function handleScreenShareToggle(): Promise<void> {
 
   if (
     session !== activeSession ||
-    ![...pagePeers].some((peerId) => activeSession.pages.has(peerId))
+    shareTarget(activeSession) !== target ||
+    (target === "call"
+      ? ![...pagePeers].some((peerId) => activeSession.pages.has(peerId))
+      : activeSession.spaceId !== spaceId)
   ) return;
   try {
     await activeSession.audio.startScreenShare();

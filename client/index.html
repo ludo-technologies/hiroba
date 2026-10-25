@@ -632,9 +632,7 @@
     <div id="call-banner" class="call-banner" hidden role="status" aria-live="polite">
       <span class="call-dot" aria-hidden="true"></span>
       <span id="call-text">In call</span>
-      <button id="screen-share" type="button" data-i18n="shareScreen">Share screen</button>
       <button id="camera-toggle" type="button" aria-pressed="false" data-i18n="cameraOn" data-i18n-title="cameraOnTitle">Turn on camera</button>
-      <button id="screen-reopen" type="button" hidden data-i18n="viewScreen">View screen</button>
       <button id="call-accept" type="button" hidden data-i18n="pageAccept">Answer</button>
       <button id="hangup" type="button" data-i18n="hangUp">Hang up</button>
     </div>
@@ -740,6 +738,10 @@
           </svg>
           <span id="chat-unread" class="chat-unread" hidden></span>
         </button>
+        <!-- Shown while there is someone to share with: the call, or the group
+             place we stand in (a team space, or the lobby's meeting room). -->
+        <button id="screen-share" class="hud-btn" type="button" hidden aria-pressed="false" data-i18n="shareScreen">Share screen</button>
+        <button id="screen-reopen" class="hud-btn" type="button" hidden data-i18n="viewScreen">View screen</button>
       </div>
       <div class="hud-group">
         <!-- Browser sessions only: the way from "tried it" to "installed it".
