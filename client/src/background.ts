@@ -8,6 +8,9 @@
  * blurred copy of the frame or from the picture. The result leaves as a
  * canvas capture track that stands in for the raw camera in the call.
  *
+ * @mediapipe/tasks-vision is pinned to 0.10.35 on purpose: from 1.0.0 every
+ * task reports usage to Google (odml.pa.googleapis.com) once a minute.
+ *
  * audio.ts loads this module with a dynamic import the first time an effect
  * is used, so the model and its ~11 MB WASM runtime cost nothing for anyone
  * who never turns one on.
