@@ -23,7 +23,8 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { HirobaNet } from "./net.js";
 import { Renderer, type FrameLevels, type RenderActivity } from "./render.js";
 import { InputHandler, isTypingTarget } from "./input.js";
-import { AudioEngine, inGroupPlace, spatialGain } from "./audio.js";
+import { AudioEngine, BackgroundEffectError, inGroupPlace, spatialGain } from "./audio.js";
+import type { CameraBackground } from "./background.js";
 import {
   UIManager,
   type InviteEntry,
@@ -295,6 +296,7 @@ const ui = new UIManager(
     onCloseAudioSettings: handleCloseAudioSettings,
     onMicDeviceChange: handleMicDeviceChange,
     onSpeakerDeviceChange: handleSpeakerDeviceChange,
+    onCameraBackgroundChange: handleCameraBackgroundChange,
     onLeave: handleLeave,
     onCancelReconnect: handleCancelReconnect,
     onEnterSpace: handleEnterSpace,
@@ -1628,6 +1630,11 @@ function initSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[]
   // acquired yet, so this just seeds the preference for the first unmute).
   void audio.setMicDevice(localStorage.getItem(LS_MIC_DEVICE));
   void audio.setSpeakerDevice(localStorage.getItem(LS_SPEAKER_DEVICE));
+  // Likewise the camera background, ready for the first camera start.
+  void ui
+    .savedCameraBackground()
+    .then((background) => audio.setCameraBackground(background))
+    .catch(() => ui.showToast(t.errBackground, "error"));
 
   // The server echoes the *validated* avatar in `you`; trusting it (not the
   // form value) keeps what we render for ourselves consistent with what
@@ -2690,11 +2697,18 @@ async function handleCameraToggle(): Promise<void> {
     if (![...pagePeers].some((peerId) => activeSession.pages.has(peerId))) {
       activeSession.audio.stopCamera();
     }
-  } catch {
+  } catch (err) {
     if (session !== activeSession) return;
-    ui.setCameraOn(false);
-    ui.showToast(t.errCameraDenied, "error");
+    // A background picked while the camera was starting can fail after the
+    // camera is already on.
+    ui.setCameraOn(activeSession.audio.isCameraOn);
+    ui.showToast(err instanceof BackgroundEffectError ? t.errBackground : t.errCameraDenied, "error");
   }
+}
+
+function handleCameraBackgroundChange(background: CameraBackground): void {
+  if (!session) return;
+  void session.audio.setCameraBackground(background).catch(() => ui.showToast(t.errBackground, "error"));
 }
 
 function handleCloseScreenShare(): void {

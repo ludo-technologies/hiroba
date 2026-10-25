@@ -29,6 +29,7 @@ import { CODE_LENGTH, extractInviteCode, inviteLinkUrl, sanitizeCode, type OrgSu
 import { CustomSelect, type SelectOption } from "./select.js";
 import { bindOverlayDismiss } from "./overlay.js";
 import { AVATAR_MAX_CHARS, AVATAR_PRESETS, encodeAvatar, encodePreset, isPresetId, loadImage, presetSvg } from "./avatars.js";
+import type { CameraBackground } from "./background.js";
 
 /** Picker order; the first is the default. */
 const TEAM_LAYOUTS: TeamLayout[] = ["meeting", "desks", "lounge", "cafe"];
@@ -44,6 +45,10 @@ const LS_AVATAR_PRESET = "hiroba_avatar_preset";
 const LS_SERVER = "hiroba_server";
 const LS_TOKEN = "hiroba_token";
 const LS_AUTH = "hiroba_auth_server";
+/** "blur" or "image"; absent means no background. */
+const LS_CAMERA_BACKGROUND = "hiroba_camera_background";
+/** The picked picture, as a data URL from encodeBackground. */
+const LS_CAMERA_BACKGROUND_IMAGE = "hiroba_camera_background_image";
 
 // Default signaling / auth URLs, baked in at build time via Vite's
 // `VITE_HIROBA_SERVER` / `VITE_HIROBA_AUTH_SERVER` (set in the environment or
@@ -238,6 +243,8 @@ const elAudioSettings = $<HTMLDivElement>("audio-settings");
 const elAudioSettingsClose = $<HTMLButtonElement>("audio-settings-close");
 const elMicSelectHost = $<HTMLElement>("mic-device-select");
 const elSpeakerSelectHost = $<HTMLElement>("speaker-device-select");
+const elBackgroundSelectHost = $<HTMLElement>("camera-background-select");
+const elBackgroundFile = $<HTMLInputElement>("camera-background-file");
 const elLangSwitchSettings = $<HTMLDivElement>("lang-switch-settings");
 const elMicLevel = $<HTMLDivElement>("mic-level");
 const elMicLevelBar = $<HTMLDivElement>("mic-level-bar");
@@ -259,6 +266,7 @@ const elCallBanner = $<HTMLDivElement>("call-banner");
 const elCallText = $<HTMLSpanElement>("call-text");
 const elScreenShare = $<HTMLButtonElement>("screen-share");
 const elCameraToggle = $<HTMLButtonElement>("camera-toggle");
+const elCameraBackground = $<HTMLButtonElement>("camera-background");
 const elScreenReopen = $<HTMLButtonElement>("screen-reopen");
 const elCallAccept = $<HTMLButtonElement>("call-accept");
 const elHangup = $<HTMLButtonElement>("hangup");
@@ -405,7 +413,8 @@ export interface UICallbacks {
   /** Admin opens the Stripe Customer Portal (add card / change plan / cancel). */
   onOpenBilling(): void;
   onMicToggle(): void;
-  /** Gear next to the mic button opened the audio-settings panel. */
+  /** The gear next to the mic button, or the call banner's background
+   *  button, opened the settings panel. */
   onOpenAudioSettings(): void;
   /** The audio-settings panel closed (stop any mic preview). */
   onCloseAudioSettings(): void;
@@ -413,6 +422,8 @@ export interface UICallbacks {
   onMicDeviceChange(deviceId: string): void;
   /** Chose a speaker from the audio-settings panel ("" = system default). */
   onSpeakerDeviceChange(deviceId: string): void;
+  /** Chose what goes behind the user on camera (already saved). */
+  onCameraBackgroundChange(background: CameraBackground): void;
   onLeave(): void;
   /** Cancel an in-progress auto-reconnect and return to the join screen. */
   onCancelReconnect(): void;
@@ -625,6 +636,7 @@ export class UIManager {
   private readonly orgSelect: CustomSelect;
   private readonly micSelect: CustomSelect;
   private readonly speakerSelect: CustomSelect;
+  private readonly backgroundSelect: CustomSelect;
 
   constructor(callbacks: UICallbacks, opts: { tauri: boolean }) {
     this.callbacks = callbacks;
@@ -643,6 +655,11 @@ export class UIManager {
       onChange: (deviceId) => this.callbacks.onSpeakerDeviceChange(deviceId),
       ariaLabel: t.fieldSpeaker,
     });
+    this.backgroundSelect = new CustomSelect(elBackgroundSelectHost, {
+      onChange: (kind) => void this._chooseBackground(kind),
+      ariaLabel: t.fieldCameraBackground,
+    });
+    this._syncBackgroundSelect();
 
     this._buildSwatches();
     this._buildPresets();
@@ -707,6 +724,7 @@ export class UIManager {
     elHud.setAttribute("hidden", "");
     this.micSelect.close();
     this.speakerSelect.close();
+    this.backgroundSelect.close();
     elAudioSettings.setAttribute("hidden", "");
     elSidebar.setAttribute("hidden", "");
     elTabs.setAttribute("hidden", "");
@@ -812,6 +830,53 @@ export class UIManager {
       })),
     ];
     select.setOptions(options, selected);
+  }
+
+  /** (Re-)fill the background select; the picture is offered once one was picked. */
+  private _syncBackgroundSelect(): void {
+    const options: SelectOption[] = [
+      { value: "none", label: t.backgroundNone },
+      { value: "blur", label: t.backgroundBlur },
+    ];
+    if (localStorage.getItem(LS_CAMERA_BACKGROUND_IMAGE)) {
+      options.push({ value: "image", label: t.backgroundImage });
+    }
+    this.backgroundSelect.setOptions(options, localStorage.getItem(LS_CAMERA_BACKGROUND) ?? "none", [
+      { label: t.backgroundChoose, onSelect: () => elBackgroundFile.click() },
+    ]);
+  }
+
+  private async _chooseBackground(kind: string): Promise<void> {
+    if (kind === "none") localStorage.removeItem(LS_CAMERA_BACKGROUND);
+    else localStorage.setItem(LS_CAMERA_BACKGROUND, kind);
+    this.callbacks.onCameraBackgroundChange(await this.savedCameraBackground());
+  }
+
+  /** Store a newly picked picture and switch the background to it. */
+  private async _setBackgroundFromFile(file: File): Promise<void> {
+    const url = URL.createObjectURL(file);
+    try {
+      localStorage.setItem(LS_CAMERA_BACKGROUND_IMAGE, encodeBackground(await loadImage(url)));
+      localStorage.setItem(LS_CAMERA_BACKGROUND, "image");
+      this._syncBackgroundSelect();
+      this.callbacks.onCameraBackgroundChange(await this.savedCameraBackground());
+    } catch {
+      this.showToast(t.errBackgroundImage, "error");
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  /** The camera background the user last chose, its picture decoded. */
+  async savedCameraBackground(): Promise<CameraBackground> {
+    const kind = localStorage.getItem(LS_CAMERA_BACKGROUND);
+    if (kind === "blur") return { kind: "blur" };
+    if (kind === "image") {
+      const data = localStorage.getItem(LS_CAMERA_BACKGROUND_IMAGE);
+      if (!data) throw new Error("camera background picture is missing from storage");
+      return { kind: "image", image: await loadImage(data) };
+    }
+    return { kind: "none" };
   }
 
   /** Show a non-fatal error in the join error area. */
@@ -1014,6 +1079,7 @@ export class UIManager {
     this._syncLangSwitch();
     this._syncSwatchLabels();
     this._syncPresetLabels();
+    this._syncBackgroundSelect();
 
     // Join / auth / org-setup button labels.
     this.setConnecting(elJoinBtn.dataset.connecting === "true");
@@ -2741,9 +2807,16 @@ export class UIManager {
 
   private _bindAudioSettings(): void {
     elAudioSettingsBtn.addEventListener("click", () => this.callbacks.onOpenAudioSettings());
+    elCameraBackground.addEventListener("click", () => this.callbacks.onOpenAudioSettings());
+    elBackgroundFile.addEventListener("change", () => {
+      const file = elBackgroundFile.files?.[0];
+      elBackgroundFile.value = ""; // re-picking the same file must re-fire change
+      if (file) void this._setBackgroundFromFile(file);
+    });
     const close = () => {
       this.micSelect.close();
       this.speakerSelect.close();
+      this.backgroundSelect.close();
       elAudioSettings.setAttribute("hidden", "");
       this.callbacks.onCloseAudioSettings();
     };
@@ -2778,4 +2851,27 @@ function hexToGlow(hex: string): string {
   if (!m) return "rgba(181, 79, 44, 0.6)";
   const n = parseInt(m[1], 16);
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, 0.5)`;
+}
+
+/**
+ * A picked background as a JPEG data URL, scaled down to just cover a
+ * 1280×720 frame — more than a camera sends, and a photo straight off a
+ * phone would crowd localStorage.
+ */
+function encodeBackground(img: HTMLImageElement): string {
+  const { naturalWidth: w, naturalHeight: h } = img;
+  if (w === 0 || h === 0) throw new Error("empty image");
+  const scale = Math.min(1, Math.max(1280 / w, 720 / h));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(w * scale);
+  canvas.height = Math.round(h * scale);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("no 2d context");
+  // Flatten transparency onto white (JPEG has no alpha channel).
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.85);
 }

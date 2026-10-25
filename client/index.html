@@ -633,6 +633,7 @@
       <span class="call-dot" aria-hidden="true"></span>
       <span id="call-text">In call</span>
       <button id="camera-toggle" type="button" aria-pressed="false" data-i18n="cameraOn" data-i18n-title="cameraOnTitle">Turn on camera</button>
+      <button id="camera-background" type="button" data-i18n="cameraBackground" data-i18n-title="cameraBackgroundTitle">Background</button>
       <button id="call-accept" type="button" hidden data-i18n="pageAccept">Answer</button>
       <button id="hangup" type="button" data-i18n="hangUp">Hang up</button>
     </div>
@@ -721,8 +722,8 @@
           id="audio-settings-btn"
           class="hud-icon-btn"
           type="button"
-          data-i18n-title="audioSettingsTitle"
-          data-i18n-arialabel="audioSettingsTitle"
+          data-i18n-title="settingsTitle"
+          data-i18n-arialabel="settingsTitle"
         >
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
                stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -752,11 +753,12 @@
       </div>
     </div>
 
-    <!-- Audio settings (mic/speaker device selection + input level meter) -->
+    <!-- Settings: mic/speaker device selection + input level meter, camera
+         background, language -->
     <div id="audio-settings" class="overlay" hidden>
       <div class="card invite-card" role="dialog" aria-modal="true" aria-labelledby="audio-settings-title">
         <header class="invite-head">
-          <span id="audio-settings-title" class="invite-title" data-i18n="audioSettingsTitle">Audio settings</span>
+          <span id="audio-settings-title" class="invite-title" data-i18n="settingsTitle">Settings</span>
           <button id="audio-settings-close" type="button" class="ghost-btn" data-i18n="closePanel">Close</button>
         </header>
         <label class="field">
@@ -780,6 +782,11 @@
           <span class="field-label" data-i18n="fieldSpeaker">Speaker</span>
           <div id="speaker-device-select"></div>
         </label>
+        <label class="field">
+          <span class="field-label" data-i18n="fieldCameraBackground">Camera background</span>
+          <div id="camera-background-select"></div>
+        </label>
+        <input id="camera-background-file" type="file" accept="image/*" hidden />
         <div class="field">
           <span class="field-label" data-i18n="fieldLanguage">Language</span>
           <div

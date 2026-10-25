@@ -1557,6 +1557,7 @@ a.hud-pill {
 }
 
 #camera-toggle,
+#camera-background,
 #call-accept,
 #hangup {
   border: none;
@@ -1570,7 +1571,8 @@ a.hud-pill {
   transition: filter 0.15s;
 }
 
-#camera-toggle {
+#camera-toggle,
+#camera-background {
   background: var(--sage);
 }
 
@@ -1591,6 +1593,7 @@ a.hud-pill {
 }
 
 #camera-toggle:hover,
+#camera-background:hover,
 #call-accept:hover,
 #hangup:hover {
   filter: brightness(1.08);
@@ -1598,7 +1601,9 @@ a.hud-pill {
 
 /* Hide in-call-only controls while ringing. */
 .call-banner[data-mode="incoming"] #camera-toggle,
-.call-banner[data-mode="outgoing"] #camera-toggle {
+.call-banner[data-mode="outgoing"] #camera-toggle,
+.call-banner[data-mode="incoming"] #camera-background,
+.call-banner[data-mode="outgoing"] #camera-background {
   display: none;
 }
 

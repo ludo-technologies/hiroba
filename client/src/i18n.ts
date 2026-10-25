@@ -264,14 +264,19 @@ const EN = {
   leave: "Leave",
   leaveTitle: "Leave the office",
 
-  // Audio settings panel (gear next to the mic button)
-  audioSettingsTitle: "Audio settings",
+  // Settings panel (gear next to the mic button)
+  settingsTitle: "Settings",
   fieldMicrophone: "Microphone",
   fieldSpeaker: "Speaker",
   fieldLanguage: "Language",
   langAriaLabel: "Language",
   micLevelAria: "Microphone input level",
   defaultDevice: "System default",
+  fieldCameraBackground: "Camera background",
+  backgroundNone: "None",
+  backgroundBlur: "Blur",
+  backgroundImage: "Picture",
+  backgroundChoose: "Choose a picture…",
 
   // Sidebar / roster — status is a mutually exclusive 3-way choice
   // (Active / Away / DND). Server effective priority remains in_call > dnd > away.
@@ -347,6 +352,10 @@ const EN = {
   peerVideo: (name: string) => `${name}'s video`,
   selfViewTitle: "Swap with the main view",
   errCameraDenied: "Camera access denied. Check browser/OS permissions.",
+  cameraBackground: "Background",
+  cameraBackgroundTitle: "Blur or replace what's behind you",
+  errBackground: "Couldn't apply the camera background.",
+  errBackgroundImage: "Couldn't use that picture.",
   hangUp: "Hang up",
   pageCancel: "Cancel",
   pageDecline: "Decline",
@@ -587,14 +596,19 @@ const JA: typeof EN = {
   leave: "退室",
   leaveTitle: "オフィスから退室",
 
-  // Audio settings panel (gear next to the mic button)
-  audioSettingsTitle: "オーディオ設定",
+  // Settings panel (gear next to the mic button)
+  settingsTitle: "設定",
   fieldMicrophone: "マイク",
   fieldSpeaker: "スピーカー",
   fieldLanguage: "言語",
   langAriaLabel: "言語",
   micLevelAria: "マイクの入力レベル",
   defaultDevice: "システムのデフォルト",
+  fieldCameraBackground: "カメラの背景",
+  backgroundNone: "なし",
+  backgroundBlur: "ぼかし",
+  backgroundImage: "画像",
+  backgroundChoose: "画像を選ぶ…",
 
   // Sidebar / roster — ステータスは Active / Away / DND の排他 3 択
   // （サーバー実効優先度は in_call > dnd > away のまま）
@@ -669,6 +683,10 @@ const JA: typeof EN = {
   peerVideo: (name: string) => `${name} のビデオ`,
   selfViewTitle: "メイン表示と入れ替え",
   errCameraDenied: "カメラを使用できません。ブラウザ/OSの権限設定を確認してください。",
+  cameraBackground: "背景",
+  cameraBackgroundTitle: "カメラの背景をぼかす・画像にする",
+  errBackground: "カメラの背景を適用できませんでした。",
+  errBackgroundImage: "この画像は使えませんでした。",
   hangUp: "切断",
   pageCancel: "キャンセル",
   pageDecline: "拒否",
@@ -909,14 +927,19 @@ const ES: typeof EN = {
   leave: "Salir",
   leaveTitle: "Salir de la oficina",
 
-  // Audio settings panel (gear next to the mic button)
-  audioSettingsTitle: "Ajustes de audio",
+  // Settings panel (gear next to the mic button)
+  settingsTitle: "Ajustes",
   fieldMicrophone: "Micrófono",
   fieldSpeaker: "Altavoz",
   fieldLanguage: "Idioma",
   langAriaLabel: "Idioma",
   micLevelAria: "Nivel de entrada del micrófono",
   defaultDevice: "Predeterminado del sistema",
+  fieldCameraBackground: "Fondo de la cámara",
+  backgroundNone: "Ninguno",
+  backgroundBlur: "Desenfocar",
+  backgroundImage: "Imagen",
+  backgroundChoose: "Elegir una imagen…",
 
   // Sidebar / roster — status is a mutually exclusive 3-way choice
   // The status toggle is narrow: its labels stay short, the tooltips spell them out.
@@ -991,6 +1014,10 @@ const ES: typeof EN = {
   peerVideo: (name: string) => `Video de ${name}`,
   selfViewTitle: "Intercambiar con la vista principal",
   errCameraDenied: "Acceso a la cámara denegado. Revisa los permisos del navegador o del sistema.",
+  cameraBackground: "Fondo",
+  cameraBackgroundTitle: "Desenfoca o reemplaza lo que hay detrás de ti",
+  errBackground: "No se pudo aplicar el fondo de la cámara.",
+  errBackgroundImage: "No se pudo usar esa imagen.",
   hangUp: "Colgar",
   pageCancel: "Cancelar",
   pageDecline: "Rechazar",
@@ -1232,14 +1259,19 @@ const FR: typeof EN = {
   leave: "Quitter",
   leaveTitle: "Quitter le bureau",
 
-  // Audio settings panel (gear next to the mic button)
-  audioSettingsTitle: "Paramètres audio",
+  // Settings panel (gear next to the mic button)
+  settingsTitle: "Paramètres",
   fieldMicrophone: "Microphone",
   fieldSpeaker: "Haut-parleur",
   fieldLanguage: "Langue",
   langAriaLabel: "Langue",
   micLevelAria: "Niveau d'entrée du microphone",
   defaultDevice: "Par défaut du système",
+  fieldCameraBackground: "Arrière-plan de la caméra",
+  backgroundNone: "Aucun",
+  backgroundBlur: "Flou",
+  backgroundImage: "Image",
+  backgroundChoose: "Choisir une image…",
 
   // Sidebar / roster — status is a mutually exclusive 3-way choice
   // The status toggle is narrow: its labels stay short, the tooltips spell them out.
@@ -1315,6 +1347,10 @@ const FR: typeof EN = {
   peerVideo: (name: string) => `${name} (vidéo)`,
   selfViewTitle: "Échanger avec la vue principale",
   errCameraDenied: "Accès à la caméra refusé. Vérifiez les autorisations du navigateur ou du système.",
+  cameraBackground: "Arrière-plan",
+  cameraBackgroundTitle: "Flouter ou remplacer ce qui est derrière vous",
+  errBackground: "Impossible d'appliquer l'arrière-plan de la caméra.",
+  errBackgroundImage: "Impossible d'utiliser cette image.",
   hangUp: "Raccrocher",
   pageCancel: "Annuler",
   pageDecline: "Refuser",
