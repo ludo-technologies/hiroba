@@ -197,7 +197,7 @@ function fakeSender(log) {
       return { encodings: [{}] };
     },
     setParameters(params) {
-      log.push({ op: "setParameters", mode: params.degradationPreference });
+      log.push({ op: "setParameters", mode: params.degradationPreference, maxBitrate: params.encodings[0].maxBitrate });
       return Promise.resolve();
     },
   };
@@ -913,6 +913,67 @@ test("switching spaces ends a share meant for the room left behind", async () =>
   eng.disconnectAllProximity();
   assert.equal(eng.isScreenSharing, false);
   assert.equal(capture.track.stopped, true);
+});
+
+// --- Camera in a group place ------------------------------------------------
+
+/** Turn on a camera whose permission prompt returns straight away. */
+async function startCamera(eng) {
+  const capture = deferredCapture();
+  navigator.mediaDevices.getUserMedia = capture.request;
+  const starting = eng.startCamera();
+  capture.release();
+  await starting;
+  return capture;
+}
+
+test("a camera in the meeting room reaches the people inside, capped for the fan-out", async () => {
+  installMocks();
+  const log = [];
+  FakePC.makeSender = () => fakeSender(log);
+  const eng = new AudioEngine();
+  eng.init(LOBBY, () => {}, () => {});
+  const pcs = await connectAll(eng, ["in", "out"]);
+  eng.updateGains(IN_ROOM, new Map([["in", { x: 700, y: 200 }], ["out", { x: 470, y: 100 }]]));
+
+  const capture = await startCamera(eng);
+  assert.equal(eng.isCameraOn, true);
+  assert.ok(pcs.in.added?.includes(capture.track), "the peer in the room sees the camera");
+  assert.ok(!pcs.out.added?.includes(capture.track), "the peer through the wall does not");
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(log.find((e) => e.op === "setParameters")?.maxBitrate, 800_000);
+});
+
+test("walking out of the meeting room turns the camera off", async () => {
+  installMocks();
+  FakePC.makeSender = () => fakeSender([]);
+  const eng = new AudioEngine();
+  eng.init(LOBBY, () => {}, () => {});
+  const positions = new Map([["in", { x: 700, y: 200 }]]);
+  await connectAll(eng, ["in"]);
+  eng.updateGains(IN_ROOM, positions);
+  const capture = await startCamera(eng);
+
+  eng.updateGains(OUT_OF_ROOM, positions);
+  assert.equal(eng.isCameraOn, false, "the camera went off at the door");
+  assert.equal(capture.track.stopped, true, "the camera was released");
+});
+
+test("a camera in a call goes to the caller only, at the default bitrate", async () => {
+  installMocks();
+  const log = [];
+  FakePC.makeSender = () => fakeSender(log);
+  const eng = new AudioEngine();
+  eng.init(TEAM, () => {}, () => {});
+  const pcs = await connectAll(eng, ["mate"]);
+  const caller = (await connectAll(eng, ["9"], "page"))["9"];
+  eng.updateGains({ x: 100, y: 100 }, new Map([["mate", { x: 400, y: 300 }]]));
+
+  const capture = await startCamera(eng);
+  assert.ok(caller.added?.includes(capture.track), "the call gets the camera");
+  assert.ok(!pcs.mate.added?.includes(capture.track), "the room does not");
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(log.find((e) => e.op === "setParameters")?.maxBitrate, undefined);
 });
 
 test("a room peer's screen reaches the viewer, not only a caller's", async () => {

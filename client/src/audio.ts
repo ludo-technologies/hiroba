@@ -90,11 +90,11 @@ export type LinkKind = "proximity" | "page";
 
 /**
  * What a local video was started for, which fixes who it may ever reach:
- *  - "call"  — the live page links. The camera is always this, and so is a
- *    screen share started during a call. Ends when the last call does.
+ *  - "call"  — the live page links: a screen share or camera started during
+ *    a call. Ends when the last call does.
  *  - "place" — everyone in the group place we stand in (see inGroupPlace): a
- *    screen share started outside a call. Ends when we leave the place or a
- *    call takes over.
+ *    screen share or camera started outside a call. Ends when we leave the
+ *    place or a call takes over.
  * A video never moves between the two: a call's screen must not carry on to
  * the room once the call ends, nor a room's into a call.
  */
@@ -161,6 +161,11 @@ interface PeerConn {
  *  roughly what a 1440p–4K desktop with text needs to stay legible. The
  *  bandwidth estimator still goes lower on a weak link. */
 const SCREEN_SHARE_MAX_BITRATE = 6_000_000;
+/** Encoder cap for a camera sent to a group place (bps). Each peer in the
+ *  place gets its own copy — four at the 5-person space capacity — so the
+ *  2.5 Mbps default would ask 10 Mbps of the uplink; this is plenty for a
+ *  face at 640×480. */
+const PLACE_CAMERA_MAX_BITRATE = 800_000;
 
 // Preserve the old 60Hz envelope after level sampling moves to 30Hz.
 const LEVEL_ATTACK = 1 - (1 - 0.6) ** 2;
@@ -991,16 +996,18 @@ export class AudioEngine {
   }
 
   /**
-   * Start sending the user's camera to **page** (1:1 call) peers only.
-   * Mutually exclusive with screen share — starting this stops any active
-   * screen share first. Same perfect-negotiation renegotiation path as mic
-   * and screen-share changes. With a background chosen, the effect is in
-   * place before the first frame leaves — the raw room is never sent — and
-   * if it cannot start, neither does the camera (BackgroundEffectError).
+   * Start sending the user's camera: to the call while one is live, otherwise
+   * to the group place we stand in (see VideoScope) — the same rule as
+   * screen share. Mutually exclusive with screen share — starting this stops
+   * any active screen share first. Same perfect-negotiation renegotiation
+   * path as mic and screen-share changes. With a background chosen, the
+   * effect is in place before the first frame leaves — the raw room is never
+   * sent — and if it cannot start, neither does the camera
+   * (BackgroundEffectError).
    */
   async startCamera(): Promise<void> {
     if (this.videoMode === "camera") return;
-    const epoch = this._beginVideoAcquire("camera", "call");
+    const epoch = this._beginVideoAcquire("camera", this.hasPage() ? "call" : "place");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: true,
@@ -1396,13 +1403,18 @@ export class AudioEngine {
    * are sized for camera video: a Retina/4K screen at that bitrate is soft
    * even on a good link, and under congestion the encoder shrinks the picture
    * first. For screen share we raise the cap and ask it to sacrifice frame
-   * rate before resolution; camera goes back to balanced defaults.
+   * rate before resolution; camera goes back to balanced defaults, capped
+   * when it fans out to a group place.
    */
   private async _applyVideoEncoding(sender: RTCRtpSender, mode: "screen" | "camera"): Promise<void> {
     const params = sender.getParameters();
     const screen = mode === "screen";
     for (const encoding of params.encodings) {
-      encoding.maxBitrate = screen ? SCREEN_SHARE_MAX_BITRATE : undefined;
+      encoding.maxBitrate = screen
+        ? SCREEN_SHARE_MAX_BITRATE
+        : this.videoScope === "place"
+          ? PLACE_CAMERA_MAX_BITRATE
+          : undefined;
     }
     params.degradationPreference = screen ? "maintain-resolution" : "balanced";
     try {
