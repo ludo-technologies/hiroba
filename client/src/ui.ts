@@ -266,7 +266,6 @@ const elCallBanner = $<HTMLDivElement>("call-banner");
 const elCallText = $<HTMLSpanElement>("call-text");
 const elScreenShare = $<HTMLButtonElement>("screen-share");
 const elCameraToggle = $<HTMLButtonElement>("camera-toggle");
-const elCameraBackground = $<HTMLButtonElement>("camera-background");
 const elScreenReopen = $<HTMLButtonElement>("screen-reopen");
 const elCallAccept = $<HTMLButtonElement>("call-accept");
 const elHangup = $<HTMLButtonElement>("hangup");
@@ -275,6 +274,7 @@ const elScreenTitle = $<HTMLSpanElement>("screen-title");
 const elScreenClose = $<HTMLButtonElement>("screen-close");
 const elScreenFullscreen = $<HTMLButtonElement>("screen-fullscreen");
 const elScreenVideo = $<HTMLVideoElement>("screen-video");
+const elVideoTiles = $<HTMLDivElement>("video-tiles");
 const elSelfView = $<HTMLButtonElement>("self-view");
 const elSelfVideo = $<HTMLVideoElement>("self-video");
 const elToasts = $<HTMLDivElement>("toasts");
@@ -413,8 +413,7 @@ export interface UICallbacks {
   /** Admin opens the Stripe Customer Portal (add card / change plan / cancel). */
   onOpenBilling(): void;
   onMicToggle(): void;
-  /** The gear next to the mic button, or the call banner's background
-   *  button, opened the settings panel. */
+  /** Gear next to the mic button opened the settings panel. */
   onOpenAudioSettings(): void;
   /** The audio-settings panel closed (stop any mic preview). */
   onCloseAudioSettings(): void;
@@ -447,12 +446,12 @@ export interface UICallbacks {
   onHangUp(): void;
   /** Start or stop screen sharing in the current page link. */
   onScreenShareToggle(): void;
-  /** Start or stop sending the camera in the current page link. */
+  /** Start or stop sending the camera to the call, or to the group place. */
   onCameraToggle(): void;
   /** Hide/stop the currently visible screen-share panel. */
   onCloseScreenShare(): void;
-  /** Swap the picture-in-picture self-view with the main video panel. */
-  onSelfViewClick(): void;
+  /** A video in the corner or the strip was clicked: put it on the stage. */
+  onVideoClick(key: string): void;
   /** Re-show a remote screen share after the panel was dismissed. */
   onReopenScreenShare(): void;
   /**
@@ -470,9 +469,26 @@ export interface UICallbacks {
 /** Call banner mode: live conversation vs ring states. */
 export type CallBannerMode = "in_call" | "outgoing" | "incoming";
 
-/** Who a screen share would reach right now: the live call, the group place
- *  we stand in, or nobody (no share button). */
+/** Who a screen share or camera would reach right now: the live call, the
+ *  group place we stand in, or nobody (no share or camera button). */
 export type ShareTarget = "call" | "place" | null;
+
+/** One video in the panel. */
+export interface PanelVideo {
+  key: string;
+  stream: MediaStream;
+  label: string;
+}
+
+/** What the video panel shows, laid out by videolayout.ts: a stage with the
+ *  corner picture-in-picture or a strip of `tiles` under it, or (no stage) a
+ *  grid of `tiles`. */
+export interface VideoPanelView {
+  title: string;
+  stage: PanelVideo | null;
+  pip: PanelVideo | null;
+  tiles: PanelVideo[];
+}
 
 /**
  * A roster row, fully prepared by main.ts (which knows the space catalog and
@@ -594,6 +610,10 @@ export class UIManager {
   private lastScreenSharing = false;
   private lastShareTarget: ShareTarget = null;
   private lastCameraOn = false;
+  /** Video tiles by key — see _setTiles. */
+  private readonly videoTiles = new Map<string, HTMLButtonElement>();
+  /** Key of the video in the corner picture-in-picture. */
+  private pipKey = "";
   private lastScreenFullscreen = false;
   private lastScreenReopenVisible = false;
   private lastInvites: InviteEntry[] | null = null;
@@ -2123,19 +2143,27 @@ export class UIManager {
     elScreenShare.setAttribute("aria-pressed", sharing ? "true" : "false");
   }
 
-  /** Show the share button while there is someone to share with, and say who. */
+  /** Show the share and camera buttons while there is someone to show them
+   *  to, and say who. */
   setShareTarget(target: ShareTarget): void {
     this.lastShareTarget = target;
-    if (target) elScreenShare.removeAttribute("hidden");
-    else elScreenShare.setAttribute("hidden", "");
+    for (const btn of [elScreenShare, elCameraToggle]) {
+      if (target) btn.removeAttribute("hidden");
+      else btn.setAttribute("hidden", "");
+    }
     this.setScreenSharing(this.lastScreenSharing);
+    this.setCameraOn(this.lastCameraOn);
   }
 
   /** Reflect whether the local user is currently sending their camera. */
   setCameraOn(on: boolean): void {
     this.lastCameraOn = on;
     elCameraToggle.textContent = on ? t.cameraOff : t.cameraOn;
-    elCameraToggle.title = on ? t.cameraOffTitle : t.cameraOnTitle;
+    elCameraToggle.title = on
+      ? t.cameraOffTitle
+      : this.lastShareTarget === "place"
+        ? t.cameraOnRoomTitle
+        : t.cameraOnTitle;
     elCameraToggle.setAttribute("aria-pressed", on ? "true" : "false");
   }
 
@@ -2159,48 +2187,58 @@ export class UIManager {
     bindOverlayDismiss(elScreenPerm, () => this.hideScreenPerm());
   }
 
-  /** Show the given video stream in the main panel, or hide the panel when
-   *  null. The element stays permanently muted: remote video streams carry no
-   *  audio (voice goes through the Web Audio gain path) and the local preview
-   *  must not feed back, so muting also keeps autoplay policy from ever
-   *  blocking playback. */
-  setScreenShareView(stream: MediaStream | null, title: string): void {
-    if (!stream) {
-      elScreenVideo.pause();
-      elScreenVideo.srcObject = null;
+  /** Show the video panel as laid out, or hide it (`null`). */
+  setVideoPanel(view: VideoPanelView | null): void {
+    if (!view) {
+      playIn(elScreenVideo, null);
+      this._setPip(null);
+      this._setTiles([], "grid");
       elScreenPanel.setAttribute("hidden", "");
       this.setScreenFullscreen(false);
-      this.setSelfView(null);
       return;
     }
-    elScreenTitle.textContent = title;
-    if (elScreenVideo.srcObject !== stream) {
-      elScreenVideo.srcObject = stream;
-      void elScreenVideo.play().catch(() => {
-        /* User gesture/autoplay policy can block; controls are intentionally not shown. */
-      });
-    }
+    elScreenTitle.textContent = view.title;
+    playIn(elScreenVideo, view.stage?.stream ?? null);
+    elScreenVideo.toggleAttribute("hidden", !view.stage);
+    this._setPip(view.pip);
+    this._setTiles(view.tiles, view.stage ? "strip" : "grid");
     elScreenPanel.removeAttribute("hidden");
     this.setScreenReopenVisible(false);
   }
 
-  /** Show a stream in the corner picture-in-picture (self preview, or the
-   *  remote video while the local one is promoted), or hide it when null.
-   *  Always muted — it must never play remote audio. */
-  setSelfView(stream: MediaStream | null): void {
-    if (!stream) {
-      elSelfVideo.pause();
-      elSelfVideo.srcObject = null;
-      elSelfView.setAttribute("hidden", "");
-      return;
+  /** The corner picture-in-picture over the stage. */
+  private _setPip(video: PanelVideo | null): void {
+    this.pipKey = video?.key ?? "";
+    playIn(elSelfVideo, video?.stream ?? null);
+    elSelfView.toggleAttribute("hidden", !video);
+  }
+
+  /** Grid or strip. A tile is kept per video key, so a video that stays live
+   *  keeps playing through a re-layout instead of restarting. Only strip
+   *  tiles can be clicked onto the stage: a grid has no stage to swap with. */
+  private _setTiles(videos: PanelVideo[], layout: "grid" | "strip"): void {
+    const live = new Set(videos.map((v) => v.key));
+    for (const [key, tile] of this.videoTiles) {
+      if (live.has(key)) continue;
+      playIn(tile.querySelector("video")!, null);
+      tile.remove();
+      this.videoTiles.delete(key);
     }
-    if (elSelfVideo.srcObject !== stream) {
-      elSelfVideo.srcObject = stream;
-      void elSelfVideo.play().catch(() => {
-        /* Autoplay policy; muted playback is normally always allowed. */
-      });
-    }
-    elSelfView.removeAttribute("hidden");
+    videos.forEach((v, i) => {
+      let tile = this.videoTiles.get(v.key);
+      if (!tile) {
+        tile = videoTile(v.key);
+        this.videoTiles.set(v.key, tile);
+      }
+      if (elVideoTiles.children[i] !== tile) elVideoTiles.insertBefore(tile, elVideoTiles.children[i] ?? null);
+      tile.disabled = layout === "grid";
+      tile.title = layout === "strip" ? t.selfViewTitle : "";
+      tile.querySelector(".video-tile-name")!.textContent = v.label;
+      playIn(tile.querySelector("video")!, v.stream);
+    });
+    elVideoTiles.dataset.layout = layout;
+    elVideoTiles.style.setProperty("--cols", String(videos.length <= 1 ? 1 : videos.length <= 4 ? 2 : 3));
+    elVideoTiles.toggleAttribute("hidden", videos.length === 0);
   }
 
   /** Expand or restore the screen-share panel to fill the window. */
@@ -2482,7 +2520,11 @@ export class UIManager {
     elScreenVideo.addEventListener("dblclick", () => {
       this.setScreenFullscreen(!elScreenPanel.classList.contains("fullscreen"));
     });
-    elSelfView.addEventListener("click", () => this.callbacks.onSelfViewClick());
+    elSelfView.addEventListener("click", () => this.callbacks.onVideoClick(this.pipKey));
+    elVideoTiles.addEventListener("click", (e) => {
+      const tile = (e.target as HTMLElement).closest<HTMLButtonElement>(".video-tile");
+      if (tile && !tile.disabled) this.callbacks.onVideoClick(tile.dataset.key!);
+    });
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && elScreenPanel.classList.contains("fullscreen")) {
         this.setScreenFullscreen(false);
@@ -2807,7 +2849,6 @@ export class UIManager {
 
   private _bindAudioSettings(): void {
     elAudioSettingsBtn.addEventListener("click", () => this.callbacks.onOpenAudioSettings());
-    elCameraBackground.addEventListener("click", () => this.callbacks.onOpenAudioSettings());
     elBackgroundFile.addEventListener("change", () => {
       const file = elBackgroundFile.files?.[0];
       elBackgroundFile.value = ""; // re-picking the same file must re-fire change
@@ -2874,4 +2915,38 @@ function encodeBackground(img: HTMLImageElement): string {
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
   return canvas.toDataURL("image/jpeg", 0.85);
+}
+
+/**
+ * Point a video element at `stream` (null: stop it). Playback starts only
+ * when the stream changed, so a live video doesn't restart. Every panel video
+ * is muted: remote video streams carry no audio (voice goes through the Web
+ * Audio gain path) and the local preview must not feed back — muting also
+ * keeps autoplay policy from ever blocking playback.
+ */
+function playIn(video: HTMLVideoElement, stream: MediaStream | null): void {
+  if (video.srcObject === stream) return;
+  if (!stream) video.pause();
+  video.srcObject = stream;
+  if (stream) {
+    void video.play().catch(() => {
+      /* Autoplay policy; muted playback is normally always allowed. */
+    });
+  }
+}
+
+/** An empty grid/strip tile for the video `key`: the video, and a name label. */
+function videoTile(key: string): HTMLButtonElement {
+  const tile = document.createElement("button");
+  tile.type = "button";
+  tile.className = "video-tile";
+  tile.dataset.key = key;
+  const video = document.createElement("video");
+  video.autoplay = true;
+  video.playsInline = true;
+  video.muted = true;
+  const name = document.createElement("span");
+  name.className = "video-tile-name";
+  tile.append(video, name);
+  return tile;
 }

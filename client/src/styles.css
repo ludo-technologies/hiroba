@@ -1556,8 +1556,6 @@ a.hud-pill {
   background: var(--danger);
 }
 
-#camera-toggle,
-#camera-background,
 #call-accept,
 #hangup {
   border: none;
@@ -1571,17 +1569,8 @@ a.hud-pill {
   transition: filter 0.15s;
 }
 
-#camera-toggle,
-#camera-background {
-  background: var(--sage);
-}
-
 #call-accept[hidden] {
   display: none;
-}
-
-#camera-toggle[aria-pressed="true"] {
-  background: var(--accent);
 }
 
 #call-accept {
@@ -1592,19 +1581,9 @@ a.hud-pill {
   background: var(--danger);
 }
 
-#camera-toggle:hover,
-#camera-background:hover,
 #call-accept:hover,
 #hangup:hover {
   filter: brightness(1.08);
-}
-
-/* Hide in-call-only controls while ringing. */
-.call-banner[data-mode="incoming"] #camera-toggle,
-.call-banner[data-mode="outgoing"] #camera-toggle,
-.call-banner[data-mode="incoming"] #camera-background,
-.call-banner[data-mode="outgoing"] #camera-background {
-  display: none;
 }
 
 .screen-panel {
@@ -1704,14 +1683,89 @@ a.hud-pill {
 /* No `height: 100%` here: WebKit resolves it against the panel's aspect-ratio
    height and then grows the panel by the header on top of that (389px instead
    of 350px at 560px wide). Flex alone hands the video the space under the
-   header in both engines. */
+   header in both engines — from a zero basis, or WebKit sizes the panel to
+   fit the video's own height plus the strip under it (446px). */
 #screen-video {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-height: 0;
   width: 100%;
   display: block;
   object-fit: contain;
   background: #0f0c09;
+}
+
+#screen-video[hidden] {
+  display: none;
+}
+
+/* Several videos: a grid filling the panel (no stage), or a strip under the
+   stage. Strip tiles are sized off the panel's width (four across, the most
+   there can be beside a stage in a 5-person space) so its height never
+   depends on a percentage of the aspect-ratio panel — see #screen-video. */
+.video-tiles {
+  display: grid;
+  gap: 6px;
+  padding: 6px;
+  background: #0f0c09;
+}
+
+.video-tiles[hidden] {
+  display: none;
+}
+
+.video-tiles[data-layout="grid"] {
+  flex: 1 1 0;
+  min-height: 0;
+  grid-template-columns: repeat(var(--cols, 2), 1fr);
+  grid-auto-rows: 1fr;
+}
+
+.video-tiles[data-layout="strip"] {
+  flex: 0 0 auto;
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.video-tile {
+  position: relative;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  background: #18130f;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: calc(var(--radius-btn) / 2);
+  font: inherit;
+}
+
+.video-tiles[data-layout="strip"] .video-tile {
+  aspect-ratio: 16 / 10;
+  cursor: pointer;
+}
+
+.video-tiles[data-layout="strip"] .video-tile:hover {
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.video-tile video {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.video-tile-name {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  max-width: calc(100% - 12px);
+  padding: 2px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: var(--radius-pill);
+  background: rgba(15, 12, 9, 0.62);
+  color: #fdf6ea;
+  font-size: 11.5px;
+  font-weight: 600;
 }
 
 /* Picture-in-picture self-view in the panel corner; click swaps it with the
@@ -2256,13 +2310,16 @@ a.hud-pill {
   background: var(--accent-hi);
 }
 
-/* HUD screen share: there only while someone can see it (call or group place). */
+/* HUD screen share and camera: there only while someone can see them (call
+   or group place). */
 #screen-share[hidden],
+#camera-toggle[hidden],
 #screen-reopen[hidden] {
   display: none;
 }
 
-#screen-share[aria-pressed="true"] {
+#screen-share[aria-pressed="true"],
+#camera-toggle[aria-pressed="true"] {
   border-color: var(--accent);
   color: var(--accent);
   background: var(--accent-soft);

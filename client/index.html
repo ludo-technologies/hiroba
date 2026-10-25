@@ -632,16 +632,14 @@
     <div id="call-banner" class="call-banner" hidden role="status" aria-live="polite">
       <span class="call-dot" aria-hidden="true"></span>
       <span id="call-text">In call</span>
-      <button id="camera-toggle" type="button" aria-pressed="false" data-i18n="cameraOn" data-i18n-title="cameraOnTitle">Turn on camera</button>
-      <button id="camera-background" type="button" data-i18n="cameraBackground" data-i18n-title="cameraBackgroundTitle">Background</button>
       <button id="call-accept" type="button" hidden data-i18n="pageAccept">Answer</button>
       <button id="hangup" type="button" data-i18n="hangUp">Hang up</button>
     </div>
 
-    <!-- Video viewer: the remote stream (screen share > camera) in the main
-         panel, own video in the corner self-view; local fills the main panel
-         only when nothing remote is live. Hidden outside calls / when no
-         video is live. -->
+    <!-- Video viewer, laid out by videolayout.ts: one video large (a screen
+         share, or the only peer's camera) with the other in the corner
+         self-view, or several in a strip under it; with two or more peers on
+         camera and no share, a grid of everyone. Hidden when no video is live. -->
     <div id="screen-panel" class="screen-panel" hidden>
       <header class="screen-head">
         <span id="screen-title">Screen</span>
@@ -651,6 +649,7 @@
         </div>
       </header>
       <video id="screen-video" autoplay playsinline muted></video>
+      <div id="video-tiles" class="video-tiles" hidden></div>
       <!-- Picture-in-picture: the "other" stream (self preview while a remote
            video holds the main panel, or vice versa). Click to swap. -->
       <button id="self-view" class="self-view" type="button" hidden
@@ -742,6 +741,7 @@
         <!-- Shown while there is someone to share with: the call, or the group
              place we stand in (a team space, or the lobby's meeting room). -->
         <button id="screen-share" class="hud-btn" type="button" hidden aria-pressed="false" data-i18n="shareScreen">Share screen</button>
+        <button id="camera-toggle" class="hud-btn" type="button" hidden aria-pressed="false" data-i18n="cameraOn">Turn on camera</button>
         <button id="screen-reopen" class="hud-btn" type="button" hidden data-i18n="viewScreen">View screen</button>
       </div>
       <div class="hud-group">
