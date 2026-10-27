@@ -242,9 +242,11 @@ Clients SHOULD set `away: true` when they dim themselves on idle (NFR-01).
 ```
 `data` is opaque and relayed verbatim. The server fills in `from` and delivers a
 server→client `signal` to peer `to`. Used for **both** in-space proximity links
-and page links. Dropped silently when `to` is not connected, when the peers
-are in different spaces without a page link, or when either peer is `dnd`
-without a page link (§Presence & status).
+and page links, and relayed **only over a link the server opened**: an
+accepted page, or a proximity pair it currently holds linked (§proximity).
+Dropped silently otherwise — `to` not connected, the pair not linked (another
+space, out of earshot, across the meeting-room wall, or not yet told to
+`connect`), or either peer `dnd` without a page link (§Presence & status).
 
 ### `page` — start a cross-space 1:1 page (FR-10)
 ```json
@@ -439,16 +441,22 @@ A member with `dnd` set never appears in `connect`, and setting `dnd` while
 linked emits `disconnect` for those links to both sides on the next tick
 (§Presence & status).
 
-**Isolation guarantee (server-authoritative teardown).** Proximity voice never
-crosses spaces: `signal` is not relayed between members of different spaces
-(unless they hold an accepted page link), positions and proximity are computed
-strictly per space, and when a peer leaves a space (`enter_space` or
-disconnect) the server emits a `proximity` disconnect for that peer to
-everyone left behind — in addition to `space_left`. Clients MUST treat this
-`disconnect` as the authoritative order to close the P2P link, and MUST accept
-it idempotently (a `disconnect` for a peer with no open link is a no-op). The
-disconnect may name peers beyond the recipient's current proximity set; that
-is intentional, since only the client knows which links are actually open.
+**Isolation guarantee (server-authoritative links).** Proximity voice reaches
+exactly the pairs the server linked: `signal` is relayed only between peers
+that currently hold a `connect` from it (or an accepted page link), so neither
+another space nor the far side of the room — nor a peer that was simply never
+told to connect — can open media to a member. Positions and proximity are
+computed strictly per space, and when a peer leaves a space (`enter_space` or
+disconnect) the server drops its links at once and emits a `proximity`
+disconnect for that peer to everyone left behind — in addition to
+`space_left`. Clients MUST treat this `disconnect` as the authoritative order
+to close the P2P link, and MUST accept it idempotently (a `disconnect` for a
+peer with no open link is a no-op). The disconnect may name peers beyond the
+recipient's current proximity set; that is intentional, since only the client
+knows which links are actually open. Clients MUST NOT open a peer connection
+on a `signal` from a peer they hold no link with: a current server never
+delivers one (the `connect` is queued first, in the same tick), and answering
+one from an older server would hand the microphone to whoever sent it.
 
 ### `page_offer` — incoming page (to the callee)
 ```json
@@ -565,7 +573,7 @@ for:
   live.
 
 No server change is involved: these are ordinary proximity links, and
-`signal` already relays within a space.
+`signal` already relays over them.
 
 **ICE servers:** self-host clients use public STUN
 (`stun:stun.l.google.com:19302`) by default. **Hosted clients MUST also use a
@@ -595,7 +603,7 @@ client                         server
   |  ◀──────── welcome{...}        |  (current space + catalog + org roster)
   |  ◀──────── notes{...}          |  (the current space's chat)
   |                                |  (broadcast presence to the org)
-  |  ── move/mute/signal ────────▶ |  (within current space)
+  |  ── move/mute/signal ────────▶ |  (within current space; signal over live links only)
   |  ◀── state (every tick) ────── |
   |  ◀── proximity (on change) ─── |
   |  ◀── space_joined/space_left ─ |  (your space's 2D view)
