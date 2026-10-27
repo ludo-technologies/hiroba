@@ -121,6 +121,14 @@ class Client {
   await sleep(300);
   ok(A.drain("proximity").length === 0, "no proximity connect while far apart");
 
+  // Same space, neither DND, but the proximity engine has not linked them: the
+  // server does not relay — B's client would otherwise answer an offer from
+  // across the room with its microphone (GHSA-w23x-82p8-437m).
+  B.clear();
+  A.send({ t: "signal", to: idB, data: { kind: "offer", sdp: "UNLINKED_SDP" } });
+  await sleep(300);
+  ok(!B.drain("signal").some((m) => m.data?.sdp === "UNLINKED_SDP"), "signal between same-space peers the server has not linked is dropped");
+
   const stateA = await A.wait((m) => m.t === "state" && m.peers?.some((p) => p.id === idB));
   ok(!!stateA, "A receives state containing B");
   ok(!stateA?.peers?.some((p) => p.id === idA), "state excludes the recipient (A)");

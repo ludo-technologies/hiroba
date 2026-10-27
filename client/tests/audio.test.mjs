@@ -463,14 +463,28 @@ test("destroy stops an in-progress ringtone", () => {
   );
 });
 
-test("a signal-created peer keeps proximity audio after a page is added and ended", async () => {
+test("an offer from a peer the server never linked us with is dropped, not answered with the mic", async () => {
+  installMocks();
+  const sent = [];
+  const eng = new AudioEngine();
+  eng.init(SPACE, (to, data) => sent.push({ to, data }), () => {});
+  await eng.toggleMute(); // the mic is live — exactly what an eavesdropper is after
+  assert.equal(FakeMic.lastTrack?.enabled, true);
+
+  await eng.handleSignal("9", { kind: "offer", sdp: "FAKE" });
+  assert.equal(eng.peers.has("9"), false, "no peer is created for an unsolicited signal");
+  assert.equal(FakePC.instances.length, 0, "no RTCPeerConnection, so no track is attached");
+  assert.deepEqual(sent, [], "nothing is answered");
+  eng.destroy();
+});
+
+test("a proximity peer keeps proximity audio after a page is added and ended", async () => {
   installMocks();
   const eng = new AudioEngine();
   eng.init(SPACE, () => {}, () => {});
 
-  // Simulate an offer arriving first → peer created passively as proximity.
-  await eng.handleSignal("9", { kind: "candidate", candidate: { candidate: "x", sdpMid: "0", sdpMLineIndex: 0 } });
-  assert.equal(eng.peers.get("9")?.proximity, true, "passive peer is a proximity link");
+  await eng.connect("9", false, "proximity");
+  assert.equal(eng.peers.get("9")?.proximity, true, "a proximity link");
   assert.equal(eng.peers.get("9")?.page, false, "…and not yet a page link");
 
   // page_connect adds the page membership without dropping proximity.

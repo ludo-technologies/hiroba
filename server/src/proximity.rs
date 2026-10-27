@@ -20,6 +20,13 @@ use std::collections::{HashMap, HashSet};
 
 use crate::protocol::{ProximityConnect, Rect};
 
+/// One space's live links: peer id → the peers it is currently linked with.
+/// Both directions of a pair are always present. This is the hysteresis
+/// memory of [`update_proximity`] and the authority `Org::route_signal`
+/// consults before relaying signaling — the server carries media negotiation
+/// only between peers it has told to connect.
+pub type LinkSets = HashMap<String, HashSet<String>>;
+
 /// Euclidean distance between two points.
 #[inline]
 pub fn distance(x0: f64, y0: f64, x1: f64, y1: f64) -> f64 {
@@ -64,7 +71,7 @@ impl ProximityDelta {
 /// Returns a map from peer string_id → delta (may be empty).
 pub fn update_proximity(
     positions: &[PeerPos],
-    connected_sets: &mut HashMap<String, HashSet<String>>,
+    connected_sets: &mut LinkSets,
     near_radius: f64,
     far_radius: f64,
     meeting_room: Option<&Rect>,
@@ -171,12 +178,12 @@ pub fn update_proximity(
 ///
 /// The pair is restored on both sides, so the peer that *did* receive the
 /// delta gets it again next tick; `connect` and `disconnect` are both
-/// idempotent on the client (PROTOCOL.md §proximity).
-pub fn rollback_delta(
-    peer_id: &str,
-    delta: &ProximityDelta,
-    connected_sets: &mut HashMap<String, HashSet<String>>,
-) {
+/// idempotent on the client (PROTOCOL.md §proximity). A taken-back *connect*
+/// needs one more step from the caller: the other side may already hold its
+/// half and be offering into a link the server no longer has (`route_signal`
+/// drops those), so it must be sent a `disconnect` for this peer — after its
+/// own delta, so the two land in order.
+pub fn rollback_delta(peer_id: &str, delta: &ProximityDelta, connected_sets: &mut LinkSets) {
     for c in &delta.connect {
         if let Some(set) = connected_sets.get_mut(peer_id) {
             set.remove(&c.id);
@@ -204,10 +211,7 @@ pub fn rollback_delta(
 
 /// Remove a leaving peer from all connected sets and return which other peers
 /// need a disconnect delta for it.  Called when a peer leaves the room.
-pub fn remove_peer(
-    leaving_id: &str,
-    connected_sets: &mut HashMap<String, HashSet<String>>,
-) -> Vec<String> {
+pub fn remove_peer(leaving_id: &str, connected_sets: &mut LinkSets) -> Vec<String> {
     let was_connected_to: Vec<String> = connected_sets
         .get(leaving_id)
         .cloned()

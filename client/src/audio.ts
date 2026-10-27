@@ -362,9 +362,9 @@ export class AudioEngine {
    * smaller numeric id) → we are the impolite peer. If a local track already
    * exists it is added immediately, kicking off negotiation.
    *
-   * Idempotent and additive: if the peer already exists (e.g. a `signal`
-   * arrived first and created it passively, or it is already a proximity peer)
-   * we simply turn on the requested membership. The PC is shared.
+   * Idempotent and additive: if the peer already exists (a proximity peer
+   * being paged, or the other way round) we simply turn on the requested
+   * membership. The PC is shared.
    */
   async connect(peerId: string, initiator: boolean, kind: LinkKind = "proximity"): Promise<void> {
     const existing = this.peers.get(peerId);
@@ -533,10 +533,17 @@ export class AudioEngine {
 
   /** Process a relayed WebRTC signal from a remote peer (perfect negotiation). */
   async handleSignal(fromId: string, data: SignalData): Promise<void> {
-    // An offer may arrive before our own `proximity.connect` (signaling and
-    // proximity are independent server events). Create the peer passively as
-    // the polite side — the remote that offered is, by the tie-break, impolite.
-    const entry = this.peers.get(fromId) ?? this._ensurePeer(fromId, /* polite */ true, "proximity");
+    // Links are opened by the server alone (`proximity.connect`, `page_connect`),
+    // and it relays signaling only over links it opened, so a signal always
+    // follows the connect that explains it. One from a peer we hold no link
+    // with is not ours to answer: an older server relays to anyone in the
+    // space, and answering such an offer would hand our microphone to someone
+    // out of earshot — attenuation is applied by the listener, not the sender.
+    const entry = this.peers.get(fromId);
+    if (!entry) {
+      console.warn("[audio] signal from a peer the server never linked us with, dropped:", fromId, data.kind);
+      return;
+    }
     const { pc } = entry;
 
     try {
