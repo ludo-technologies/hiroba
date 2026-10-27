@@ -16,7 +16,7 @@
 /// snapshot, proximity, and sends — inside one `Org::with_tick` closure, so no
 /// member can change space between being observed and being messaged. It never
 /// holds an org lock across an await.
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use axum::extract::ws::{Message, WebSocket};
@@ -344,147 +344,130 @@ fn note_error(e: NoteError) -> ServerMsg {
 ///   2. Compute proximity deltas (with hysteresis, using that space's radii)
 ///      and send `proximity` only to members whose connected set changed.
 ///
-/// Proximity hysteresis state is local to this task and keyed by
-/// **(org_id, space_id)**, so it is computed independently within each space of
-/// each tenant — peers in different spaces (or different orgs) never connect.
-/// Empty spaces and idle tenants are skipped entirely → idle CPU stays near zero.
+/// The link sets the engine works on belong to the org (`Org::with_tick` hands
+/// them over under the org lock) and are kept per space, so proximity is
+/// computed independently within each space of each tenant — peers in
+/// different spaces (or different orgs) never connect — and `route_signal`
+/// relays signaling only over the pairs recorded there. Empty spaces and idle
+/// tenants are skipped entirely → idle CPU stays near zero.
 pub fn spawn_tick_loop(registry: OrgRegistry) {
     tokio::spawn(async move {
         let tick_duration = Duration::from_secs_f64(1.0 / TICK_HZ as f64);
         let mut ticker = interval(tick_duration);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
-        // org_id → space_id → (peer_id → set of near peer_ids).
-        let mut connected: HashMap<String, HashMap<String, HashMap<String, HashSet<String>>>> =
-            HashMap::new();
-
         loop {
             ticker.tick().await;
 
-            // Tenants with at least one populated space this tick.
-            let mut live_orgs: HashSet<String> = HashSet::new();
-
             for org in registry.all().await {
-                let org_id = org.id().to_string();
                 // The whole tick — snapshot, proximity, and the sends they imply
                 // — runs under the org lock, so a member cannot change space
                 // between being observed and being told to connect to someone
                 // in the space they just left (see `Org::with_tick`).
-                let populated = org
-                    .with_tick(|ticks| {
-                        if ticks.is_empty() {
-                            return false;
-                        }
-                        let org_connected = connected.entry(org_id.clone()).or_default();
+                org.with_tick(|ticks, links| {
+                    // Spaces that emptied hold no links any more (their members
+                    // were unlinked as they left); drop the keys too.
+                    let live_spaces: HashSet<&str> =
+                        ticks.iter().map(|t| t.space_id.as_str()).collect();
+                    links.retain(|space_id, _| live_spaces.contains(space_id.as_str()));
 
-                        let live_spaces: HashSet<&str> =
-                            ticks.iter().map(|t| t.space_id.as_str()).collect();
-
-                        for tick in ticks {
-                            // --- state broadcast (positions of all others in the space) ---
-                            for member in &tick.members {
-                                let others: Vec<PeerPos> = tick
-                                    .members
-                                    .iter()
-                                    .filter(|o| o.info.id != member.info.id)
-                                    .map(|o| PeerPos {
-                                        id: o.info.id.clone(),
-                                        x: o.info.x,
-                                        y: o.info.y,
-                                    })
-                                    .collect();
-                                if others.is_empty() {
-                                    continue; // only one member — skip (protocol §state)
-                                }
-                                if member.tx.capacity() <= CONTROL_RESERVE {
-                                    // Slow consumer: positions are lossy (the next tick
-                                    // supersedes them), so they yield the tail of the
-                                    // queue to control messages, which are not replayed.
-                                    continue;
-                                }
-                                let _ = member.tx.try_send(ServerMsg::State { peers: others });
-                            }
-
-                            // --- proximity (computed within this space) -------------------
-                            let positions: Vec<proximity::PeerPos> = tick
+                    for tick in ticks {
+                        // --- state broadcast (positions of all others in the space) ---
+                        for member in &tick.members {
+                            let others: Vec<PeerPos> = tick
                                 .members
                                 .iter()
-                                .map(|m| proximity::PeerPos {
-                                    num_id: m.num_id,
-                                    string_id: m.info.id.clone(),
-                                    x: m.info.x,
-                                    y: m.info.y,
-                                    dnd: m.dnd,
+                                .filter(|o| o.info.id != member.info.id)
+                                .map(|o| PeerPos {
+                                    id: o.info.id.clone(),
+                                    x: o.info.x,
+                                    y: o.info.y,
                                 })
                                 .collect();
-
-                            let sets = org_connected.entry(tick.space_id.clone()).or_default();
-                            let deltas = proximity::update_proximity(
-                                &positions,
-                                sets,
-                                tick.near_radius,
-                                tick.far_radius,
-                                tick.meeting_room.as_ref(),
-                            );
-
-                            for member in &tick.members {
-                                let Some(delta) = deltas.get(&member.info.id) else {
-                                    continue;
-                                };
-                                if delta.is_empty() {
-                                    continue;
-                                }
-                                let queued = member
-                                    .tx
-                                    .try_send(ServerMsg::Proximity {
-                                        connect: delta.connect.clone(),
-                                        disconnect: delta.disconnect.clone(),
-                                    })
-                                    .is_ok();
-                                if !queued {
-                                    // The delta never reached the client, and nothing
-                                    // replays it — `update_proximity` has already
-                                    // recorded it as applied. Undo it so the next tick
-                                    // recomputes and resends instead of leaving a link
-                                    // the server believes is torn down (or opened).
-                                    proximity::rollback_delta(&member.info.id, delta, sets);
-                                }
+                            if others.is_empty() {
+                                continue; // only one member — skip (protocol §state)
                             }
-
-                            // --- per-space stale cleanup ---------------------------------
-                            // Members who left this space between ticks won't appear in
-                            // `positions`; drop them from this space's connected set. The
-                            // remaining peers already got a server-authoritative
-                            // `proximity` disconnect from `enter_space()` / `leave()`
-                            // (alongside `space_left`), so this is set hygiene only.
-                            let live_ids: HashSet<&str> =
-                                positions.iter().map(|p| p.string_id.as_str()).collect();
-                            let stale: Vec<String> = sets
-                                .keys()
-                                .filter(|id| !live_ids.contains(id.as_str()))
-                                .cloned()
-                                .collect();
-                            for id in stale {
-                                proximity::remove_peer(&id, sets);
+                            if member.tx.capacity() <= CONTROL_RESERVE {
+                                // Slow consumer: positions are lossy (the next tick
+                                // supersedes them), so they yield the tail of the
+                                // queue to control messages, which are not replayed.
+                                continue;
                             }
+                            let _ = member.tx.try_send(ServerMsg::State { peers: others });
                         }
 
-                        // Drop proximity state for spaces that emptied this tick.
-                        org_connected.retain(|space_id, _| live_spaces.contains(space_id.as_str()));
-                        true
-                    })
-                    .await;
+                        // --- proximity (computed within this space) -------------------
+                        let positions: Vec<proximity::PeerPos> = tick
+                            .members
+                            .iter()
+                            .map(|m| proximity::PeerPos {
+                                num_id: m.num_id,
+                                string_id: m.info.id.clone(),
+                                x: m.info.x,
+                                y: m.info.y,
+                                dnd: m.dnd,
+                            })
+                            .collect();
 
-                if populated {
-                    live_orgs.insert(org_id);
-                } else {
-                    // No populated spaces in this tenant — drop its proximity state.
-                    connected.remove(&org_id);
-                }
-            } // end per-org loop
+                        let sets = links.entry(tick.space_id.clone()).or_default();
+                        let deltas = proximity::update_proximity(
+                            &positions,
+                            sets,
+                            tick.near_radius,
+                            tick.far_radius,
+                            tick.meeting_room.as_ref(),
+                        );
 
-            // Drop proximity state for tenants idle this tick.
-            connected.retain(|org_id, _| live_orgs.contains(org_id));
+                        // Members whose delta never reached them (rolled back).
+                        let mut taken_back: Vec<&str> = Vec::new();
+                        for member in &tick.members {
+                            let Some(delta) = deltas.get(&member.info.id) else {
+                                continue;
+                            };
+                            if delta.is_empty() {
+                                continue;
+                            }
+                            let queued = member
+                                .tx
+                                .try_send(ServerMsg::Proximity {
+                                    connect: delta.connect.clone(),
+                                    disconnect: delta.disconnect.clone(),
+                                })
+                                .is_ok();
+                            if !queued {
+                                // The delta never reached the client, and nothing
+                                // replays it — `update_proximity` has already
+                                // recorded it as applied. Undo it so the next tick
+                                // recomputes and resends instead of leaving a link
+                                // the server believes is torn down (or opened).
+                                proximity::rollback_delta(&member.info.id, delta, sets);
+                                taken_back.push(&member.info.id);
+                            }
+                        }
+                        // The other side of a taken-back connect may hold its half
+                        // and be offering into a link the server no longer has:
+                        // `route_signal` drops those, and the offerer would then sit
+                        // on an unanswered offer, ignoring (as the impolite peer)
+                        // the one the next tick's re-`connect` makes the other side
+                        // send. Tell it to tear down now, so both restart from
+                        // nothing. Sent after every delta, so it lands behind the
+                        // connect it undoes.
+                        for id in taken_back {
+                            for c in &deltas[id].connect {
+                                let Some(other) = tick.members.iter().find(|m| m.info.id == c.id)
+                                else {
+                                    continue;
+                                };
+                                let _ = other.tx.try_send(ServerMsg::Proximity {
+                                    connect: Vec::new(),
+                                    disconnect: vec![id.to_string()],
+                                });
+                            }
+                        }
+                    }
+                })
+                .await;
+            }
         }
     });
 }

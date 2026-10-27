@@ -23,6 +23,7 @@ use crate::protocol::{
     NoteInfo, OrgInfo, PeerInfo, PeerPos, Reaction, ReactionInfo, Rect, RosterMember, ServerMsg,
     SpaceDescriptor, Status, TeamLayout,
 };
+use crate::proximity;
 use crate::store::{Note, OrgCatalog, Store};
 
 /// Upper bound on spaces per org (lobby + team spaces). Caps unbounded
@@ -264,6 +265,12 @@ pub struct OrgInner {
     next_space_seq: u64,
     /// Monotonic note id, org-wide.
     next_note_id: u64,
+    /// Live proximity links, per space (space id → [`proximity::LinkSets`]).
+    /// Written by the tick loop (through [`Org::with_tick`]) and by the space
+    /// exits in [`Org::leave`] / [`Org::enter_space`]; read by
+    /// [`Org::route_signal`], which relays signaling only over these links
+    /// and page links.
+    links: HashMap<String, proximity::LinkSets>,
 }
 
 /// Choose a spawn position for the n-th member in a space. Index 0 lands
@@ -302,6 +309,25 @@ fn spawn_position(space: &SpaceDescriptor, index: u64) -> (f64, f64) {
 const SPAWN_GAP: f64 = 80.0;
 
 impl OrgInner {
+    /// Whether the proximity engine currently holds `a` and `b` linked in
+    /// `space_id`.
+    fn linked(&self, space_id: &str, a: &str, b: &str) -> bool {
+        self.links
+            .get(space_id)
+            .and_then(|sets| sets.get(a))
+            .is_some_and(|set| set.contains(b))
+    }
+
+    /// Forget every link `id` holds in `space_id` — the moment it leaves the
+    /// space, so `route_signal` stops relaying for it at once, and a return
+    /// within the same tick starts from no links (the engine would otherwise
+    /// see the stale pair as still connected and never re-emit `connect`).
+    fn unlink(&mut self, space_id: &str, id: &str) {
+        if let Some(sets) = self.links.get_mut(space_id) {
+            proximity::remove_peer(id, sets);
+        }
+    }
+
     /// Choose a spawn position in `space_id`, skipping spiral points within
     /// `SPAWN_GAP` of a current occupant. The occupancy-count index alone is
     /// not collision-free: it is reused after a departure (A, B, C join →
@@ -510,8 +536,7 @@ pub enum PageOutcome {
 /// Thread-safe handle to a shared org. Clone cheaply (Arc).
 #[derive(Clone)]
 pub struct Org {
-    /// Tenant id, mirrored outside the lock for cheap synchronous access
-    /// (the tick loop keys per-org proximity state by it without awaiting).
+    /// Tenant id, mirrored outside the lock for cheap synchronous access.
     id: Arc<str>,
     inner: Arc<Mutex<OrgInner>>,
     /// Monotonic member-id counter — never reused (protocol uniqueness). Scoped
@@ -563,6 +588,7 @@ impl Org {
                 space_order,
                 next_space_seq: 1,
                 next_note_id: 1,
+                links: HashMap::new(),
             })),
             next_id: Arc::new(AtomicU64::new(1)),
             store,
@@ -618,6 +644,7 @@ impl Org {
                 space_order,
                 next_space_seq: catalog.next_space_seq,
                 next_note_id,
+                links: HashMap::new(),
             })),
             next_id: Arc::new(AtomicU64::new(1)),
             store,
@@ -765,6 +792,7 @@ impl Org {
         if let Some(space) = guard.spaces.get_mut(&member.space_id) {
             space.member_ids.remove(id);
         }
+        guard.unlink(&member.space_id, id);
         guard.broadcast_space_except(
             &member.space_id,
             id,
@@ -863,11 +891,10 @@ impl Org {
     /// Apply a partial status update (away / dnd) and broadcast `presence`.
     ///
     /// Turning `dnd` on also tears down the member's live proximity links —
-    /// not here, but on the next tick (≤ ~83 ms): the hysteresis/connected
-    /// sets live in the tick task, and `update_proximity` force-disconnects
-    /// any pair with a DND side, so the teardown is emitted from the one
-    /// place that owns link state. `route_signal` blocks new signaling
-    /// immediately.
+    /// not here, but on the next tick (≤ ~83 ms): `update_proximity`
+    /// force-disconnects any pair with a DND side, so the teardown is emitted
+    /// from the one place that computes links. `route_signal` blocks new
+    /// signaling immediately.
     pub async fn set_status(&self, id: &str, away: Option<bool>, dnd: Option<bool>) {
         let mut guard = self.inner.lock().await;
         match guard.members.get_mut(id) {
@@ -938,6 +965,7 @@ impl Org {
         if let Some(old) = guard.spaces.get_mut(&current_space_id) {
             old.member_ids.remove(id);
         }
+        guard.unlink(&current_space_id, id);
         guard.broadcast_space_except(
             &current_space_id,
             id,
@@ -1420,22 +1448,27 @@ impl Org {
 
     /// Relay a WebRTC signaling payload from `from_id` to `to_id`.
     ///
-    /// A signal is only relayed when the two peers have a legitimate link:
-    /// either an active **page** (`from` lists `to` in `paging`) or they share
-    /// the **same space** with neither side DND (proximity audio is in-space,
-    /// and DND makes a member unreachable for proximity — FR-11). This
-    /// prevents a client from injecting offers/candidates across spaces, to a
-    /// peer it has no link with, or straight at a DND member the proximity
-    /// engine refused to pair — which would otherwise bypass space isolation
-    /// and the DND gates. Silently drops if disallowed or `to` is not
+    /// A signal is only relayed over a link the server itself opened: an
+    /// active **page** (`from` lists `to` in `paging`), or a **proximity**
+    /// pair the engine currently holds linked in their shared space, with
+    /// neither side DND (DND makes a member unreachable for proximity —
+    /// FR-11; the link itself goes on the next tick). Sharing the space is
+    /// not enough: a client allowed to signal anyone in it could hand an
+    /// offer to a peer out of earshot or across the meeting-room wall, whose
+    /// client would answer with its microphone — distance attenuation lives
+    /// on the receiving side, so the offerer would hear them in full
+    /// (GHSA-w23x-82p8-437m). Silently drops if disallowed or `to` is not
     /// connected (PROTOCOL.md §signal).
     pub async fn route_signal(&self, from_id: &str, to_id: &str, data: serde_json::Value) {
         let guard = self.inner.lock().await;
         let (Some(from), Some(to)) = (guard.members.get(from_id), guard.members.get(to_id)) else {
             return;
         };
-        let allowed =
-            from.paging.contains(to_id) || (from.space_id == to.space_id && !from.dnd && !to.dnd);
+        let allowed = from.paging.contains(to_id)
+            || (from.space_id == to.space_id
+                && !from.dnd
+                && !to.dnd
+                && guard.linked(&from.space_id, from_id, to_id));
         if !allowed {
             return;
         }
@@ -1450,8 +1483,9 @@ impl Org {
     // -----------------------------------------------------------------------
 
     /// Run one tick over this tenant: build the per-space view of every
-    /// position and writer handle, and hand it to `f` **while the org lock is
-    /// still held**. Returns whatever `f` returns.
+    /// position and writer handle, and hand it to `f` — with the org's live
+    /// link sets to update in place — **while the org lock is still held**.
+    /// Returns whatever `f` returns.
     ///
     /// A single lock acquisition means the `state` broadcast and the proximity
     /// computation observe the exact same member set (no join/leave race
@@ -1463,11 +1497,19 @@ impl Org {
     /// never tear down again, since the mover is gone from the old space's
     /// hysteresis state by then.
     ///
+    /// Holding the lock also orders the link sets against `route_signal`: a
+    /// pair becomes relayable in the very tick that queued its `connect`, so
+    /// a client never receives a signal before the `connect` that explains it.
+    ///
     /// `f` must therefore stay synchronous and non-blocking: it walks the
     /// snapshot and `try_send`s, nothing more.
-    pub async fn with_tick<R>(&self, f: impl FnOnce(&[SpaceTick]) -> R) -> R {
-        let guard = self.inner.lock().await;
-        f(&Self::build_ticks(&guard))
+    pub async fn with_tick<R>(
+        &self,
+        f: impl FnOnce(&[SpaceTick], &mut HashMap<String, proximity::LinkSets>) -> R,
+    ) -> R {
+        let mut guard = self.inner.lock().await;
+        let ticks = Self::build_ticks(&guard);
+        f(&ticks, &mut guard.links)
     }
 
     /// The tick view itself. Only spaces with at least one member are returned
@@ -1625,6 +1667,7 @@ mod tests {
             space_order: vec![desc.id.clone()],
             next_space_seq: 0,
             next_note_id: 1,
+            links: HashMap::new(),
         }
     }
 
@@ -1727,6 +1770,17 @@ mod tests {
     }
 
     impl Conn {
+        /// Every relayed `signal` payload received so far, draining the channel.
+        fn signals(&mut self) -> Vec<serde_json::Value> {
+            let mut out = Vec::new();
+            while let Ok(msg) = self.rx.try_recv() {
+                if let ServerMsg::Signal { data, .. } = msg {
+                    out.push(data);
+                }
+            }
+            out
+        }
+
         /// The most recent `notes` message received, draining the channel.
         fn board(&mut self) -> Vec<NoteInfo> {
             let mut last = None;
@@ -1749,6 +1803,46 @@ mod tests {
             .unwrap()
             .last_note_at = None;
         org.post_note(&conn.id, text).await.unwrap();
+    }
+
+    /// Hold `a` and `b` linked in `space`, as the proximity engine would.
+    async fn link(org: &Org, space: &str, a: &str, b: &str) {
+        let mut guard = org.inner.lock().await;
+        let sets = guard.links.entry(space.to_string()).or_default();
+        sets.entry(a.to_string()).or_default().insert(b.to_string());
+        sets.entry(b.to_string()).or_default().insert(a.to_string());
+    }
+
+    #[tokio::test]
+    async fn signaling_is_relayed_only_over_a_link_the_server_opened() {
+        let org = Org::new("o", "O", None);
+        let a = connect(&org, "A", None, Role::Member).await;
+        let mut b = connect(&org, "B", None, Role::Member).await;
+        let offer = serde_json::json!({ "kind": "offer", "sdp": "x" });
+
+        // Same space, neither DND, in earshot by position — but not linked:
+        // nothing is relayed, so B's client never sees an offer it would
+        // answer with its microphone.
+        org.route_signal(&a.id, &b.id, offer.clone()).await;
+        assert!(b.signals().is_empty());
+
+        link(&org, "lobby", &a.id, &b.id).await;
+        org.route_signal(&a.id, &b.id, offer.clone()).await;
+        assert_eq!(b.signals(), vec![offer.clone()]);
+
+        // Leaving the space drops the link at once, and coming straight back
+        // does not revive it — the engine emits a fresh `connect` instead.
+        assert!(matches!(
+            org.enter_space(&b.id, "dev").await,
+            EnterOutcome::Snapshot(_)
+        ));
+        assert!(matches!(
+            org.enter_space(&b.id, "lobby").await,
+            EnterOutcome::Snapshot(_)
+        ));
+        assert!(!org.inner.lock().await.linked("lobby", &a.id, &b.id));
+        org.route_signal(&a.id, &b.id, offer).await;
+        assert!(b.signals().is_empty());
     }
 
     #[tokio::test]
