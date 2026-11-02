@@ -1,9 +1,9 @@
 /**
- * Tests for src/auth.ts: the invite-code normalizers — the join-form field
- * (`extractInviteCode`, which accepts a bare code or a shared https link) and
- * the deep-link parser (`parseInviteDeepLink`, hiroba://invite/<token> only) —
- * plus the e-mail one-time-code client (`sanitizeCode`, `emailStart`,
- * `emailVerify`).
+ * Tests for src/auth.ts: the invite normalizer the browser client applies to
+ * `?invite=` (`extractInviteCode`, which accepts a bare code or a shared https
+ * link), the deep-link parser (`parseAuthDeepLink`, hiroba://auth/<code>
+ * only) and its redemption (`redeemHandoff`), plus the e-mail one-time-code
+ * client (`sanitizeCode`, `emailStart`, `emailVerify`).
  *
  * Run via `npm test` (compiled first by tsc into .test-build/).
  */
@@ -13,6 +13,7 @@ import {
   CODE_LENGTH,
   CodeRejectedError,
   CodeThrottledError,
+  HandoffRejectedError,
   InviteRejectedError,
   clearSession,
   emailStart,
@@ -21,7 +22,8 @@ import {
   guestLogin,
   listOrgs,
   loadSession,
-  parseInviteDeepLink,
+  parseAuthDeepLink,
+  redeemHandoff,
   sanitizeCode,
   saveSession,
   switchOrg,
@@ -63,18 +65,66 @@ test("extractInviteCode pulls the token out of a shared link", () => {
   );
 });
 
-test("parseInviteDeepLink accepts hiroba://invite/<token>", () => {
-  assert.equal(parseInviteDeepLink("hiroba://invite/aB3_x-9"), "aB3_x-9");
-  assert.equal(parseInviteDeepLink(" hiroba://invite/aB3_x-9/ "), "aB3_x-9");
+test("parseAuthDeepLink accepts hiroba://auth/<code>", () => {
+  assert.equal(parseAuthDeepLink("hiroba://auth/aB3_x-9"), "aB3_x-9");
+  assert.equal(parseAuthDeepLink(" hiroba://auth/aB3_x-9/ "), "aB3_x-9");
 });
 
-test("parseInviteDeepLink rejects everything else", () => {
-  assert.equal(parseInviteDeepLink("hiroba://invite/"), null);
-  assert.equal(parseInviteDeepLink("hiroba://other/aB3"), null);
-  assert.equal(parseInviteDeepLink("https://auth.example.com/invite/aB3"), null);
-  assert.equal(parseInviteDeepLink("hiroba://invite/bad token"), null);
-  assert.equal(parseInviteDeepLink("hiroba://invite/a?x=1"), null);
-  assert.equal(parseInviteDeepLink(`hiroba://invite/${"a".repeat(129)}`), null);
+test("parseAuthDeepLink rejects everything else", () => {
+  assert.equal(parseAuthDeepLink("hiroba://auth/"), null);
+  assert.equal(parseAuthDeepLink("hiroba://other/aB3"), null);
+  // The retired invite link: no page emits it any more, and a token is not a code.
+  assert.equal(parseAuthDeepLink("hiroba://invite/aB3_x-9"), null);
+  assert.equal(parseAuthDeepLink("https://auth.example.com/invite/aB3"), null);
+  assert.equal(parseAuthDeepLink("hiroba://auth/bad token"), null);
+  assert.equal(parseAuthDeepLink("hiroba://auth/a?x=1"), null);
+  assert.equal(parseAuthDeepLink(`hiroba://auth/${"a".repeat(129)}`), null);
+});
+
+// ---------------------------------------------------------------------------
+// Web sign-in handoff (POST /handoff)
+// ---------------------------------------------------------------------------
+
+test("redeemHandoff trades the code for the session it names", async () => {
+  // Payload of a real session JWT: {"sub":"google:1","org":"acme","exp":9999999999}
+  const claims = Buffer.from(
+    JSON.stringify({ sub: "google:1", org: "acme", exp: 9999999999 }),
+  ).toString("base64url");
+  const token = `h.${claims}.s`;
+  const { result, calls } = await withFetch(
+    () => jsonResponse(200, { token, refresh_token: "r1" }),
+    () => redeemHandoff("https://auth.example.com/", "c0de"),
+  );
+  assert.equal(calls[0].url, "https://auth.example.com/handoff");
+  assert.equal(calls[0].init.method, "POST");
+  assert.deepEqual(calls[0].body, { code: "c0de" });
+  assert.equal(result.token, token);
+  assert.equal(result.refreshToken, "r1");
+  assert.equal(result.claims.org, "acme");
+});
+
+test("redeemHandoff tells a refused code apart from a failed request", async () => {
+  // 401 is the code itself (spent or expired) — the membership behind it
+  // stands, so the caller sends the user to an ordinary sign-in.
+  await assert.rejects(
+    withFetch(
+      () => new Response("handoff code invalid, used, or expired", { status: 401 }),
+      () => redeemHandoff("https://auth.example.com", "c0de"),
+    ),
+    HandoffRejectedError,
+  );
+  await assert.rejects(
+    withFetch(
+      () => new Response("storage error", { status: 500 }),
+      () => redeemHandoff("https://auth.example.com", "c0de"),
+    ),
+    (err) => !(err instanceof HandoffRejectedError),
+  );
+  const { result: malformed } = await withFetch(
+    () => jsonResponse(200, { token: "not-a-jwt", refresh_token: "r1" }),
+    () => redeemHandoff("https://auth.example.com", "c0de").catch((e) => e),
+  );
+  assert.match(malformed.message, /malformed token/);
 });
 
 test("sanitizeCode keeps only digits, capped at the code length", () => {
@@ -113,7 +163,7 @@ test("emailStart falls back to a minute when Retry-After is unusable", async () 
   assert.equal(err.retryAfterSecs, 60);
 });
 
-test("emailVerify returns a session, and passes the invite through", async () => {
+test("emailVerify returns a session", async () => {
   // Payload of a real session JWT: {"sub":"email:aoi@example.com","exp":9999999999}
   const claims = Buffer.from(
     JSON.stringify({ sub: "email:aoi@example.com", exp: 9999999999 }),
@@ -121,14 +171,11 @@ test("emailVerify returns a session, and passes the invite through", async () =>
   const token = `h.${claims}.s`;
   const { result, calls } = await withFetch(
     () => jsonResponse(200, { token, refresh_token: "r1" }),
-    () => emailVerify("https://auth.example.com", "aoi@example.com", "012345", "inv-1"),
+    () => emailVerify("https://auth.example.com", "aoi@example.com", "012345"),
   );
   assert.equal(calls[0].url, "https://auth.example.com/email/verify");
-  assert.deepEqual(calls[0].body, {
-    email: "aoi@example.com",
-    code: "012345",
-    invite: "inv-1",
-  });
+  // Membership is settled on the web now; a sign-in carries no invite.
+  assert.deepEqual(calls[0].body, { email: "aoi@example.com", code: "012345" });
   assert.equal(result.kind, "session");
   assert.equal(result.session.refreshToken, "r1");
   assert.equal(result.session.claims.sub, "email:aoi@example.com");
@@ -149,15 +196,6 @@ test("emailVerify rejects a refused code and a malformed session", async () => {
   );
   // Typed, so a refused code reads differently from a request that never landed.
   assert.ok(refused instanceof CodeRejectedError);
-
-  // A refused *invite* is its own thing: the code was never spent, so telling
-  // the user to fetch a new one would be wrong.
-  const { result: badInvite } = await withFetch(
-    () => new Response("invite invalid, used, or expired", { status: 409 }),
-    () =>
-      emailVerify("https://auth.example.com", "aoi@example.com", "012345", "dead").catch((e) => e),
-  );
-  assert.ok(badInvite instanceof InviteRejectedError);
 
   const { result: malformed } = await withFetch(
     () => jsonResponse(200, { token: "not-a-jwt", refresh_token: "r1" }),

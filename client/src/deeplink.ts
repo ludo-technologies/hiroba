@@ -1,8 +1,9 @@
 /**
  * deeplink.ts — hiroba:// deep links (Tauri deep-link plugin).
  *
- * The invite landing page's "open in app" button points at
- * `hiroba://invite/<token>`. Two delivery paths funnel into one callback:
+ * Once an invitee has signed in on the invite page, its "open in Hiroba"
+ * button points at `hiroba://auth/<code>`, a single-use handoff for the
+ * session minted there. Two delivery paths funnel into one callback:
  *
  *   - cold start: the OS launches the app with the URL; `getCurrent()`
  *     returns it once the webview is up.
@@ -16,7 +17,7 @@
  */
 
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
-import { extractInviteCode, isTauri, parseInviteDeepLink } from "./auth.js";
+import { extractInviteCode, isTauri, parseAuthDeepLink } from "./auth.js";
 
 /** The invite a browser tab was opened with (`?invite=<token or link>`), or
  *  `""`. Always `""` under Tauri, where invites arrive as deep links. */
@@ -37,13 +38,13 @@ export function returnFromLocation(): string {
   return url.origin === window.location.origin ? url.href : "";
 }
 
-/** Start listening; `onInvite` fires with the bare token for each invite link. */
-export function startDeepLinkListener(onInvite: (code: string) => void): void {
+/** Start listening; `onHandoff` fires with the bare code for each auth link. */
+export function startDeepLinkListener(onHandoff: (code: string) => void): void {
   if (!isTauri()) return;
   const handle = (urls: string[] | null) => {
     for (const url of urls ?? []) {
-      const code = parseInviteDeepLink(url);
-      if (code) onInvite(code);
+      const code = parseAuthDeepLink(url);
+      if (code) onHandoff(code);
     }
   };
   // onOpenUrl never replays the launch URL, so both calls together see each

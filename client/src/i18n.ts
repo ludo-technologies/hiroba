@@ -81,11 +81,9 @@ const EN = {
   fieldToken: "Access token (optional)",
   tokenPlaceholder: "Leave blank for a guest session",
   fieldAuthServer: "Auth server",
-  fieldInvite: "Invite link (optional)",
-  invitePlaceholder: "Paste an invite link",
   enter: "Enter Hiroba",
 
-  // Org setup (first sign-in without an invite)
+  // Org setup (first sign-in by someone who belongs to no org)
   orgSetupTitle: "Name your organization",
   orgSetupDesc: "You're almost in. Give your organization a name — teammates you invite will join it.",
   fieldOrgName: "Organization name",
@@ -93,10 +91,8 @@ const EN = {
   createOrg: "Create organization",
   creatingOrg: "Creating…",
   backToLogin: "Back to sign-in",
-  orgSetupInvitedHint: "Were you invited to an existing organization?",
-  joinWithInvite: "Join with invite",
-  joiningWithInvite: "Joining…",
-  errInviteCodeMissing: "Paste the invite link you received.",
+  orgSetupInvitedHint:
+    "Invited to an existing organization? Open your invite link in the browser and sign in there — this screen closes by itself once you've joined.",
 
   // Invite step (right after the org is founded) + invite-by-e-mail
   inviteSetupTitle: "Invite your teammates",
@@ -144,7 +140,7 @@ const EN = {
   creatingInviteLink: "Creating…",
   inviteLinkReady: "Link copied. Paste it to your teammate.",
   inviteLinkReadyNoClipboard: "Link created. Copy it and send it to your teammate.",
-  inviteLinkHowTo: "They join by opening the link, or by pasting it into the app's invite link field.",
+  inviteLinkHowTo: "They join by opening the link and signing in there.",
   createAnotherInviteLink: "Make a link for one more person",
   inviteNoEmailNotice: "This server has no email set up, so invites go out as links only.",
   copy: "Copy",
@@ -182,10 +178,8 @@ const EN = {
   errSendCode: "Couldn't send the code. Check the address and try again.",
   errCodeThrottled: (secs: number) => `Please wait ${secs}s before requesting another code.`,
   errCode: "That code is wrong or has expired. Request a new one.",
-  errInvite: "That invite is invalid, already used, or expired. Ask for a new one.",
   errOrgName: "Please enter an organization name.",
   errOrgCreate: "Couldn't create the organization. Please try again.",
-  errAlreadyInOrg: "You already belong to an organization — please sign in again.",
   errIssueInvite: "Couldn't create the invite link. Please try again.",
   errLoadInvites: "Couldn't load invites.",
 
@@ -237,10 +231,9 @@ const EN = {
   updateLater: "Later",
   updateFailed: "Update failed — please try again later.",
 
-  // Invite deep link (hiroba://invite/<token>)
-  inviteApplied: "Invite link applied — sign in to join the org.",
+  // Web sign-in handoff (hiroba://auth/<code>): the invite page's "open in Hiroba"
   joinedOrg: (org: string) => `You joined ${org}.`,
-  errJoinOrg: "Couldn't join the organization. Try opening the invite again.",
+  errHandoffExpired: "This link has expired. Just sign in here — you're already a member.",
 
   // Browser guest (web build opened from an invite link)
   guestJoinHint: "You're joining as a guest from an invite link. Enter a name and you're in.",
@@ -413,11 +406,9 @@ const JA: typeof EN = {
   fieldToken: "アクセストークン(任意)",
   tokenPlaceholder: "空欄でゲスト参加",
   fieldAuthServer: "認証サーバー",
-  fieldInvite: "招待リンク(任意)",
-  invitePlaceholder: "招待リンクを貼り付け",
   enter: "オフィスに入る",
 
-  // Org setup (first sign-in without an invite)
+  // Org setup (first sign-in by someone who belongs to no org)
   orgSetupTitle: "組織に名前をつけましょう",
   orgSetupDesc: "もう少しです。組織の名前を入力してください。招待した仲間はこの組織に参加します。",
   fieldOrgName: "組織名",
@@ -425,10 +416,8 @@ const JA: typeof EN = {
   createOrg: "組織を作成",
   creatingOrg: "作成中…",
   backToLogin: "サインインに戻る",
-  orgSetupInvitedHint: "既存の組織に招待されていますか?",
-  joinWithInvite: "招待で参加",
-  joiningWithInvite: "参加中…",
-  errInviteCodeMissing: "受け取った招待リンクを貼り付けてください。",
+  orgSetupInvitedHint:
+    "招待されている方は、届いた招待リンクをブラウザで開いてサインインしてください。参加が終わるとこの画面は自動で閉じます。",
 
   // 招待ステップ(組織作成直後)+ メール招待
   inviteSetupTitle: "仲間を招待しましょう",
@@ -476,7 +465,7 @@ const JA: typeof EN = {
   creatingInviteLink: "作成中…",
   inviteLinkReady: "リンクをコピーしました。相手に貼り付けて送ってください。",
   inviteLinkReadyNoClipboard: "リンクを作成しました。コピーして相手に送ってください。",
-  inviteLinkHowTo: "相手はこのリンクを開くか、アプリの「招待リンク」欄に貼り付けると参加できます。",
+  inviteLinkHowTo: "相手がリンクを開いてサインインすると参加できます。",
   createAnotherInviteLink: "もう 1 人分のリンクを作る",
   inviteNoEmailNotice: "このサーバーはメール送信が設定されていないため、メールでの招待は使えません。",
   copy: "コピー",
@@ -514,10 +503,8 @@ const JA: typeof EN = {
   errSendCode: "コードを送信できませんでした。アドレスを確認してもう一度お試しください。",
   errCodeThrottled: (secs: number) => `次のコードを送信できるまで ${secs} 秒お待ちください。`,
   errCode: "コードが違うか、有効期限が切れています。新しいコードを取得してください。",
-  errInvite: "この招待は無効か、使用済みか、期限切れです。新しい招待をもらってください。",
   errOrgName: "組織名を入力してください。",
   errOrgCreate: "組織を作成できませんでした。もう一度お試しください。",
-  errAlreadyInOrg: "すでに組織に所属しています。もう一度サインインしてください。",
   errIssueInvite: "招待リンクを作成できませんでした。もう一度お試しください。",
   errLoadInvites: "招待の一覧を取得できませんでした。",
 
@@ -569,10 +556,9 @@ const JA: typeof EN = {
   updateLater: "後で",
   updateFailed: "更新に失敗しました。しばらくしてからもう一度お試しください。",
 
-  // Invite deep link (hiroba://invite/<token>)
-  inviteApplied: "招待リンクを受け取りました。サインインすると参加できます。",
+  // Web sign-in handoff (hiroba://auth/<code>): the invite page's "open in Hiroba"
   joinedOrg: (org: string) => `${org} に参加しました。`,
-  errJoinOrg: "組織に参加できませんでした。もう一度招待を開いてください。",
+  errHandoffExpired: "このリンクの有効期限が切れました。アプリでそのままサインインしてください。参加は済んでいます。",
 
   // Browser guest (web build opened from an invite link)
   guestJoinHint: "招待リンクからゲストとして参加します。名前を入れるだけで入室できます。",
@@ -743,11 +729,9 @@ const ES: typeof EN = {
   fieldToken: "Token de acceso (opcional)",
   tokenPlaceholder: "Déjalo vacío para entrar sin cuenta",
   fieldAuthServer: "Servidor de autenticación",
-  fieldInvite: "Enlace de invitación (opcional)",
-  invitePlaceholder: "Pega un enlace de invitación",
   enter: "Entrar en Hiroba",
 
-  // Org setup (first sign-in without an invite)
+  // Org setup (first sign-in by someone who belongs to no org)
   orgSetupTitle: "Ponle nombre a tu organización",
   orgSetupDesc: "Ya casi está. Ponle nombre a tu organización: las personas que invites se unirán a ella.",
   fieldOrgName: "Nombre de la organización",
@@ -755,10 +739,8 @@ const ES: typeof EN = {
   createOrg: "Crear organización",
   creatingOrg: "Creando…",
   backToLogin: "Volver al inicio de sesión",
-  orgSetupInvitedHint: "¿Te invitaron a una organización que ya existe?",
-  joinWithInvite: "Unirme con una invitación",
-  joiningWithInvite: "Uniéndote…",
-  errInviteCodeMissing: "Pega el enlace de invitación que recibiste.",
+  orgSetupInvitedHint:
+    "¿Te invitaron a una organización que ya existe? Abre tu enlace de invitación en el navegador e inicia sesión ahí: esta pantalla se cierra sola en cuanto te hayas unido.",
 
   // Invite step (right after the org is founded) + invite-by-e-mail
   inviteSetupTitle: "Invita a tu equipo",
@@ -807,7 +789,7 @@ const ES: typeof EN = {
   creatingInviteLink: "Creando…",
   inviteLinkReady: "Enlace copiado. Pégaselo a tu compañero.",
   inviteLinkReadyNoClipboard: "Enlace creado. Cópialo y envíaselo a tu compañero.",
-  inviteLinkHowTo: "Para unirse, abren el enlace o lo pegan en el campo de enlace de invitación de la app.",
+  inviteLinkHowTo: "Para unirse, abren el enlace e inician sesión ahí.",
   createAnotherInviteLink: "Crear un enlace para otra persona",
   inviteNoEmailNotice: "Este servidor no tiene correo configurado, así que las invitaciones solo van por enlace.",
   copy: "Copiar",
@@ -845,10 +827,8 @@ const ES: typeof EN = {
   errSendCode: "No se pudo enviar el código. Revisa la dirección e inténtalo de nuevo.",
   errCodeThrottled: (secs: number) => `Espera ${secs} s antes de pedir otro código.`,
   errCode: "El código es incorrecto o caducó. Pide uno nuevo.",
-  errInvite: "La invitación no es válida, ya se usó o caducó. Pide una nueva.",
   errOrgName: "Escribe el nombre de la organización.",
   errOrgCreate: "No se pudo crear la organización. Inténtalo de nuevo.",
-  errAlreadyInOrg: "Ya perteneces a una organización. Vuelve a iniciar sesión.",
   errIssueInvite: "No se pudo crear el enlace de invitación. Inténtalo de nuevo.",
   errLoadInvites: "No se pudieron cargar las invitaciones.",
 
@@ -900,10 +880,9 @@ const ES: typeof EN = {
   updateLater: "Más tarde",
   updateFailed: "No se pudo actualizar. Inténtalo de nuevo más tarde.",
 
-  // Invite deep link (hiroba://invite/<token>)
-  inviteApplied: "Enlace de invitación aplicado. Inicia sesión para unirte a la organización.",
+  // Web sign-in handoff (hiroba://auth/<code>): the invite page's "open in Hiroba"
   joinedOrg: (org: string) => `Te uniste a ${org}.`,
-  errJoinOrg: "No fue posible unirte a la organización. Vuelve a abrir la invitación.",
+  errHandoffExpired: "Este enlace caducó. Inicia sesión aquí sin más: ya eres miembro.",
 
   // Browser guest (web build opened from an invite link)
   guestJoinHint: "Entras con un enlace de invitación, sin cuenta. Escribe un nombre y listo.",
@@ -1075,11 +1054,9 @@ const FR: typeof EN = {
   fieldToken: "Jeton d'accès (facultatif)",
   tokenPlaceholder: "Laissez vide pour le mode invité",
   fieldAuthServer: "Serveur d'authentification",
-  fieldInvite: "Lien d'invitation (facultatif)",
-  invitePlaceholder: "Collez un lien d'invitation",
   enter: "Entrer dans Hiroba",
 
-  // Org setup (first sign-in without an invite)
+  // Org setup (first sign-in by someone who belongs to no org)
   orgSetupTitle: "Nommez votre organisation",
   orgSetupDesc: "Vous y êtes presque. Donnez un nom à votre organisation : les personnes que vous inviterez la rejoindront.",
   fieldOrgName: "Nom de l'organisation",
@@ -1087,10 +1064,8 @@ const FR: typeof EN = {
   createOrg: "Créer l'organisation",
   creatingOrg: "Création…",
   backToLogin: "Retour à la connexion",
-  orgSetupInvitedHint: "Vous avez reçu une invitation pour une organisation existante ?",
-  joinWithInvite: "Rejoindre avec une invitation",
-  joiningWithInvite: "Adhésion en cours…",
-  errInviteCodeMissing: "Collez le lien d'invitation que vous avez reçu.",
+  orgSetupInvitedHint:
+    "Vous avez reçu une invitation pour une organisation existante ? Ouvrez votre lien d'invitation dans le navigateur et connectez-vous là-bas : cet écran se fermera de lui-même une fois que vous l'aurez rejointe.",
 
   // Invite step (right after the org is founded) + invite-by-e-mail
   inviteSetupTitle: "Invitez vos collègues",
@@ -1139,7 +1114,7 @@ const FR: typeof EN = {
   creatingInviteLink: "Création…",
   inviteLinkReady: "Lien copié. Collez-le à votre collègue.",
   inviteLinkReadyNoClipboard: "Lien créé. Copiez-le et envoyez-le à votre collègue.",
-  inviteLinkHowTo: "Pour rejoindre, la personne ouvre le lien ou le colle dans le champ Lien d'invitation de l'application.",
+  inviteLinkHowTo: "Pour rejoindre, la personne ouvre le lien et s'y connecte.",
   createAnotherInviteLink: "Créer un lien pour une autre personne",
   inviteNoEmailNotice: "Ce serveur n'a pas d'e-mail configuré : les invitations passent uniquement par lien.",
   copy: "Copier",
@@ -1177,10 +1152,8 @@ const FR: typeof EN = {
   errSendCode: "Impossible d'envoyer le code. Vérifiez l'adresse et réessayez.",
   errCodeThrottled: (secs: number) => `Veuillez patienter ${secs} s avant de demander un autre code.`,
   errCode: "Ce code est incorrect ou a expiré. Demandez-en un nouveau.",
-  errInvite: "Cette invitation est invalide, déjà utilisée ou expirée. Demandez-en une nouvelle.",
   errOrgName: "Veuillez saisir un nom d'organisation.",
   errOrgCreate: "Impossible de créer l'organisation. Veuillez réessayer.",
-  errAlreadyInOrg: "Vous appartenez déjà à une organisation. Veuillez vous reconnecter.",
   errIssueInvite: "Impossible de créer le lien d'invitation. Veuillez réessayer.",
   errLoadInvites: "Impossible de charger les invitations.",
 
@@ -1232,10 +1205,9 @@ const FR: typeof EN = {
   updateLater: "Plus tard",
   updateFailed: "Échec de la mise à jour. Veuillez réessayer plus tard.",
 
-  // Invite deep link (hiroba://invite/<token>)
-  inviteApplied: "Lien d'invitation appliqué : connectez-vous pour rejoindre l'organisation.",
+  // Web sign-in handoff (hiroba://auth/<code>): the invite page's "open in Hiroba"
   joinedOrg: (org: string) => `Vous avez rejoint ${org}.`,
-  errJoinOrg: "Impossible de rejoindre l'organisation. Essayez de rouvrir l'invitation.",
+  errHandoffExpired: "Ce lien a expiré. Connectez-vous simplement ici : vous êtes déjà membre.",
 
   // Browser guest (web build opened from an invite link)
   guestJoinHint: "Vous entrez via un lien d'invitation, sans compte. Saisissez un nom et c'est parti.",

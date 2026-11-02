@@ -90,48 +90,51 @@ export function isLive(claims: SessionClaims): boolean {
 
 export type Provider = "google" | "github" | "dev";
 
-/** A login either yields a full session, or (for a first-time user with no
- *  invite) a short-lived provisional token that `POST /orgs` upgrades once
- *  the user names their organization. */
+/** A login either yields a full session, or (for a first-time user who
+ *  belongs to no org yet) a short-lived provisional token that `POST /orgs`
+ *  upgrades once the user names their organization. */
 export type OAuthResult =
   | { kind: "session"; session: AuthSession }
   | { kind: "pending_org"; provisionalToken: string };
+
+/** What every session-minting endpoint answers with (`/token`,
+ *  `/email/verify`, `/handoff`); the login ones may answer the org-setup
+ *  handoff instead. */
+interface SessionPayload {
+  token?: string;
+  refresh_token?: string;
+  pending?: string;
+  provisional_token?: string;
+}
+
+/** Turn a session payload into an {@link AuthSession}, refusing anything
+ *  short of a decodable JWT plus its refresh token. */
+function sessionFromPayload(data: SessionPayload): AuthSession {
+  const claims = data.token ? decodeClaims(data.token) : null;
+  if (!data.token || !data.refresh_token || !claims) {
+    throw new Error("auth backend returned a malformed token");
+  }
+  return { token: data.token, claims, refreshToken: data.refresh_token };
+}
+
+/** Session or org-setup handoff, as the login endpoints answer. */
+function loginResult(data: SessionPayload): OAuthResult {
+  if (data.pending === "org_setup") {
+    if (!data.provisional_token) {
+      throw new Error("auth backend returned a malformed pending response");
+    }
+    return { kind: "pending_org", provisionalToken: data.provisional_token };
+  }
+  return { kind: "session", session: sessionFromPayload(data) };
+}
 
 /**
  * Run the full OAuth dance via the Tauri shell. Resolves once the user has
  * finished the browser consent and the backend has minted a Hiroba JWT —
  * or handed back the org-setup handoff.
  */
-export async function oauthLogin(
-  authBase: string,
-  provider: Provider,
-  invite?: string,
-): Promise<OAuthResult> {
-  const result = await invoke<{
-    token?: string;
-    claims?: SessionClaims;
-    refresh_token?: string;
-    pending?: string;
-    provisional_token?: string;
-  }>("oauth_login", {
-    authBase,
-    provider,
-    invite: invite || null,
-  });
-  if (result.pending === "org_setup") {
-    if (!result.provisional_token) {
-      throw new Error("auth backend returned a malformed pending response");
-    }
-    return { kind: "pending_org", provisionalToken: result.provisional_token };
-  }
-  const claims = result.token ? decodeClaims(result.token) : null;
-  if (!result.token || !result.refresh_token || !claims) {
-    throw new Error("auth backend returned a malformed token");
-  }
-  return {
-    kind: "session",
-    session: { token: result.token, claims, refreshToken: result.refresh_token },
-  };
+export async function oauthLogin(authBase: string, provider: Provider): Promise<OAuthResult> {
+  return loginResult(await invoke<SessionPayload>("oauth_login", { authBase, provider }));
 }
 
 // ---------------------------------------------------------------------------
@@ -157,9 +160,8 @@ export class CodeRejectedError extends Error {
   }
 }
 
-/** Thrown when the *invite* is what the backend refused (HTTP 409). The code
- *  itself was fine — and, because the backend checks the invite first, still
- *  unspent — so sending the user hunting for a new code would be wrong. */
+/** Thrown when the backend refused the invite behind a guest entry (HTTP
+ *  409): revoked or expired, as opposed to a request that never landed. */
 export class InviteRejectedError extends Error {
   constructor() {
     super("invite invalid, used, or expired");
@@ -205,42 +207,51 @@ export async function emailStart(
 
 /**
  * Trade a mailed code for a session. Mirrors {@link oauthLogin}'s result: a
- * first-time user without an invite gets the org-setup handoff instead.
+ * first-time user who belongs to no org gets the org-setup handoff instead.
  */
 export async function emailVerify(
   authBase: string,
   email: string,
   code: string,
-  invite?: string,
 ): Promise<OAuthResult> {
   const resp = await fetch(authEndpoint(authBase, "/email/verify"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, code, invite: invite || null }),
+    body: JSON.stringify({ email, code }),
   });
   if (resp.status === 401) throw new CodeRejectedError();
-  if (resp.status === 409) throw new InviteRejectedError();
   if (!resp.ok) throw new Error(await resp.text());
-  const data: {
-    token?: string;
-    refresh_token?: string;
-    pending?: string;
-    provisional_token?: string;
-  } = await resp.json();
-  if (data.pending === "org_setup") {
-    if (!data.provisional_token) {
-      throw new Error("auth backend returned a malformed pending response");
-    }
-    return { kind: "pending_org", provisionalToken: data.provisional_token };
+  return loginResult(await resp.json());
+}
+
+// ---------------------------------------------------------------------------
+// Web sign-in handoff (hiroba://auth/<code>)
+// ---------------------------------------------------------------------------
+
+/** Thrown when the backend refused the handoff code (HTTP 401): unknown,
+ *  already redeemed, or expired. The membership behind it still exists, so
+ *  the fix is an ordinary sign-in, not a new link. */
+export class HandoffRejectedError extends Error {
+  constructor() {
+    super("handoff code invalid, used, or expired");
+    this.name = "HandoffRejectedError";
   }
-  const claims = data.token ? decodeClaims(data.token) : null;
-  if (!data.token || !data.refresh_token || !claims) {
-    throw new Error("auth backend returned a malformed token");
-  }
-  return {
-    kind: "session",
-    session: { token: data.token, claims, refreshToken: data.refresh_token },
-  };
+}
+
+/**
+ * Redeem the single-use code the invite page's "open in Hiroba" link carries
+ * (`POST /handoff`). The invitee signed in and joined on the web; this trades
+ * that for the session the app would have minted itself.
+ */
+export async function redeemHandoff(authBase: string, code: string): Promise<AuthSession> {
+  const resp = await fetch(authEndpoint(authBase, "/handoff"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+  });
+  if (resp.status === 401) throw new HandoffRejectedError();
+  if (!resp.ok) throw new Error(await resp.text());
+  return sessionFromPayload(await resp.json());
 }
 
 const LS_GUEST_ID = "hiroba_guest_id";
@@ -320,8 +331,8 @@ export async function openExternal(url: string): Promise<void> {
 }
 
 /**
- * Normalize the invite field: accept either a bare invite code or a shared
- * link of the form `https://<auth-server>/invite/<token>`.
+ * Normalize an invite as the browser client receives it (`?invite=`): either a
+ * bare invite code or a shared link of the form `https://<auth-server>/invite/<token>`.
  */
 export function extractInviteCode(raw: string): string {
   const m = /\/invite\/([A-Za-z0-9_-]+)\/?$/.exec(raw.trim());
@@ -329,18 +340,19 @@ export function extractInviteCode(raw: string): string {
 }
 
 /** The shareable form of an invite token: the auth server's landing page,
- *  which offers "open in app"; the join form accepts it pasted as-is too. */
+ *  where the invitee signs in and joins. */
 export function inviteLinkUrl(authBase: string, token: string): string {
   return `${authBase}/invite/${token}`;
 }
 
 /**
- * Parse a `hiroba://invite/<token>` deep link (the "open in app" button on
- * the invite landing page). Returns the token, or null for any other URL.
- * The charset/length bound mirrors the auth server's token guard.
+ * Parse a `hiroba://auth/<code>` deep link (the "open in Hiroba" button the
+ * invite page shows once the invitee has signed in there). Returns the
+ * handoff code, or null for any other URL. The charset/length bound mirrors
+ * the auth server's code guard.
  */
-export function parseInviteDeepLink(url: string): string | null {
-  const m = /^hiroba:\/\/invite\/([A-Za-z0-9_-]{1,128})\/?$/.exec(url.trim());
+export function parseAuthDeepLink(url: string): string | null {
+  const m = /^hiroba:\/\/auth\/([A-Za-z0-9_-]{1,128})\/?$/.exec(url.trim());
   return m ? m[1] : null;
 }
 

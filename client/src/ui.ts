@@ -25,7 +25,7 @@ import {
   spaceLabel,
   t,
 } from "./i18n.js";
-import { CODE_LENGTH, extractInviteCode, inviteLinkUrl, sanitizeCode, type OrgSummary } from "./auth.js";
+import { CODE_LENGTH, inviteLinkUrl, sanitizeCode, type OrgSummary } from "./auth.js";
 import { CustomSelect, type SelectOption } from "./select.js";
 import { bindOverlayDismiss } from "./overlay.js";
 import { AVATAR_MAX_CHARS, AVATAR_PRESETS, encodeAvatar, encodePreset, isPresetId, loadImage, presetSvg } from "./avatars.js";
@@ -116,8 +116,6 @@ const elJoinColor = $<HTMLInputElement>("join-color");
 const elJoinServer = $<HTMLInputElement>("join-server");
 const elJoinToken = $<HTMLInputElement>("join-token");
 const elJoinAuth = $<HTMLInputElement>("join-auth");
-const elJoinInvite = $<HTMLInputElement>("join-invite");
-const elJoinInviteField = $<HTMLLabelElement>("join-invite-field");
 const elGuestHint = $<HTMLParagraphElement>("guest-hint");
 const elHudGetApp = $<HTMLAnchorElement>("hud-get-app");
 const elAuthBlock = $<HTMLDivElement>("auth-block");
@@ -161,9 +159,7 @@ const elOrgSetup = $<HTMLDivElement>("org-setup");
 const elOrgSetupName = $<HTMLInputElement>("org-setup-name");
 const elOrgSetupBtn = $<HTMLButtonElement>("org-setup-btn");
 const elOrgSetupBack = $<HTMLButtonElement>("org-setup-back");
-const elOrgSetupInvite = $<HTMLInputElement>("org-setup-invite");
-const elOrgSetupJoin = $<HTMLButtonElement>("org-setup-join");
-const elOrgSetupJoinBlock = $<HTMLDivElement>("org-setup-join-block");
+const elOrgSetupInvitedHint = $<HTMLParagraphElement>("org-setup-invited-hint");
 const elOrgSetupDesc = $<HTMLParagraphElement>("org-setup-desc");
 const elAuthTrial = $<HTMLParagraphElement>("auth-trial");
 
@@ -287,9 +283,6 @@ const elUpdateLater = $<HTMLButtonElement>("update-later");
 // Public interface
 // ---------------------------------------------------------------------------
 
-/** Which org-setup request is in flight, if any. */
-export type OrgSetupBusy = "create" | "join" | null;
-
 export interface JoinFormValues {
   name: string;
   color: string;
@@ -380,11 +373,11 @@ export interface UICallbacks {
   /** Cancel the current connection attempt. */
   onCancelConnect(): void;
   /** Start an interactive OAuth login via the Tauri shell (FR-13). */
-  onLogin(provider: "google" | "github", authUrl: string, invite: string): void;
+  onLogin(provider: "google" | "github", authUrl: string): void;
   /** Ask the auth backend to mail a one-time login code. */
   onEmailStart(email: string, authUrl: string): void;
   /** Trade a mailed code for a session. */
-  onEmailVerify(code: string, authUrl: string, invite: string): void;
+  onEmailVerify(code: string, authUrl: string): void;
   /** Drop the stored session and return to the signed-out state. */
   onLogout(): void;
   /** Re-anchor the session in another org the user belongs to (chip dropdown
@@ -394,8 +387,6 @@ export interface UICallbacks {
   onCreateOrg(name: string): void;
   /** Abandon the org-setup step and return to the sign-in form. */
   onCancelOrgSetup(): void;
-  /** Redeem an invite from the org-setup step instead of founding an org. */
-  onJoinWithInvite(invite: string): void;
   /** Mail an invite to each address (invite step, or the admin panel). */
   onSendInviteEmails(emails: string[], role: "member" | "admin", source: InviteSource): void;
   /** Mint a member invite and put its link on the clipboard (invite step). */
@@ -633,7 +624,7 @@ export class UIManager {
   private lastCodeBusy = false;
   /** Address a code was mailed to, while the code step is on screen. */
   private codeSentTo: string | null = null;
-  private lastOrgSetupBusy: OrgSetupBusy = null;
+  private lastOrgSetupBusy = false;
   private lastInviteIssueBusy = false;
   private lastInviteSendBusy = false;
   /** Org named on the invite step while it is on screen. */
@@ -709,16 +700,14 @@ export class UIManager {
     }
   }
 
-  /** Browser guest entry (web build opened from an invite link): the invite
-   *  is fixed by the URL, so the field goes and a hint says what will happen. */
+  /** Browser guest entry (web build opened from an invite link): a hint says
+   *  what will happen. */
   setGuestMode(on: boolean): void {
     if (on) {
       elGuestHint.textContent = t.guestJoinHint;
       elGuestHint.removeAttribute("hidden");
-      elJoinInviteField.setAttribute("hidden", "");
     } else {
       elGuestHint.setAttribute("hidden", "");
-      elJoinInviteField.removeAttribute("hidden");
     }
   }
 
@@ -1041,12 +1030,6 @@ export class UIManager {
     }
   }
 
-  /** The invite field is single-use; clear it once consumed by a login. */
-  clearInvite(): void {
-    elJoinInvite.value = "";
-    elOrgSetupInvite.value = "";
-  }
-
   /** Open the server-settings dialog (self-host connection details),
    *  optionally landing focus on the field the user must fix. */
   private showServerSettings(focus?: HTMLInputElement): void {
@@ -1177,8 +1160,7 @@ export class UIManager {
     const start = (provider: "google" | "github") => {
       const url = authUrl();
       if (!url) return;
-      // The field accepts a bare code or a shared /invite/<token> link.
-      this.callbacks.onLogin(provider, url, extractInviteCode(elJoinInvite.value));
+      this.callbacks.onLogin(provider, url);
     };
     elLoginGoogle.addEventListener("click", () => start("google"));
     elLoginGithub.addEventListener("click", () => start("github"));
@@ -1217,7 +1199,7 @@ export class UIManager {
         elLoginCode.focus();
         return;
       }
-      this.callbacks.onEmailVerify(code, url, extractInviteCode(elJoinInvite.value));
+      this.callbacks.onEmailVerify(code, url);
     };
     elLoginCodeVerify.addEventListener("click", verify);
     // Typing/pasting only ever leaves digits in the field, and a full-length
@@ -1251,9 +1233,10 @@ export class UIManager {
   // -------------------------------------------------------------------------
 
   /** Swap the join form body for the org-name step. `"first"` is the
-   *  pending sign-in naming its org (an invite can still be taken instead);
-   *  `"another"` is a signed-in member founding one more, where the invite
-   *  route makes no sense and "back" just returns to the card. */
+   *  pending sign-in naming its org (an invitee who signed in before opening
+   *  their invite is told where that invite is taken instead); `"another"` is
+   *  a signed-in member founding one more, where that hint makes no sense
+   *  and "back" just returns to the card. */
   showOrgSetup(mode: "first" | "another" = "first"): void {
     const another = mode === "another";
     elJoinForm.classList.add("org-setup-mode");
@@ -1261,10 +1244,7 @@ export class UIManager {
     elJoinError.setAttribute("hidden", "");
     elOrgSetupDesc.textContent = another ? t.orgSetupAnotherDesc : t.orgSetupDesc;
     elOrgSetupBack.textContent = another ? t.cancel : t.backToLogin;
-    if (another) elOrgSetupJoinBlock.setAttribute("hidden", "");
-    else elOrgSetupJoinBlock.removeAttribute("hidden");
-    // A code pasted on the join card before signing in travels along.
-    elOrgSetupInvite.value = another ? "" : elJoinInvite.value;
+    elOrgSetupInvitedHint.toggleAttribute("hidden", another);
     elOrgSetupName.value = "";
     elOrgSetupName.focus();
   }
@@ -1273,24 +1253,18 @@ export class UIManager {
   hideOrgSetup(): void {
     elJoinForm.classList.remove("org-setup-mode");
     elOrgSetup.setAttribute("hidden", "");
-    this.setOrgSetupBusy(null);
+    this.setOrgSetupBusy(false);
   }
 
-  /** Freeze the whole step while one of its requests is in flight. Create,
-   *  join, and back all act on the same provisional token: a second request
-   *  alongside the first could land the account in two orgs, and going back
-   *  mid-flight would let the late answer sign the user in behind a screen
-   *  that no longer expects it. */
-  setOrgSetupBusy(busy: OrgSetupBusy): void {
+  /** Freeze the whole step while its request is in flight. Create and back
+   *  act on the same provisional token: going back mid-flight would let the
+   *  late answer sign the user in behind a screen that no longer expects it. */
+  setOrgSetupBusy(busy: boolean): void {
     this.lastOrgSetupBusy = busy;
-    const frozen = busy !== null;
-    elOrgSetupName.disabled = frozen;
-    elOrgSetupBtn.disabled = frozen;
-    elOrgSetupInvite.disabled = frozen;
-    elOrgSetupJoin.disabled = frozen;
-    elOrgSetupBack.disabled = frozen;
-    elOrgSetupBtn.textContent = busy === "create" ? t.creatingOrg : t.createOrg;
-    elOrgSetupJoin.textContent = busy === "join" ? t.joiningWithInvite : t.joinWithInvite;
+    elOrgSetupName.disabled = busy;
+    elOrgSetupBtn.disabled = busy;
+    elOrgSetupBack.disabled = busy;
+    elOrgSetupBtn.textContent = busy ? t.creatingOrg : t.createOrg;
   }
 
   private _bindOrgSetup(): void {
@@ -1312,23 +1286,6 @@ export class UIManager {
       }
     });
     elOrgSetupBack.addEventListener("click", () => this.callbacks.onCancelOrgSetup());
-    const join = () => {
-      const invite = extractInviteCode(elOrgSetupInvite.value);
-      if (!invite) {
-        this.showError(t.errInviteCodeMissing);
-        elOrgSetupInvite.focus();
-        return;
-      }
-      elJoinError.setAttribute("hidden", "");
-      this.callbacks.onJoinWithInvite(invite);
-    };
-    elOrgSetupJoin.addEventListener("click", join);
-    elOrgSetupInvite.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        join();
-      }
-    });
   }
 
   // -------------------------------------------------------------------------
@@ -2453,20 +2410,6 @@ export class UIManager {
     elToasts.appendChild(el);
     window.setTimeout(() => el.classList.add("leaving"), 2600);
     window.setTimeout(() => el.remove(), 3100);
-  }
-
-  // -------------------------------------------------------------------------
-  // Invite deep link (hiroba://invite/<token>; driven by deeplink.ts)
-  // -------------------------------------------------------------------------
-
-  /** Drop an arriving invite code into the join form and tell the user. The
-   *  code rides along on the next OAuth sign-in (`onLogin`'s invite param). */
-  applyInvite(code: string): void {
-    elJoinInvite.value = code;
-    // Arriving on the org-setup step means the user signed in first; the
-    // code belongs in the escape hatch there, not on the hidden join card.
-    elOrgSetupInvite.value = code;
-    this.showToast(t.inviteApplied);
   }
 
   // -------------------------------------------------------------------------

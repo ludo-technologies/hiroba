@@ -2718,17 +2718,10 @@ a.hud-pill {
   align-self: center;
 }
 
-/* Invite escape hatch on the org-setup step. */
-.org-setup-join {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+/* Where an invitee who signed in first is sent, on the org-setup step. */
+.org-setup-invited {
   padding-top: 14px;
   border-top: 1px solid var(--edge);
-}
-
-.org-setup-join > .ghost-btn {
-  align-self: center;
 }
 
 /* ---------------------------------------------------------------------------

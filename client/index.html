@@ -203,19 +203,6 @@
           <input id="join-color" type="color" value="#b54f2c" hidden />
         </div>
 
-        <label id="join-invite-field" class="field">
-          <span class="field-label" data-i18n="fieldInvite">Invite code (optional)</span>
-          <input
-            id="join-invite"
-            type="text"
-            placeholder="Paste an invite code or link"
-            data-i18n-placeholder="invitePlaceholder"
-            spellcheck="false"
-            autocapitalize="off"
-            autocomplete="off"
-          />
-        </label>
-
         <!-- Connecting: the button turns into Cancel, and this line is what
              tells the user something is happening (a guest entry can take a
              few seconds: /guest → /ice → welcome). -->
@@ -227,8 +214,8 @@
           <span class="btn-label" data-i18n="enter">Enter Hiroba</span>
         </button>
 
-        <!-- Org setup step: shown after a first OAuth sign-in without an
-             invite, in place of the form body (the user must name their org
+        <!-- Org setup step: shown after a first sign-in by someone who belongs
+             to no org, in place of the form body (the user must name their org
              before a full session is minted; AUTH_PLAN org-setup flow). -->
         <div id="org-setup" class="org-setup" hidden>
           <h2 class="org-setup-title" data-i18n="orgSetupTitle">Name your organization</h2>
@@ -247,24 +234,11 @@
             />
           </label>
           <button id="org-setup-btn" type="button" class="setup-primary" data-i18n="createOrg">Create organization</button>
-          <!-- The invitee who signed in before pasting their code lands here
-               too; this is where they can still take the invite instead of
-               founding an org of their own. -->
-          <div id="org-setup-join-block" class="org-setup-join">
-            <p class="auth-hint" data-i18n="orgSetupInvitedHint">Were you invited to an existing organization?</p>
-            <input
-              id="org-setup-invite"
-              type="text"
-              placeholder="Paste an invite code or link"
-              data-i18n-placeholder="invitePlaceholder"
-              data-i18n-arialabel="fieldInvite"
-              aria-label="Invite code"
-              spellcheck="false"
-              autocapitalize="off"
-              autocomplete="off"
-            />
-            <button id="org-setup-join" type="button" class="ghost-btn" data-i18n="joinWithInvite">Join with invite</button>
-          </div>
+          <!-- The invitee who signed in before opening their invite lands here
+               too. Invites are taken on the invite page itself (sign in there,
+               then "open in Hiroba" hands the session over), so all this step
+               has to do is point them back to it. -->
+          <p id="org-setup-invited-hint" class="auth-hint org-setup-invited" data-i18n="orgSetupInvitedHint">Invited to an existing organization? Open your invite link in the browser and sign in there — this screen closes by itself once you've joined.</p>
           <button id="org-setup-back" type="button" class="ghost-btn" data-i18n="backToLogin">Back to sign-in</button>
         </div>
 

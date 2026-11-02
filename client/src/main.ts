@@ -54,6 +54,7 @@ import {
   emailStart,
   emailVerify,
   guestLogin,
+  HandoffRejectedError,
   loadGuestId,
   InviteRejectedError,
   inviteLinkUrl,
@@ -63,6 +64,7 @@ import {
   loadSession,
   oauthLogin,
   openExternal,
+  redeemHandoff,
   saveSession,
   switchOrg,
   type AuthSession,
@@ -277,7 +279,6 @@ const ui = new UIManager(
     onSwitchOrg: (orgSlug) => void handleSwitchOrg(orgSlug),
     onCreateOrg: handleCreateOrg,
     onCancelOrgSetup: handleCancelOrgSetup,
-    onJoinWithInvite: handleJoinWithInvite,
     onSendInviteEmails: handleSendInviteEmails,
     onCopyInviteLink: handleCopyInviteLink,
     onOpenInvitePanel: handleOpenInvitePanel,
@@ -325,18 +326,10 @@ ui.showJoin();
 // No-op in plain-browser sessions.
 startUpdateChecks(ui);
 
-// Invite deep links (hiroba://invite/<token>). Signed in → join that org right
-// away; otherwise prefill the join form so the invited user only has to pick a
-// sign-in provider, and join once a stored session turns up instead (the link
-// can launch the app before the keychain restore lands). No-op outside Tauri.
-startDeepLinkListener((code) => {
-  if (authSession && isLive(authSession.claims)) {
-    void handleJoinSignedIn(code);
-    return;
-  }
-  deepLinkInvite = code;
-  ui.applyInvite(code);
-});
+// Sign-in handoff deep links (hiroba://auth/<code>): the invite page's "open
+// in Hiroba" button, after the invitee signed in and joined there. No-op
+// outside Tauri.
+startDeepLinkListener((code) => void handleHandoff(code));
 
 // Browser guest: the web build opened from an invite link (?invite=…). The
 // invite stands in for a sign-in — `effectiveToken` trades it for a guest
@@ -578,7 +571,6 @@ async function restoreAuthSession(): Promise<void> {
   if (authSession && isLive(authSession.claims)) return cancelRestoreRetry();
   authSession = session;
   reflectAuthSession();
-  if (deepLinkInvite && session && isLive(session.claims)) void handleJoinSignedIn(deepLinkInvite);
   if (problem === "keychain") ui.showError(session ? t.errSessionNotSaved : t.errKeychain);
   if (session && !isLive(session.claims)) scheduleRestoreRetry();
   else cancelRestoreRetry();
@@ -610,11 +602,9 @@ window.addEventListener("online", () => {
   void restoreAuthSession();
 });
 
-/** An invite deep link that arrived with no live session to join it with. */
-let deepLinkInvite: string | null = null;
-
 /** Provisional token held while the org-setup step is on screen (a first
- *  sign-in without an invite; `POST /orgs` upgrades it to a full session). */
+ *  sign-in by someone who belongs to no org; `POST /orgs` upgrades it to a
+ *  full session). */
 let pendingProvisionalToken: string | null = null;
 
 function reflectAuthSession(): void {
@@ -727,14 +717,10 @@ async function handleSwitchOrg(orgSlug: string): Promise<void> {
   }
 }
 
-async function handleLogin(
-  provider: "google" | "github",
-  authUrl: string,
-  invite: string,
-): Promise<void> {
+async function handleLogin(provider: "google" | "github", authUrl: string): Promise<void> {
   ui.setLoginBusy(true);
   try {
-    await adoptLogin(await oauthLogin(authUrl, provider, invite || undefined), invite);
+    await adoptLogin(await oauthLogin(authUrl, provider));
   } catch (err) {
     ui.showError(err instanceof Error ? err.message : t.errSignIn);
   } finally {
@@ -761,20 +747,19 @@ async function handleEmailStart(email: string, authUrl: string): Promise<void> {
 }
 
 /** Trade the typed code for a session — from here it is the OAuth path. */
-async function handleEmailVerify(code: string, authUrl: string, invite: string): Promise<void> {
+async function handleEmailVerify(code: string, authUrl: string): Promise<void> {
   const email = ui.getCodeEmail();
   if (!email) return;
   ui.setCodeBusy(true);
   try {
-    await adoptLogin(await emailVerify(authUrl, email, code, invite || undefined), invite);
+    await adoptLogin(await emailVerify(authUrl, email, code));
     ui.showEmailStep();
   } catch (err) {
     // The backend never says *why* a code failed (wrong, expired, or spent),
-    // and neither do we. But a refused invite and a request that never landed
-    // are different problems, and calling either one a wrong code would send
-    // the user hunting for a new one they don't need.
+    // and neither do we. But a request that never landed is a different
+    // problem, and calling it a wrong code would send the user hunting for a
+    // new one they don't need.
     if (err instanceof CodeRejectedError) ui.showError(t.errCode);
-    else if (err instanceof InviteRejectedError) ui.showError(t.errInvite);
     else ui.showError(t.errConnect);
   } finally {
     ui.setCodeBusy(false);
@@ -782,24 +767,46 @@ async function handleEmailVerify(code: string, authUrl: string, invite: string):
 }
 
 /** Adopt whatever a login produced: a session to store, or the org-setup step
- *  a first-time uninvited user has to pass through first. */
-async function adoptLogin(result: OAuthResult, invite: string): Promise<void> {
+ *  a first-time user with no org has to pass through first. */
+async function adoptLogin(result: OAuthResult): Promise<void> {
   if (result.kind === "pending_org") {
-    // First sign-in, no invite: the user names their org before a session
+    // First sign-in, no org: the user names their org before a session
     // exists. The provisional token only authorizes POST /orgs.
     pendingProvisionalToken = result.provisionalToken;
     ui.showOrgSetup();
     return;
   }
+  await adoptSession(result.session);
+}
+
+/** Make `session` the signed-in one: live state, chip, keychain. It
+ *  supersedes any org-setup step still on screen, provisional token and all. */
+async function adoptSession(session: AuthSession): Promise<void> {
+  pendingProvisionalToken = null;
   cancelRestoreRetry();
-  authSession = result.session;
-  // The sign-in carried the prefilled invite, so it has been spent already.
-  deepLinkInvite = null;
-  if (invite) ui.clearInvite();
+  authSession = session;
+  ui.hideOrgSetup();
   reflectAuthSession();
   // Persisting is what makes the *next* launch free; failing at it must not
   // cost the user the sign-in they just completed. Tell them, keep the session.
-  if ((await saveSession(result.session)) === "failed") ui.showError(t.errSessionNotSaved);
+  if ((await saveSession(session)) === "failed") ui.showError(t.errSessionNotSaved);
+}
+
+/** The invite page's "open in Hiroba" link: the invitee signed in and joined
+ *  there, and the code buys the session that sign-in minted. It may also land
+ *  on the org-setup step (they signed in here first, then took the invite on
+ *  the web); the handoff closes that step. A refused code is not a lost
+ *  membership: a plain sign-in finds the org, and the toast says so. */
+async function handleHandoff(code: string): Promise<void> {
+  // The switch owns the session until it settles (see `orgSwitchPending`).
+  if (orgSwitchPending) await orgSwitchPending;
+  try {
+    const session = await redeemHandoff(ui.getAuthUrl(), code);
+    await adoptSession(session);
+    ui.showToast(t.joinedOrg(session.claims.org_name || session.claims.org));
+  } catch (err) {
+    ui.showToast(err instanceof HandoffRejectedError ? t.errHandoffExpired : t.errConnect, "error");
+  }
 }
 
 function handleLogout(): void {
@@ -810,28 +817,21 @@ function handleLogout(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Org setup (first sign-in without an invite)
+// Org setup (first sign-in by someone who belongs to no org)
 // ---------------------------------------------------------------------------
 
-/** The token that may found or join an org right now: the provisional one
- *  of a pending sign-in, else the live session (a member founding another
- *  org). Null when neither exists and the org-setup step has no business
- *  being on screen. */
+/** The token that may found an org right now: the provisional one of a
+ *  pending sign-in, else the live session (a member founding another org).
+ *  Null when neither exists and the org-setup step has no business being on
+ *  screen. */
 function orgSetupToken(): string | null {
   return pendingProvisionalToken ?? authSession?.token ?? null;
 }
 
-/** Trade `token` for a full session via `path` (`/orgs` to found an org,
- *  `/orgs/join` to take an invite). Both answer with the same session shape;
- *  `reject` maps the status codes that differ. Returns the session claims,
- *  with the org-setup step already gone. */
-async function upgradeProvisional(
-  token: string,
-  path: string,
-  body: Record<string, string>,
-  reject: (status: number) => string,
-): Promise<SessionClaims> {
-  const resp = await fetch(`${ui.getAuthUrl()}${path}`, {
+/** `POST /orgs`: trade `token` for a full session in the org it founds.
+ *  Returns the session claims, with the org-setup step already gone. */
+async function foundOrg(token: string, body: Record<string, string>): Promise<SessionClaims> {
+  const resp = await fetch(`${ui.getAuthUrl()}/orgs`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -839,17 +839,11 @@ async function upgradeProvisional(
     },
     body: JSON.stringify(body),
   });
-  if (!resp.ok) throw new Error(reject(resp.status));
+  if (!resp.ok) throw new Error(resp.status === 401 ? t.errSessionExpired : t.errOrgCreate);
   const data: { token: string; refresh_token: string } = await resp.json();
   const claims = decodeClaims(data.token);
-  if (!claims || !data.refresh_token) throw new Error(reject(resp.status));
-  pendingProvisionalToken = null;
-  const session: AuthSession = { token: data.token, claims, refreshToken: data.refresh_token };
-  cancelRestoreRetry();
-  authSession = session;
-  ui.hideOrgSetup();
-  reflectAuthSession();
-  if ((await saveSession(session)) === "failed") ui.showError(t.errSessionNotSaved);
+  if (!claims || !data.refresh_token) throw new Error(t.errOrgCreate);
+  await adoptSession({ token: data.token, claims, refreshToken: data.refresh_token });
   return claims;
 }
 
@@ -859,71 +853,24 @@ async function handleCreateOrg(name: string): Promise<void> {
     ui.hideOrgSetup();
     return;
   }
-  ui.setOrgSetupBusy("create");
+  ui.setOrgSetupBusy(true);
   try {
     // Billing currency follows the UI locale, mirroring the pricing the user
     // was shown (¥300 on the ja site, $2 elsewhere). Stripe pins it for the
     // org's lifetime. The locale itself picks the language of the welcome
     // mail; self-host auth backends just ignore both fields.
-    const claims = await upgradeProvisional(
-      token,
-      "/orgs",
-      { name, currency: locale === "ja" ? "jpy" : "usd", locale },
-      (status) =>
-        status === 401 ? t.errSessionExpired : t.errOrgCreate,
-    );
+    const claims = await foundOrg(token, {
+      name,
+      currency: locale === "ja" ? "jpy" : "usd",
+      locale,
+    });
     // The org exists and its founder is alone in it. Bringing people in is
     // the next step, not something to discover later behind a gear icon.
     ui.showInviteSetup(claims.org_name || claims.org);
   } catch (err) {
     ui.showError(err instanceof Error ? err.message : t.errOrgCreate);
   } finally {
-    ui.setOrgSetupBusy(null);
-  }
-}
-
-/** The invitee who signed in before pasting their code: take the invite from
- *  the org-setup step. They land on the join card as a member, like an
- *  invited sign-in would have. */
-async function handleJoinWithInvite(invite: string): Promise<void> {
-  if (!pendingProvisionalToken) {
-    ui.hideOrgSetup();
-    return;
-  }
-  ui.setOrgSetupBusy("join");
-  try {
-    await upgradeProvisional(pendingProvisionalToken, "/orgs/join", { invite }, (status) =>
-      status === 409
-        ? t.errInvite
-        : status === 403
-          ? t.errAlreadyInOrg
-          : status === 401
-            ? t.errSessionExpired
-            : t.errConnect,
-    );
-    ui.clearInvite();
-  } catch (err) {
-    ui.showError(err instanceof Error ? err.message : t.errConnect);
-  } finally {
-    ui.setOrgSetupBusy(null);
-  }
-}
-
-/** A signed-in member opened an invite to another org: join it and move the
- *  session there, as a switch would. */
-async function handleJoinSignedIn(invite: string): Promise<void> {
-  deepLinkInvite = null;
-  // The switch owns the session until it settles (see `orgSwitchPending`).
-  if (orgSwitchPending) await orgSwitchPending;
-  if (!authSession) return;
-  try {
-    const claims = await upgradeProvisional(authSession.token, "/orgs/join", { invite }, (status) =>
-      status === 409 ? t.errInvite : status === 401 ? t.errSessionExpired : t.errJoinOrg,
-    );
-    ui.clearInvite();
-    ui.showToast(t.joinedOrg(claims.org_name || claims.org));
-  } catch (err) {
-    ui.showToast(err instanceof Error ? err.message : t.errJoinOrg, "error");
+    ui.setOrgSetupBusy(false);
   }
 }
 
