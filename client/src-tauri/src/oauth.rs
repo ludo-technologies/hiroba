@@ -8,8 +8,8 @@
 //!   3. Open the **system browser** at the auth backend's `/login/{provider}`
 //!      (providers reject embedded-webview logins; AUTH_PLAN §2).
 //!   4. The provider redirects to our loopback with `?code=…&state=…`.
-//!   5. POST `{auth_base}/token` with code + verifier (+ optional invite);
-//!      the backend exchanges with the provider and mints a Hiroba JWT.
+//!   5. POST `{auth_base}/token` with code + verifier; the backend exchanges
+//!      with the provider and mints a Hiroba JWT.
 //!
 //! The companion `secret_*` commands store that JWT in the OS keychain, so the
 //! webview's localStorage never holds a plaintext credential.
@@ -46,11 +46,7 @@ pub struct LoginResult {
 }
 
 #[tauri::command]
-pub async fn oauth_login(
-    auth_base: String,
-    provider: String,
-    invite: Option<String>,
-) -> Result<LoginResult, String> {
+pub async fn oauth_login(auth_base: String, provider: String) -> Result<LoginResult, String> {
     let auth_base = auth_base.trim_end_matches('/').to_string();
     if !auth_base.starts_with("http://") && !auth_base.starts_with("https://") {
         return Err("auth server URL must be http(s)".into());
@@ -87,7 +83,6 @@ pub async fn oauth_login(
             "code": code,
             "code_verifier": verifier,
             "redirect_uri": redirect_uri,
-            "invite": invite,
         }))
         .send()
         .await
@@ -102,8 +97,8 @@ pub async fn oauth_login(
         .await
         .map_err(|e| format!("bad token response: {e}"))?;
 
-    // First-time users without an invite get a provisional token instead of a
-    // session: pass the org-setup handoff through to the webview untouched.
+    // A first-time user who belongs to no org gets a provisional token instead
+    // of a session: pass the org-setup handoff through to the webview untouched.
     if body["pending"].as_str() == Some("org_setup") {
         let provisional = body["provisional_token"]
             .as_str()
