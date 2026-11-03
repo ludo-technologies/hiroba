@@ -46,11 +46,17 @@
     <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22621.0" />
   </Dependencies>
 
-  <!-- Each language listed here needs a Store listing in Partner Center. The
-       app itself picks its language from the OS (i18n.ts) regardless. -->
+  <!-- The Store shows these as the product's supported languages, so keep
+       them equal to LOCALES in i18n.ts (the app picks its language from the
+       OS regardless). Partner Center lists each of them under "Languages
+       supported in packages" and expects a Store listing per language; a
+       language without a translated listing is removed there and falls back
+       to the English listing. -->
   <Resources>
     <Resource Language="en-US" />
     <Resource Language="ja-JP" />
+    <Resource Language="es" />
+    <Resource Language="fr" />
   </Resources>
 
   <Applications>
