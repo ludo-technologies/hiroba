@@ -8,7 +8,7 @@ before a `v*` tag can complete.
 | GitHub Releases | `.dmg`, `.msi`, `-setup.exe`, `latest.json` | `publish-tauri` |
 | Homebrew cask (`ludo-technologies/homebrew-hiroba`) | both `.dmg` files | `update-homebrew-tap` |
 | winget (`LudoTechnologies.Hiroba`) | `Hiroba_<version>_x64_en-US.msi` | `publish-winget` |
-| Microsoft Store | `Hiroba_<version>_x64.msix` (run artifact, unsigned) | `publish-msstore` |
+| Microsoft Store | `Hiroba_<version>_x64.msix` (run artifact, unsigned) | `publish-msstore` → `msstore-pack.yml` |
 
 Both package managers are first-install paths. Hiroba updates itself through the
 Tauri updater (`latest.json`), so a user who installed via `brew` or `winget`
@@ -17,8 +17,8 @@ installs the MSI, which is why winget ships the MSI and not the NSIS setup: both
 paths then write the same per-machine install.
 
 The Microsoft Store is different: it installs and updates the app itself, from
-an MSIX it signs on upload. `publish-msstore` packs the same binary the MSI
-contains (no installer, no WebView2 bootstrapper) with
+an MSIX it signs on upload. `msstore-pack.yml` takes the binary out of the
+release MSI (no installer, no WebView2 bootstrapper) and packs it with
 `client/src-tauri/msix/pack.ps1` and the manifest next to it, which declares
 the `hiroba://` scheme in place of the MSI's registry entry. At runtime the app
 notices it has package identity (`store_managed` in `lib.rs`) and leaves
@@ -140,12 +140,13 @@ channels are unaffected.
    package's DisplayName in `msix/AppxManifest.xml` must equal the reserved
    name, so change both together). Product management → Product identity then
    shows `Package/Identity/Name` and `Package/Identity/Publisher`.
-3. Store both as variables of the `release` environment (not secrets: every
-   installed copy carries them):
+3. Store both as repository variables (not secrets: every installed copy
+   carries them; not `release` environment variables: the by-hand run of
+   `msstore-pack.yml` starts from main, which that environment does not admit):
 
    ```bash
-   gh variable set MSSTORE_IDENTITY_NAME -e release -b "<Package/Identity/Name>"
-   gh variable set MSSTORE_PUBLISHER -e release -b "<Package/Identity/Publisher, CN=…>"
+   gh variable set MSSTORE_IDENTITY_NAME -b "<Package/Identity/Name>"
+   gh variable set MSSTORE_PUBLISHER -b "<Package/Identity/Publisher, CN=…>"
    ```
 
 4. Make sure <https://hirobaoffice.com/privacy> is live (the site repo's
@@ -193,13 +194,12 @@ A Store install and an MSI install are separate copies that both claim
 Re-running the failed job is safe: all three jobs are idempotent. The tap job
 exits without a commit when the cask already points at the tag's version, the
 winget action skips a version that already has an open PR, and the Store job
-only rebuilds its artifact. That job reads the `windows-binary` artifact of the
-same run, kept for 7 days; after that, extract the binary from the release MSI
-on a Windows machine and pack it there:
+only rebuilds its artifact. The Store job can also run on its own, from main,
+for any published tag — which is how a packaging fix reaches a release that is
+already out:
 
-```powershell
-msiexec /a Hiroba_<version>_x64_en-US.msi /qn TARGETDIR=C:\hiroba-msi
-client\src-tauri\msix\pack.ps1 -IdentityName … -Publisher … -Version <version> -BinDir <folder holding Hiroba.exe under C:\hiroba-msi>
+```bash
+gh workflow run msstore-pack.yml -f tag=v<version>
 ```
 
 To publish a version by hand:
