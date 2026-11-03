@@ -34,7 +34,7 @@
          the window title and the MSI keep "Hiroba". -->
     <DisplayName>Hiroba Office</DisplayName>
     <!-- Must equal the publisher display name of the Partner Center account. -->
-    <PublisherDisplayName>Ludo Technologies</PublisherDisplayName>
+    <PublisherDisplayName>Ludo Technologies LLC</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
 

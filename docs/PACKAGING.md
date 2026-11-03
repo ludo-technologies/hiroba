@@ -134,7 +134,7 @@ channels are unaffected.
    D-U-N-S number it is a manual review of 2–5 business days), and a contact
    address on the company domain. The account's publisher display name must
    equal `PublisherDisplayName` in `client/src-tauri/msix/AppxManifest.xml`
-   (`Ludo Technologies`) — edit the manifest if it ends up different.
+   (`Ludo Technologies LLC`) — edit the manifest if it ever changes.
 2. Apps and games → New product → MSIX or PWA app, reserve the name
    `Hiroba Office` (`Hiroba` alone is reserved by another developer; the
    package's DisplayName in `msix/AppxManifest.xml` must equal the reserved
