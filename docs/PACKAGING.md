@@ -8,6 +8,7 @@ before a `v*` tag can complete.
 | GitHub Releases | `.dmg`, `.msi`, `-setup.exe`, `latest.json` | `publish-tauri` |
 | Homebrew cask (`ludo-technologies/homebrew-hiroba`) | both `.dmg` files | `update-homebrew-tap` |
 | winget (`LudoTechnologies.Hiroba`) | `Hiroba_<version>_x64_en-US.msi` | `publish-winget` |
+| Microsoft Store | `Hiroba_<version>_x64.msix` (run artifact, unsigned) | `publish-msstore` |
 
 Both package managers are first-install paths. Hiroba updates itself through the
 Tauri updater (`latest.json`), so a user who installed via `brew` or `winget`
@@ -15,8 +16,19 @@ still gets new versions without touching either tool. On Windows the updater
 installs the MSI, which is why winget ships the MSI and not the NSIS setup: both
 paths then write the same per-machine install.
 
-The two packaging jobs are skipped for prerelease tags (any tag containing `-`,
-matching the `prerelease` flag on the release itself).
+The Microsoft Store is different: it installs and updates the app itself, from
+an MSIX it signs on upload. `publish-msstore` packs the same binary the MSI
+contains (no installer, no WebView2 bootstrapper) with
+`client/src-tauri/msix/pack.ps1` and the manifest next to it, which declares
+the `hiroba://` scheme in place of the MSI's registry entry. At runtime the app
+notices it has package identity (`store_managed` in `lib.rs`) and leaves
+updates to the Store and the scheme to the manifest; nothing else differs. The
+`.msix` is a workflow artifact, not a release asset, because only the Store can
+install the unsigned package — and until the first submission exists it is
+uploaded to Partner Center by hand.
+
+The three packaging jobs are skipped for prerelease tags (any tag containing
+`-`, matching the `prerelease` flag on the release itself).
 
 The server ships from `.github/workflows/release-server.yml` on the same tags:
 
@@ -106,11 +118,83 @@ The release action only adds versions to a package that already exists in
    automatically. `max-versions-to-keep: 5` in the workflow prunes older
    versions from winget-pkgs as new ones land.
 
+### Microsoft Store
+
+The Store signs the package, so this channel needs no code-signing
+certificate, but it does need the identity Partner Center assigns, and a
+privacy policy. The release job fails loudly until step 3 is done; the other
+channels are unaffected.
+
+1. Open a company developer account in
+   [Partner Center](https://partner.microsoft.com/dashboard/registration)
+   (free for companies since May 2026; the new flow wants a Microsoft Entra ID
+   tenant). Its publisher display name must equal `PublisherDisplayName` in
+   `client/src-tauri/msix/AppxManifest.xml` (`Ludo Technologies`) — edit the
+   manifest if the account ends up with a different name.
+2. Apps and games → New product → MSIX or PWA app, reserve the name `Hiroba`.
+   Product management → Product identity then shows `Package/Identity/Name`
+   and `Package/Identity/Publisher`.
+3. Store both as variables of the `release` environment (not secrets: every
+   installed copy carries them):
+
+   ```bash
+   gh variable set MSSTORE_IDENTITY_NAME -e release -b "<Package/Identity/Name>"
+   gh variable set MSSTORE_PUBLISHER -e release -b "<Package/Identity/Publisher, CN=…>"
+   ```
+
+4. Publish a privacy policy on hirobaoffice.com. Store policy 10.5.1 requires
+   its URL for every desktop app, and the site has none yet.
+5. First submission, by hand, from the `Hiroba_<version>_x64.msix` artifact of
+   a release run:
+   - **Packages**: upload the `.msix` as is. Partner Center rejects a package
+     that already carries a signature.
+   - **Properties**: category (Productivity), privacy policy URL, support URL
+     (GitHub issues), website.
+   - **Age ratings**: the questionnaire.
+   - **Store listings** for `en-US` and `ja-JP`, the languages the manifest
+     declares: description and at least one screenshot (1366×768 or larger).
+   - **Submission options → Notes for certification**: how a tester signs in
+     (a test account or the hosted demo), and that `runFullTrust` is there
+     because this is a packaged Win32 app.
+
+   Certification takes up to three business days.
+6. Every later stable tag produces a new artifact; upload it as a new
+   submission. The version must grow, which the tag guarantees. Driving this
+   from CI with the `msstore` CLI or the Store submission API is possible once
+   one submission exists.
+
+To try a package before submitting it (on Windows, once), sign it with a
+self-signed certificate whose subject is the Partner Center publisher, trust
+that certificate, and install:
+
+```powershell
+$pw = ConvertTo-SecureString -AsPlainText -Force 'dev'
+$cert = New-SelfSignedCertificate -Type Custom -Subject '<MSSTORE_PUBLISHER>' -KeyUsage DigitalSignature `
+  -CertStoreLocation Cert:\CurrentUser\My -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3', '2.5.29.19={text}')
+Export-PfxCertificate -Cert $cert -FilePath dev.pfx -Password $pw
+Import-PfxCertificate -FilePath dev.pfx -CertStoreLocation Cert:\LocalMachine\TrustedPeople -Password $pw   # elevated
+signtool sign /fd SHA256 /f dev.pfx /p dev Hiroba_<version>_x64.msix
+Add-AppxPackage Hiroba_<version>_x64.msix
+```
+
+Check sign-in (the keychain under package identity), a `hiroba://auth/…` link
+from an invite page, the tray icon, and that no update banner ever appears.
+A Store install and an MSI install are separate copies that both claim
+`hiroba://`, so keep one of the two on a test machine.
+
 ## When a release job fails
 
-Re-running the failed job is safe: both jobs are idempotent. The tap job exits
-without a commit when the cask already points at the tag's version, and the
-winget action skips a version that already has an open PR.
+Re-running the failed job is safe: all three jobs are idempotent. The tap job
+exits without a commit when the cask already points at the tag's version, the
+winget action skips a version that already has an open PR, and the Store job
+only rebuilds its artifact. That job reads the `windows-binary` artifact of the
+same run, kept for 7 days; after that, extract the binary from the release MSI
+on a Windows machine and pack it there:
+
+```powershell
+msiexec /a Hiroba_<version>_x64_en-US.msi /qn TARGETDIR=C:\hiroba-msi
+client\src-tauri\msix\pack.ps1 -IdentityName … -Publisher … -Version <version> -BinDir <folder holding Hiroba.exe under C:\hiroba-msi>
+```
 
 To publish a version by hand:
 
