@@ -1,0 +1,82 @@
+# Pack a release's Windows binary into the unsigned MSIX the Microsoft Store
+# takes (the Store signs it on upload; no certificate is involved). The binary
+# comes out of the release MSI, which an administrative install merely unpacks,
+# so this works for any published stable tag: release-client.yml calls it once
+# the installers are up, and it runs by hand for a release whose first attempt
+# failed (Actions → this workflow → Run workflow, or
+# `gh workflow run msstore-pack.yml -f tag=v0.3.3`).
+#
+# The package identity comes from the repository variables
+# MSSTORE_IDENTITY_NAME / MSSTORE_PUBLISHER (docs/PACKAGING.md). They are
+# repository, not `release` environment, variables on purpose: the manual run
+# starts from main, which that environment does not admit, and the identity is
+# public anyway (every installed copy carries it).
+#
+# Submission is manual: download the artifact and upload it in Partner Center.
+
+name: Pack Microsoft Store package
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag, e.g. v0.3.3
+        required: true
+        type: string
+
+jobs:
+  pack:
+    runs-on: windows-latest
+    env:
+      TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Download the release MSI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ($env:TAG -notmatch '^v\d+\.\d+\.\d+$') {
+            throw "tag must be vX.Y.Z (got '$env:TAG'); prereleases have no Store package"
+          }
+          $version = $env:TAG.Substring(1)
+          "VERSION=$version" >> $env:GITHUB_ENV
+          gh release download $env:TAG --repo $env:GITHUB_REPOSITORY --dir msi --pattern "Hiroba_${version}_x64_en-US.msi"
+          if ($LASTEXITCODE -ne 0) { throw "gh release download failed ($LASTEXITCODE)" }
+
+      # msiexec /a lays the installer's files out under TARGETDIR without
+      # installing anything; the app binary is the only .exe in there.
+      - name: Unpack the binary
+        run: |
+          $msi = (Get-Item msi\*.msi).FullName
+          $p = Start-Process msiexec -ArgumentList "/a `"$msi`" /qn TARGETDIR=`"$PWD\unpacked`"" -Wait -PassThru -NoNewWindow
+          if ($p.ExitCode -ne 0) { throw "msiexec /a failed ($($p.ExitCode))" }
+          $exes = @(Get-ChildItem unpacked -Recurse -Filter '*.exe' -File)
+          if ($exes.Count -ne 1) {
+            throw "expected one .exe in the MSI, found $($exes.Count): $($exes.Name -join ', ')"
+          }
+          New-Item -ItemType Directory bin | Out-Null
+          Copy-Item $exes[0].FullName bin\
+
+      - name: Pack MSIX
+        env:
+          MSSTORE_IDENTITY_NAME: ${{ vars.MSSTORE_IDENTITY_NAME }}
+          MSSTORE_PUBLISHER: ${{ vars.MSSTORE_PUBLISHER }}
+        run: |
+          client/src-tauri/msix/pack.ps1 `
+            -IdentityName $env:MSSTORE_IDENTITY_NAME `
+            -Publisher $env:MSSTORE_PUBLISHER `
+            -Version $env:VERSION `
+            -BinDir bin `
+            -OutDir msix
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: Hiroba_${{ env.VERSION }}_x64.msix
+          path: msix/*.msix
+          if-no-files-found: error

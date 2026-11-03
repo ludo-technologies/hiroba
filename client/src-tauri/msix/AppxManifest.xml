@@ -2,8 +2,8 @@
 <!--
   Microsoft Store package manifest for the Windows client.
 
-  pack.ps1 fills the three @@…@@ fields from the Partner Center identity and
-  the release version, then packs this next to Hiroba.exe (the bare tauri
+  pack.ps1 fills the three placeholder fields from the Partner Center identity
+  and the release version, then packs this next to Hiroba.exe (the bare tauri
   build output; no installer) with makeappx. The Store signs the result on
   upload, so nothing is signed here. What the MSI does through the registry
   (the hiroba:// scheme, the Add/Remove Programs entry) the manifest declares
