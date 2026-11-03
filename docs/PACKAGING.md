@@ -158,11 +158,15 @@ channels are unaffected.
    - **Properties**: category (Productivity), privacy policy URL, support URL
      (GitHub issues), website.
    - **Age ratings**: the questionnaire.
-   - **Store listings** for `en-US` and `ja-JP`, the languages the manifest
-     declares: description and at least one screenshot (1366×768 or larger).
-   - **Submission options → Notes for certification**: how a tester signs in
-     (a test account or the hosted demo), and that `runFullTrust` is there
-     because this is a packaged Win32 app.
+   - **Store listings** for every language the manifest declares (`en-US`,
+     `ja-JP`, `es`, `fr`): description and at least one screenshot (1366×768
+     or larger). A language without a translated listing is removed under
+     Add/remove languages; the Store still shows it as supported and serves
+     the English listing.
+   - **Submission options → Restricted capabilities**: why `runFullTrust` is
+     needed (a packaged Win32 app; 500 characters at most).
+   - **Additional Testing Information** (sidebar, Supplemental info): how a
+     tester signs in (a test account or the hosted demo).
 
    Certification takes up to three business days.
 6. Every later stable tag produces a new artifact; upload it as a new
