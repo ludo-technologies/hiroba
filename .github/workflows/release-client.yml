@@ -162,6 +162,18 @@ jobs:
             exit 1
           fi
 
+      # The Microsoft Store package is built from the bare binary, not from
+      # the installer, so hand it to publish-msstore. Prereleases have no
+      # Store package (its version must be numeric).
+      - name: Upload Windows binary for the Store package
+        if: runner.os == 'Windows' && !contains(github.ref_name, '-')
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-binary
+          path: client/src-tauri/target/release/*.exe
+          if-no-files-found: error
+          retention-days: 7
+
   # Point the Homebrew cask at the release that publish-tauri just uploaded.
   # Requires HOMEBREW_TAP_TOKEN: a token with contents:write on
   # ludo-technologies/homebrew-hiroba (GITHUB_TOKEN cannot push to another repo).
@@ -251,3 +263,42 @@ jobs:
           release-tag: ${{ github.ref_name }}
           max-versions-to-keep: 5
           token: ${{ secrets.WINGET_TOKEN }}
+
+  # Pack the Windows binary into an unsigned MSIX for the Microsoft Store; the
+  # Store signs it on upload, so no certificate is involved. The package
+  # identity comes from Partner Center (docs/PACKAGING.md) via the `release`
+  # environment variables MSSTORE_IDENTITY_NAME and MSSTORE_PUBLISHER.
+  # Submission is manual for now: download the artifact from this run and
+  # upload it as a new submission in Partner Center.
+  publish-msstore:
+    needs: publish-tauri
+    if: ${{ !contains(github.ref_name, '-') }}
+    environment: release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: windows-binary
+          path: bin
+
+      - name: Pack MSIX
+        env:
+          MSSTORE_IDENTITY_NAME: ${{ vars.MSSTORE_IDENTITY_NAME }}
+          MSSTORE_PUBLISHER: ${{ vars.MSSTORE_PUBLISHER }}
+        run: |
+          $version = $env:GITHUB_REF_NAME.Substring(1)
+          "VERSION=$version" >> $env:GITHUB_ENV
+          client/src-tauri/msix/pack.ps1 `
+            -IdentityName $env:MSSTORE_IDENTITY_NAME `
+            -Publisher $env:MSSTORE_PUBLISHER `
+            -Version $version `
+            -BinDir bin `
+            -OutDir msix
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: Hiroba_${{ env.VERSION }}_x64.msix
+          path: msix/*.msix
+          if-no-files-found: error
