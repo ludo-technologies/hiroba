@@ -142,8 +142,8 @@ channels are unaffected.
    gh variable set MSSTORE_PUBLISHER -e release -b "<Package/Identity/Publisher, CN=…>"
    ```
 
-4. Publish a privacy policy on hirobaoffice.com. Store policy 10.5.1 requires
-   its URL for every desktop app, and the site has none yet.
+4. Make sure <https://hirobaoffice.com/privacy> is live (the site repo's
+   `/privacy` page). Store policy 10.5.1 requires its URL for every desktop app.
 5. First submission, by hand, from the `Hiroba_<version>_x64.msix` artifact of
    a release run:
    - **Packages**: upload the `.msix` as is. Partner Center rejects a package
