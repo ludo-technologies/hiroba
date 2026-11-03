@@ -125,12 +125,16 @@ certificate, but it does need the identity Partner Center assigns, and a
 privacy policy. The release job fails loudly until step 3 is done; the other
 channels are unaffected.
 
-1. Open a company developer account in
-   [Partner Center](https://partner.microsoft.com/dashboard/registration)
-   (free for companies since May 2026; the new flow wants a Microsoft Entra ID
-   tenant). Its publisher display name must equal `PublisherDisplayName` in
-   `client/src-tauri/msix/AppxManifest.xml` (`Ludo Technologies`) — edit the
-   manifest if the account ends up with a different name.
+1. Open a company developer account from
+   <https://storedeveloper.microsoft.com> → Get started → **Company account**
+   (free since May 2026). Only that entry point offers the company flow; going
+   in through Partner Center directly lands on the legacy flow without it.
+   Sign in with a personal Microsoft account or an Entra ID work account, give
+   a D-U-N-S number or the company's registration certificate (without a
+   D-U-N-S number it is a manual review of 2–5 business days), and a contact
+   address on the company domain. The account's publisher display name must
+   equal `PublisherDisplayName` in `client/src-tauri/msix/AppxManifest.xml`
+   (`Ludo Technologies`) — edit the manifest if it ends up different.
 2. Apps and games → New product → MSIX or PWA app, reserve the name `Hiroba`.
    Product management → Product identity then shows `Package/Identity/Name`
    and `Package/Identity/Publisher`.
