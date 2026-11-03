@@ -135,9 +135,11 @@ channels are unaffected.
    address on the company domain. The account's publisher display name must
    equal `PublisherDisplayName` in `client/src-tauri/msix/AppxManifest.xml`
    (`Ludo Technologies`) — edit the manifest if it ends up different.
-2. Apps and games → New product → MSIX or PWA app, reserve the name `Hiroba`.
-   Product management → Product identity then shows `Package/Identity/Name`
-   and `Package/Identity/Publisher`.
+2. Apps and games → New product → MSIX or PWA app, reserve the name
+   `Hiroba Office` (`Hiroba` alone is reserved by another developer; the
+   package's DisplayName in `msix/AppxManifest.xml` must equal the reserved
+   name, so change both together). Product management → Product identity then
+   shows `Package/Identity/Name` and `Package/Identity/Publisher`.
 3. Store both as variables of the `release` environment (not secrets: every
    installed copy carries them):
 
