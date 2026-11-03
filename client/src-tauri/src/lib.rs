@@ -89,6 +89,30 @@ fn open_screen_recording_settings() -> Result<(), String> {
     Ok(())
 }
 
+/// Whether this process runs with package identity, i.e. the install came
+/// from the Microsoft Store (the MSIX that `msix/pack.ps1` builds from the
+/// same binary). The Store then owns two things a direct install handles
+/// itself: updates, which the Store delivers so the in-app updater stands
+/// down (updater.ts), and the hiroba:// scheme, which the package manifest
+/// declares so the registry registration in `setup` is skipped. Always
+/// false off Windows.
+#[tauri::command]
+fn store_managed() -> bool {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::APPMODEL_ERROR_NO_PACKAGE;
+        use windows_sys::Win32::Storage::Packaging::Appx::GetCurrentPackageFullName;
+
+        // Asking for the name with no buffer is enough: an unpackaged process
+        // answers APPMODEL_ERROR_NO_PACKAGE, a packaged one asks for a buffer.
+        let mut len: u32 = 0;
+        let rc = unsafe { GetCurrentPackageFullName(&mut len, std::ptr::null_mut()) };
+        rc != APPMODEL_ERROR_NO_PACKAGE
+    }
+    #[cfg(not(windows))]
+    false
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default();
@@ -145,9 +169,11 @@ pub fn run() {
             // Windows/Linux resolve hiroba:// via a registry/.desktop entry
             // that points at the binary's current path; AppImages move around,
             // so (re-)register on every launch. macOS reads the scheme from
-            // Info.plist — nothing to do at runtime.
+            // Info.plist — nothing to do at runtime. A Store install declares
+            // the scheme in its package manifest, and its registry writes
+            // would only land in the package's virtual hive anyway.
             #[cfg(any(windows, target_os = "linux"))]
-            {
+            if !store_managed() {
                 use tauri_plugin_deep_link::DeepLinkExt;
                 app.deep_link().register_all()?;
             }
@@ -177,6 +203,7 @@ pub fn run() {
             open_external,
             screen_capture_permission,
             open_screen_recording_settings,
+            store_managed,
         ])
         .build(tauri::generate_context!())
         .expect("error while running Hiroba")

@@ -21,9 +21,12 @@
  *
  * Failures never interrupt the user: a failed check only logs (offline is
  * normal), a failed install re-arms the banner with a toast. Runs only under
- * Tauri — a plain-browser session has nothing to update.
+ * Tauri — a plain-browser session has nothing to update — and not in a
+ * Microsoft Store install, which the Store keeps current itself; installing
+ * our MSI from inside one would leave a second copy next to the package.
  */
 
+import { invoke } from "@tauri-apps/api/core";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { isTauri } from "./auth.js";
@@ -48,11 +51,15 @@ let pending: Update | null = null;
  *  the user. */
 let installing = false;
 
-/** Begin periodic update checks. Call once at startup; no-op outside Tauri. */
+/** Begin periodic update checks. Call once at startup; no-op outside Tauri
+ *  and in a Store install. */
 export function startUpdateChecks(ui: UIManager): void {
   if (!isTauri()) return;
-  window.setTimeout(() => void checkOnce(ui), FIRST_CHECK_DELAY_MS);
-  window.setInterval(() => void checkOnce(ui), CHECK_INTERVAL_MS);
+  void invoke<boolean>("store_managed").then((storeManaged) => {
+    if (storeManaged) return;
+    window.setTimeout(() => void checkOnce(ui), FIRST_CHECK_DELAY_MS);
+    window.setInterval(() => void checkOnce(ui), CHECK_INTERVAL_MS);
+  });
 }
 
 async function checkOnce(ui: UIManager): Promise<void> {

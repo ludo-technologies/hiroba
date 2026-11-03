@@ -37,6 +37,11 @@ tauri-plugin-process = "2"
 # open-url events to the webview (deeplink.ts).
 tauri-plugin-deep-link = "2"
 
+[target."cfg(windows)".dependencies]
+# Package-identity probe (store_managed): a Microsoft Store install is updated
+# by the Store and registers hiroba:// through its manifest (msix/).
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Storage_Packaging_Appx"] }
+
 [target."cfg(any(target_os = \"macos\", windows, target_os = \"linux\"))".dependencies]
 # A second launch (Windows/Linux hand a hiroba:// URL to a fresh process)
 # forwards to the running instance; the deep-link feature re-emits its URL.
