@@ -18,6 +18,7 @@
 /// holds an org lock across an await.
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use axum::extract::ws::{Message, WebSocket};
 use futures_util::{SinkExt, StreamExt};
@@ -200,7 +201,19 @@ pub async fn handle_ws(
 
     // ── Phase 4: reader loop ──────────────────────────────────────────────
     let pid = peer_id.clone();
-    'read: while let Some(frame) = ws_rx.next().await {
+    // The token admitted this connection only until it expires: `reauth`
+    // carries a fresh one forward, otherwise the connection ends with it — so a
+    // revoked invite or a removed member is out within one token lifetime.
+    let mut expiry = identity.expires_at;
+    'read: loop {
+        let frame = tokio::select! {
+            frame = ws_rx.next() => frame,
+            () = until(expiry) => {
+                info!(peer_id = %pid, "token expired");
+                break 'read;
+            }
+        };
+        let Some(frame) = frame else { break 'read };
         match frame {
             Ok(Message::Text(text)) => match serde_json::from_str::<ClientMsg>(&text) {
                 Ok(ClientMsg::Move { x, y }) => org.set_pos(&pid, x, y).await,
@@ -266,6 +279,21 @@ pub async fn handle_ws(
                 Ok(ClientMsg::Ping) => {
                     let _ = tx.send(ServerMsg::Pong).await;
                 }
+                Ok(ClientMsg::Reauth { token }) => match auth.resolve(Some(&token)).await {
+                    // Renews this seat only: a token for another org, person or
+                    // role is a different connection's to open.
+                    Ok(renewed)
+                        if renewed.org_id == identity.org_id
+                            && renewed.sub == identity.sub
+                            && renewed.role == identity.role =>
+                    {
+                        expiry = renewed.expires_at;
+                    }
+                    _ => {
+                        info!(peer_id = %pid, "reauth refused");
+                        break 'read;
+                    }
+                },
                 Ok(ClientMsg::Bye) => break 'read,
                 Ok(ClientMsg::Hello { .. }) => {
                     debug!(peer_id = %pid, "ignoring duplicate hello");
@@ -303,6 +331,18 @@ pub async fn handle_ws(
                 )
                 .await;
         });
+    }
+}
+
+/// Resolves at `at` (wall clock, as a token's `exp` is); never, when there is
+/// no deadline.
+async fn until(at: Option<SystemTime>) {
+    match at {
+        Some(at) => {
+            let left = at.duration_since(SystemTime::now()).unwrap_or_default();
+            tokio::time::sleep(left).await;
+        }
+        None => std::future::pending().await,
     }
 }
 

@@ -13,7 +13,10 @@
 //   - two tokens for different orgs are isolated (no cross-tenant roster leak),
 //   - the `role` claim governs the chat (a guest's messages stay theirs across
 //     reconnects; admin: removes any), and an unrecognised role fails the token,
-//   - reactions toggle per account and are counted per emoji.
+//   - reactions toggle per account and are counted per emoji,
+//   - a token naming no org (or an empty one) is rejected,
+//   - a connection ends when its token expires unless `reauth` renews it, and
+//     a `reauth` for another seat closes it.
 import crypto from "node:crypto";
 
 const URL = process.env.HIROBA_WS || "ws://127.0.0.1:8798/ws";
@@ -42,8 +45,10 @@ function mint(claims, secret = SECRET) {
 class Client {
   constructor() {
     this.msgs = [];
+    this.closed = false;
     this.ws = new WebSocket(URL);
     this.ws.addEventListener("message", (e) => this.msgs.push(JSON.parse(e.data)));
+    this.ws.addEventListener("close", () => { this.closed = true; });
     this.ready = new Promise((res, rej) => {
       this.ws.addEventListener("open", res);
       this.ws.addEventListener("error", rej);
@@ -58,6 +63,11 @@ class Client {
       await sleep(20);
     }
     return null;
+  }
+  async waitClosed(ms = 2000) {
+    const deadline = Date.now() + ms;
+    while (Date.now() < deadline && !this.closed) await sleep(20);
+    return this.closed;
   }
   close() { this.ws.close(); }
 }
@@ -165,6 +175,37 @@ class Client {
   M.msgs.length = 0;
   M.send({ t: "react", id, emoji: "👍" });
   ok(!!(await thumbs(M, 1, false)), "reacting again takes the reaction back");
+
+  // ── 7) The token's org, and its lifetime ────────────────────────────────
+  for (const [label, claims] of [["no org claim", { sub: "u-n" }], ["an empty org", { sub: "u-n", org: "" }]]) {
+    const c = new Client();
+    await c.ready;
+    c.send({ t: "hello", token: mint(claims) });
+    const e = await c.wait((m) => m.t === "error");
+    ok(e?.code === "auth_failed", `a token with ${label} is rejected`);
+    c.close();
+  }
+
+  // Expired a few seconds ago yet inside the server's 60s leeway: admitted,
+  // with its deadline a few seconds out.
+  const nearlyExpired = (claims, ageSecs) =>
+    mint({ org: "acme", ...claims, exp: Math.floor(Date.now() / 1000) - ageSecs });
+  const E = new Client();
+  await E.ready;
+  E.send({ t: "hello", token: nearlyExpired({ sub: "u-e" }, 58) });
+  ok(!!(await E.wait((m) => m.t === "welcome")), "a token inside the leeway is admitted");
+  ok(await E.waitClosed(5000), "…and the connection ends when its token expires");
+
+  const R = new Client();
+  await R.ready;
+  R.send({ t: "hello", token: nearlyExpired({ sub: "u-r" }, 58) });
+  await R.wait((m) => m.t === "welcome");
+  R.send({ t: "reauth", token: mint({ org: "acme", sub: "u-r" }) });
+  await sleep(3500);
+  R.send({ t: "ping" });
+  ok(!!(await R.wait((m) => m.t === "pong")), "a reauth carries the connection past the first token's expiry");
+  R.send({ t: "reauth", token: mint({ org: "globex", sub: "u-r" }) });
+  ok(await R.waitClosed(), "a reauth for another org closes the connection");
 
   A.close(); B.close(); C.close(); D.close(); bogus.close(); G.close(); M.close(); Adm.close();
   await sleep(100);

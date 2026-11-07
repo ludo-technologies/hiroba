@@ -26,7 +26,7 @@
 use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use serde::Deserialize;
@@ -60,6 +60,10 @@ pub struct Identity {
     pub name: Option<String>,
     pub color: Option<String>,
     pub role: Role,
+    /// When the token stops admitting its holder: `exp` plus the validation
+    /// leeway. A live connection ends here unless it renews (`reauth`). None in
+    /// guest mode, where there is no token to expire.
+    pub expires_at: Option<SystemTime>,
 }
 
 /// Why a token was rejected. Both map to the `auth_failed` wire error; the
@@ -97,6 +101,8 @@ struct Claims {
     color: Option<String>,
     #[serde(default)]
     role: Option<Role>,
+    /// Always present: [`Validation`] requires it.
+    exp: u64,
 }
 
 /// The configured authenticator. Cheap to clone (everything shared is `Arc`).
@@ -206,6 +212,7 @@ impl Auth {
                 // No accounts in this mode: everyone is equally trusted, and
                 // with no `sub` to own a note, only an admin can ever remove one.
                 role: Role::Admin,
+                expires_at: None,
             }),
             Auth::Jwt { keys, validation } => {
                 let token = token.filter(|t| !t.is_empty()).ok_or(AuthError::Missing)?;
@@ -225,6 +232,9 @@ impl Auth {
                     color: claims.color,
                     // Third-party OIDC tokens carry no `role`.
                     role: claims.role.unwrap_or(Role::Member),
+                    expires_at: Some(
+                        UNIX_EPOCH + Duration::from_secs(claims.exp + validation.leeway),
+                    ),
                 })
             }
         }
@@ -401,7 +411,6 @@ mod tests {
     use super::*;
     use jsonwebtoken::{encode, EncodingKey, Header};
     use serde::Serialize;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[derive(Serialize)]
     struct TestClaims {
@@ -479,6 +488,26 @@ mod tests {
         assert_eq!(id.sub.as_deref(), Some("user-1"));
         assert_eq!(id.name.as_deref(), Some("Aoi"));
         assert_eq!(id.role, Role::Member); // no `role` claim
+    }
+
+    #[tokio::test]
+    async fn verified_token_expires_at_exp_plus_leeway() {
+        let secret = "s";
+        let exp = future_exp();
+        let token = mint(
+            secret,
+            &TestClaims {
+                sub: "u".to_string(),
+                org: "acme".to_string(),
+                name: "Aoi".to_string(),
+                exp,
+            },
+        );
+        let id = hs256_auth(secret).resolve(Some(&token)).await.unwrap();
+        assert_eq!(
+            id.expires_at,
+            Some(UNIX_EPOCH + Duration::from_secs(exp + 60)) // jsonwebtoken's default leeway
+        );
     }
 
     fn mint_with_role(secret: &str, role: &str) -> String {

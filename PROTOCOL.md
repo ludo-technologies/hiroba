@@ -310,6 +310,18 @@ types are dropped), so clients must not treat a missing `pong` as a dead
 connection unless the server declared the capability (`heartbeat: true` in
 `welcome`) or has already answered a `ping` on that socket.
 
+### `reauth` — renew the connection's credential
+```json
+{ "t": "reauth", "token": "<fresh JWT>" }
+```
+With JWT/OIDC auth, the token `hello` carried admits the connection only until
+it expires (`exp`, plus the server's 60-second leeway); the server then closes
+the socket. To stay connected past that, a client sends a fresh token for the
+**same** org, subject and role before then, and the deadline moves to the new
+token's expiry. A token that fails verification, or names a different org,
+subject or role, closes the socket. Guest mode has no token and no deadline.
+Servers that predate this message ignore it, and do not expire connections.
+
 ---
 
 ## Server → Client messages

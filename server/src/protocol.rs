@@ -387,6 +387,11 @@ pub enum ClientMsg {
     /// Liveness probe; answered immediately with `pong`. Lets clients detect
     /// half-open sockets that TCP alone reports minutes late, if ever.
     Ping,
+
+    /// Renew the connection's credential: a fresh token for the same org,
+    /// subject and role. The token `hello` carried admits the connection only
+    /// until it expires; without a renewal the server closes it then.
+    Reauth { token: String },
 }
 
 // ---------------------------------------------------------------------------
