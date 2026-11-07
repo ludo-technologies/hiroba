@@ -18,6 +18,9 @@
 #   TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 # Generate the keypair with `npm run tauri signer generate`; the matching
 # public key lives in tauri.conf.json (plugins.updater.pubkey).
+#
+# Microsoft Store submission (the Partner Center Entra app, docs/PACKAGING.md):
+#   MSSTORE_TENANT_ID, MSSTORE_SELLER_ID, MSSTORE_CLIENT_ID, MSSTORE_CLIENT_SECRET
 
 name: Release desktop client
 
@@ -262,3 +265,38 @@ jobs:
     uses: ./.github/workflows/msstore-pack.yml
     with:
       tag: ${{ github.ref_name }}
+
+  # Send that package to certification. `msstore publish` starts the submission
+  # from the last published one, so listings, pricing and properties carry over
+  # and only the package changes; a pending submission (say, one left half
+  # edited in Partner Center) is deleted first. The credentials are the Partner
+  # Center Entra app (docs/PACKAGING.md).
+  submit-msstore:
+    needs: publish-msstore
+    environment: release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: Hiroba_*_x64.msix
+          merge-multiple: true
+          path: msix
+
+      - uses: microsoft/microsoft-store-apppublisher@cc9910a8d59f2eb55cbb83df0a3800cf3b5300e0 # v1.4
+        with:
+          version: v0.4.4
+
+      - name: Submit to the Microsoft Store
+        env:
+          MSSTORE_TENANT_ID: ${{ secrets.MSSTORE_TENANT_ID }}
+          MSSTORE_SELLER_ID: ${{ secrets.MSSTORE_SELLER_ID }}
+          MSSTORE_CLIENT_ID: ${{ secrets.MSSTORE_CLIENT_ID }}
+          MSSTORE_CLIENT_SECRET: ${{ secrets.MSSTORE_CLIENT_SECRET }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          msstore settings --enableTelemetry false
+          msstore reconfigure --tenantId $env:MSSTORE_TENANT_ID --sellerId $env:MSSTORE_SELLER_ID `
+            --clientId $env:MSSTORE_CLIENT_ID --clientSecret $env:MSSTORE_CLIENT_SECRET
+          $msix = @(Get-ChildItem msix -Filter *.msix -File)
+          if ($msix.Count -ne 1) { throw "expected one .msix, found $($msix.Count)" }
+          msstore publish $msix[0].FullName --appId 9P5WQVMSZ4Q3

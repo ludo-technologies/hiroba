@@ -172,10 +172,29 @@ channels are unaffected.
      tester signs in (a test account or the hosted demo).
 
    Certification takes up to three business days.
-6. Every later stable tag produces a new artifact; upload it as a new
-   submission. The version must grow, which the tag guarantees. Driving this
-   from CI with the `msstore` CLI or the Store submission API is possible once
-   one submission exists.
+6. Every later stable tag submits its package from CI (`submit-msstore` in
+   `release-client.yml`, with the `msstore` CLI). The CLI copies the last
+   published submission and swaps in the new package, so the version must
+   grow, which the tag guarantees, and everything else is as Partner Center
+   last had it. One-time setup, free (an Entra ID tenant and app registration
+   cost nothing):
+   - Account settings → Tenants: associate the Microsoft Entra tenant, or
+     create one there.
+   - Account settings → User management → Microsoft Entra applications →
+     Create: any `https://` reply URL (it is never used), role **Manager**.
+     Open the app and add a key; the key is shown once and expires in one or
+     two years, so note the date.
+   - Store the IDs and the key as `release` environment secrets (the seller ID
+     is under Account settings → Legal info):
+
+     ```bash
+     for s in MSSTORE_TENANT_ID MSSTORE_SELLER_ID MSSTORE_CLIENT_ID MSSTORE_CLIENT_SECRET; do
+       gh secret set "$s" --env release
+     done
+     ```
+
+   If the job fails (an expired key, a submission the Store refuses), fix the
+   cause and rerun it, or finish that submission in Partner Center by hand.
 
 To try a package before submitting it (on Windows, once), sign it with a
 self-signed certificate whose subject is the Partner Center publisher, trust

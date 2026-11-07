@@ -12,7 +12,9 @@
 # starts from main, which that environment does not admit, and the identity is
 # public anyway (every installed copy carries it).
 #
-# Submission is manual: download the artifact and upload it in Partner Center.
+# In a release run, release-client.yml's submit-msstore job then sends the
+# package to certification. From a by-hand run, submit it yourself: download
+# the artifact and upload it in Partner Center.
 
 name: Pack Microsoft Store package
 
