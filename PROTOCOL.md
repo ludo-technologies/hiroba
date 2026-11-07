@@ -54,6 +54,8 @@ The `token` carried in `hello` is resolved by the server to an org + identity:
 - **Hosted**: `token` is a session token the desktop app obtains out-of-band via
   the OAuth/OIDC flow (browser round-trip). The server validates it and derives
   the org, a stable user identity, and a default name/color from the profile.
+  The token MUST name its org (`org` claim): one without, or with an empty one,
+  is rejected (`auth_failed`).
 - **Self-host (guest)**: `token` MAY be empty/absent. The server places the
   client in its single configured org as a guest, using the supplied
   `name`/`color`.

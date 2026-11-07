@@ -158,7 +158,7 @@ sudo systemctl enable --now hiroba
 | Variable          | Default        | Meaning                                       |
 |-------------------|----------------|-----------------------------------------------|
 | `HIROBA_ADDR`     | `0.0.0.0:8787` | Address:port the server binds to.             |
-| `HIROBA_ORG`      | `ludo`         | Default/guest org (tenant) id. Also the fallback tenant for tokens with no `org` claim. |
+| `HIROBA_ORG`      | `ludo`         | The guest-mode org (tenant) id. With JWT/OIDC auth every token names its own org. |
 | `HIROBA_ORG_NAME` | `Ludo`         | Org display name shown atop the roster.       |
 | `HIROBA_DB`       | *(unset → in-memory)* | Path to a SQLite file persisting orgs, space catalogs and chat messages across restarts (created on first boot). Unset keeps the fully DB-less profile; spaces created and messages posted at runtime are then lost on restart. The container image presets `/data/hiroba.db`. |
 | `HIROBA_CORS_ALLOW_ORIGINS` | *(unset → any)* | Comma-separated CORS origin allow-list for the HTTP endpoints (`/ice`, `/health`). See below. |
@@ -371,12 +371,13 @@ Google, or a self-hosted OIDC provider).
 | `HIROBA_AUTH`          | all       | `guest` (default) · `jwt` (HS256 shared secret) · `oidc` (RS256 via JWKS). |
 | `HIROBA_JWT_SECRET`    | `jwt`     | Shared secret the edge signs tokens with (HS256). Required for `jwt`. |
 | `HIROBA_JWKS_URL`      | `oidc`    | Provider JWKS endpoint (RS256). Required for `oidc`.            |
-| `HIROBA_JWT_ISSUER`    | jwt/oidc  | Optional expected `iss` claim.                                 |
-| `HIROBA_JWT_AUDIENCE`  | jwt/oidc  | Optional expected `aud` claim.                                 |
+| `HIROBA_JWT_ISSUER`    | jwt/oidc  | Expected `iss` claim. Required for `oidc`, optional for `jwt`. |
+| `HIROBA_JWT_AUDIENCE`  | jwt/oidc  | Expected `aud` claim. Required for `oidc`, optional for `jwt`. |
 
-Claims consumed: `org` (tenant id — falls back to `HIROBA_ORG` if absent),
-`org_name`, `sub`, `name`, `color`, plus standard `exp` (always validated) and the
-optional `iss`/`aud`. A token's `org` claim selects (or lazily creates) its
+Claims consumed: `org` (tenant id — required; a token without one is refused),
+`org_name`, `sub`, `name`, `color`, plus standard `exp` (always validated) and
+`iss`/`aud`. `oidc` refuses to start without both: a provider's JWKS signs tokens
+for every app it serves, and only `iss`/`aud` tell yours apart. A token's `org` claim selects (or lazily creates) its
 tenant, and tenants are **fully isolated** — one org never sees another's roster,
 positions, or signaling (NFR-12). A `hello` may still override `name`/`color`.
 

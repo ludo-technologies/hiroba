@@ -15,11 +15,13 @@
 //!     edge and the resulting ID/access token is handed to us as `hello.token`
 //!     and cryptographically verified here.
 //!
-//! Claims consumed: `org` (tenant id; falls back to the configured default),
-//! `sub`, `name`, `color`, `role` (absent → member; an unrecognised value fails
-//! the token), plus standard `exp` (always) and optional `iss`/`aud`
-//! validation. The resolved `org_id` is what pins the connection to a tenant in
-//! [`crate::registry`] — the §7.6 "token → org, then fix the scope" rule.
+//! Claims consumed: `org` (tenant id; required — a token without one is
+//! refused, never seated in some default tenant), `sub`, `name`, `color`,
+//! `role` (absent → member; an unrecognised value fails the token), plus
+//! standard `exp` (always) and `iss`/`aud` (required in `oidc` mode, where the
+//! keys may be a public provider's, optional in `jwt` mode). The resolved
+//! `org_id` is what pins the connection to a tenant in [`crate::registry`] —
+//! the §7.6 "token → org, then fix the scope" rule.
 
 use std::collections::HashMap;
 use std::env;
@@ -106,8 +108,6 @@ pub enum Auth {
     Jwt {
         keys: KeySource,
         validation: Arc<Validation>,
-        /// Org id used when a verified token carries no `org` claim.
-        default_org: String,
     },
 }
 
@@ -134,38 +134,45 @@ impl Auth {
     ///
     /// Env:
     ///   - `HIROBA_AUTH`        = `guest` (default) | `jwt` | `oidc`
-    ///   - `HIROBA_ORG`         = default/only org id (also the guest org)
+    ///   - `HIROBA_ORG`         = the guest org id (mode `guest`)
     ///   - `HIROBA_JWT_SECRET`  = HS256 shared secret (mode `jwt`)
     ///   - `HIROBA_JWKS_URL`    = JWKS endpoint (mode `oidc`)
-    ///   - `HIROBA_JWT_ISSUER`  = optional expected `iss`
-    ///   - `HIROBA_JWT_AUDIENCE`= optional expected `aud`
+    ///   - `HIROBA_JWT_ISSUER`  = expected `iss` (required for `oidc`)
+    ///   - `HIROBA_JWT_AUDIENCE`= expected `aud` (required for `oidc`)
     pub fn from_env() -> Self {
-        let default_org = env::var("HIROBA_ORG").unwrap_or_else(|_| "ludo".to_string());
         let mode = env::var("HIROBA_AUTH").ok();
 
         match parse_auth_mode(mode.as_deref()) {
             AuthMode::Guest => Auth::Guest {
-                org_id: default_org,
+                org_id: env::var("HIROBA_ORG").unwrap_or_else(|_| "ludo".to_string()),
             },
             AuthMode::JwtHs256 => {
                 let secret = env::var("HIROBA_JWT_SECRET")
                     .unwrap_or_else(|_| panic!("HIROBA_AUTH=jwt requires HIROBA_JWT_SECRET"));
                 let key = DecodingKey::from_secret(secret.as_bytes());
-                let validation = build_validation(Algorithm::HS256);
+                let validation = build_validation(
+                    Algorithm::HS256,
+                    env::var("HIROBA_JWT_ISSUER").ok(),
+                    env::var("HIROBA_JWT_AUDIENCE").ok(),
+                );
                 Auth::Jwt {
                     keys: KeySource::Shared(Arc::new(key)),
                     validation: Arc::new(validation),
-                    default_org,
                 }
             }
             AuthMode::OidcJwks => {
                 let url = env::var("HIROBA_JWKS_URL")
                     .unwrap_or_else(|_| panic!("HIROBA_AUTH=oidc requires HIROBA_JWKS_URL"));
-                let validation = build_validation(Algorithm::RS256);
+                // A JWKS can be a public provider's, signing tokens for every
+                // app it serves: without `iss`/`aud` any of them would get in.
+                let issuer = env::var("HIROBA_JWT_ISSUER")
+                    .unwrap_or_else(|_| panic!("HIROBA_AUTH=oidc requires HIROBA_JWT_ISSUER"));
+                let audience = env::var("HIROBA_JWT_AUDIENCE")
+                    .unwrap_or_else(|_| panic!("HIROBA_AUTH=oidc requires HIROBA_JWT_AUDIENCE"));
+                let validation = build_validation(Algorithm::RS256, Some(issuer), Some(audience));
                 Auth::Jwt {
                     keys: KeySource::Jwks(JwksCache::new(url)),
                     validation: Arc::new(validation),
-                    default_org,
                 }
             }
         }
@@ -200,17 +207,16 @@ impl Auth {
                 // with no `sub` to own a note, only an admin can ever remove one.
                 role: Role::Admin,
             }),
-            Auth::Jwt {
-                keys,
-                validation,
-                default_org,
-            } => {
+            Auth::Jwt { keys, validation } => {
                 let token = token.filter(|t| !t.is_empty()).ok_or(AuthError::Missing)?;
                 let claims = keys.verify(token, validation).await?;
+                // The tenant is the token's to name. An empty one is how the
+                // hosted auth marks a login that has no org yet (a setup-only
+                // token, same issuer and keys): it opens no office at all.
                 let org_id = claims
                     .org
                     .filter(|o| !o.is_empty())
-                    .unwrap_or_else(|| default_org.clone());
+                    .ok_or_else(|| AuthError::Invalid("token names no org".to_string()))?;
                 Ok(Identity {
                     org_id,
                     org_name: claims.org_name,
@@ -371,17 +377,17 @@ fn decoding_key_from_rsa(n: &str, e: &str) -> Result<DecodingKey, AuthError> {
         .map_err(|err| AuthError::Invalid(format!("bad RSA jwk: {err}")))
 }
 
-/// Common JWT validation: require `exp`; apply optional `iss`/`aud`. When no
-/// audience is configured we disable `aud` validation (otherwise `jsonwebtoken`
-/// rejects any token lacking the claim).
-fn build_validation(alg: Algorithm) -> Validation {
+/// Common JWT validation: require `exp`; check `iss`/`aud` when given. Without
+/// an audience `aud` validation is off (otherwise `jsonwebtoken` rejects any
+/// token lacking the claim).
+fn build_validation(alg: Algorithm, issuer: Option<String>, audience: Option<String>) -> Validation {
     let mut validation = Validation::new(alg);
-    if let Ok(iss) = env::var("HIROBA_JWT_ISSUER") {
+    if let Some(iss) = issuer {
         validation.set_issuer(&[iss]);
     }
-    match env::var("HIROBA_JWT_AUDIENCE") {
-        Ok(aud) => validation.set_audience(&[aud]),
-        Err(_) => validation.validate_aud = false,
+    match audience {
+        Some(aud) => validation.set_audience(&[aud]),
+        None => validation.validate_aud = false,
     }
     validation
 }
@@ -411,7 +417,6 @@ mod tests {
         Auth::Jwt {
             keys: KeySource::Shared(Arc::new(DecodingKey::from_secret(secret.as_bytes()))),
             validation: Arc::new(validation),
-            default_org: "fallback".to_string(),
         }
     }
 
@@ -480,6 +485,7 @@ mod tests {
         #[derive(Serialize)]
         struct WithRole<'a> {
             sub: &'a str,
+            org: &'a str,
             role: &'a str,
             exp: u64,
         }
@@ -487,6 +493,7 @@ mod tests {
             &Header::new(Algorithm::HS256),
             &WithRole {
                 sub: "u",
+                org: "acme",
                 role,
                 exp: future_exp(),
             },
@@ -565,7 +572,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn token_without_org_claim_falls_back_to_default() {
+    async fn token_without_org_claim_is_rejected() {
         // A token with no `org`: serialize a struct lacking the field.
         #[derive(Serialize)]
         struct NoOrg {
@@ -582,8 +589,29 @@ mod tests {
             &EncodingKey::from_secret(secret.as_bytes()),
         )
         .unwrap();
-        let id = hs256_auth(secret).resolve(Some(&token)).await.unwrap();
-        assert_eq!(id.org_id, "fallback");
+        assert!(matches!(
+            hs256_auth(secret).resolve(Some(&token)).await,
+            Err(AuthError::Invalid(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn token_with_empty_org_is_rejected() {
+        // The hosted auth's org-less setup token: `org == ""`, same keys.
+        let secret = "s";
+        let token = mint(
+            secret,
+            &TestClaims {
+                sub: "u".to_string(),
+                org: String::new(),
+                name: "Aoi".to_string(),
+                exp: future_exp(),
+            },
+        );
+        assert!(matches!(
+            hs256_auth(secret).resolve(Some(&token)).await,
+            Err(AuthError::Invalid(_))
+        ));
     }
 
     #[test]
