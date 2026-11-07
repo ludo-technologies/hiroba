@@ -19,8 +19,11 @@ use tokio::sync::Notify;
 
 use crate::protocol::ServerMsg;
 
-/// Slots kept free in each peer's outbound channel for control messages.
-pub const CONTROL_RESERVE: usize = 16;
+/// Slots kept free in each peer's outbound channel for control messages: lossy
+/// traffic stops once a client is this close to full (out of `CHANNEL_CAP` in
+/// `ws.rs`), so a backed-up client queues control behind at most a few seconds
+/// of stale positions.
+pub const CONTROL_RESERVE: usize = 192;
 
 #[derive(Clone, Debug)]
 pub struct Outbox {

@@ -36,8 +36,12 @@ use crate::state::{
     CreateSpaceOutcome, EnterOutcome, NoteError, PageOutcome, MAX_SPACES_PER_ORG, NOTE_COOLDOWN,
 };
 
-/// Capacity of the per-peer outbound channel.
-const CHANNEL_CAP: usize = 64;
+/// Capacity of the per-peer outbound channel. Most of it is kept for control
+/// messages (see [`crate::outbox`]): a client that cannot take one is
+/// disconnected, so the room must cover a burst — a whole org reconnecting
+/// after a deploy, each arrival a `presence` to everyone — with lossy traffic
+/// held to the top quarter.
+const CHANNEL_CAP: usize = 256;
 
 /// Largest message a client may send: a `hello` with its avatar (up to 64 KiB)
 /// is the biggest legitimate one; an SDP with video is a few KiB.
