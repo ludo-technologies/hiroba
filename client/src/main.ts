@@ -73,6 +73,7 @@ import {
   type OrgSummary,
   type RestoreResult,
 } from "./auth.js";
+import { boardGeometry, boardOpen } from "./board.js";
 import {
   rectContains,
   type NoteInfo,
@@ -109,6 +110,10 @@ interface Session {
   canReact: boolean;
   /** The chat panel is open. */
   chatOpen: boolean;
+  /** It opened because we walked up to the board (so walking off closes it). */
+  chatByWalk: boolean;
+  /** We are standing by the board (with hysteresis, see board.ts). */
+  nearBoard: boolean;
   /** The newest message id seen with the chat open; newer ones are unread.
    *  Persisted per space (see `LS_CHAT_SEEN`), so what came in while the app
    *  was closed still counts as new. */
@@ -287,7 +292,7 @@ const ui = new UIManager(
     onPostNote: (text) => session?.net.send({ t: "post_note", text }),
     onRemoveNote: (id) => session?.net.send({ t: "remove_note", id }),
     onReact: (id, emoji) => session?.net.send({ t: "react", id, emoji }),
-    onSetChatOpen: (open) => setChatOpen(open, open),
+    onSetChatOpen: (open) => setChatOpen(open, false, open),
     onOpenMembersPanel: handleOpenMembersPanel,
     onRemoveMember: handleRemoveMember,
     onOpenBilling: handleOpenBilling,
@@ -407,9 +412,11 @@ function pointToWalk(e: PointerEvent): void {
 let seatClickAnchor: { x: number; y: number } | null = null;
 const SEAT_DRAG_SLOP_PX = 8;
 
-/** Open / close the chat. `focus` lands the keyboard in the input. */
-function setChatOpen(open: boolean, focus = false): void {
+/** Open / close the chat. `byWalk` opens are undone by walking off the
+ *  board; a button open stays until closed on purpose. */
+function setChatOpen(open: boolean, byWalk: boolean, focus = false): void {
   if (!session) return;
+  session.chatByWalk = open && byWalk;
   if (open === session.chatOpen) return;
   session.chatOpen = open;
   if (open) {
@@ -444,6 +451,26 @@ function updateChatUnread(): void {
   ui.setChatUnread(unread);
 }
 
+/**
+ * Open the chat when we walk up to the board, close it again when we walk
+ * off — unless it was opened from the button meanwhile. Without a chat
+ * (`notes` null: between spaces, or a server that has none) it stays closed.
+ */
+function updateBoardProximity(x: number, y: number): void {
+  if (!session) return;
+  const board = boardGeometry(session.space);
+  const near =
+    session.notes !== null &&
+    boardOpen(session.nearBoard, Math.hypot(x - board.standX, y - board.standY));
+  if (near === session.nearBoard) return;
+  session.nearBoard = near;
+  if (near) {
+    if (!session.chatOpen) setChatOpen(true, true);
+  } else if (session.chatByWalk) {
+    setChatOpen(false, false);
+  }
+}
+
 /** Whether a roster member can be paged (same rules as the sidebar button). */
 function canPagePeer(id: string): boolean {
   if (!session) return false;
@@ -470,7 +497,7 @@ canvas.addEventListener("pointerdown", (e) => {
 
   // The board opens the chat from wherever we stand; no walk needed.
   if (renderer.boardAtScreen(e.clientX, e.clientY)) {
-    setChatOpen(true, true);
+    setChatOpen(true, false, true);
     return;
   }
 
@@ -1615,7 +1642,10 @@ function initSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[]
     msg.space,
     msg.you.x,
     msg.you.y,
-    (x, y) => renderer.setSelfPosition(x, y),
+    (x, y) => {
+      renderer.setSelfPosition(x, y);
+      updateBoardProximity(x, y);
+    },
     (x, y) => net.send({ t: "move", x, y }),
     onInputActivity,
   );
@@ -1632,6 +1662,8 @@ function initSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[]
     notes: null,
     canReact: false,
     chatOpen: false,
+    chatByWalk: false,
+    nearBoard: false,
     chatSeenId: 0,
     chatNewFrom: null,
     roster,
@@ -2021,6 +2053,7 @@ function bindServerMessages(net: HirobaNet): void {
     renderer.init(space, selfPeer);
     // The old space's chat is gone; the new one follows in its own `notes`.
     session.notes = null;
+    session.nearBoard = false;
     session.input.setSpace(space, you.x, you.y);
 
     session.peerPositions.clear();
@@ -2048,6 +2081,8 @@ function bindServerMessages(net: HirobaNet): void {
     if (session.chatOpen) markChatRead();
     else updateChatUnread();
     renderChatPanel();
+    const { x, y } = session.input.position;
+    updateBoardProximity(x, y);
   });
 
   // --- Org scope (sidebar) ---

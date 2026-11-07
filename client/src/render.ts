@@ -684,7 +684,7 @@ export class Renderer {
   }
 
   /** Unread chat messages, shown as a badge on the board; null for "this
-   *  space has no chat" (the board then is not drawn, nor clickable). */
+   *  space has no chat" (the board then is not a place to walk to). */
   setBoardNotes(count: number | null): void {
     this.boardNotes = count;
     this.onWake?.();
@@ -1651,7 +1651,8 @@ function buildLobbyFloor(space: SpaceDescriptor): FloorPlan {
 
 /**
  * Team rooms. Radii on the server already make the whole room one group call,
- * so a layout only sets the furniture and where people sit.
+ * so a layout only sets the furniture and where people sit. Every plan keeps
+ * the board's top-left stand point clear.
  */
 const TEAM_FLOORS: Record<TeamLayout, (space: SpaceDescriptor) => FloorPlan> = {
   meeting: buildMeetingFloor,
@@ -2544,7 +2545,7 @@ function drawWindow(
   ctx.fill();
 }
 
-/** The bulletin board hangs on the top wall. */
+/** The bulletin board hangs on the top wall above its stand point. */
 function drawBoard(
   ctx: CanvasRenderingContext2D,
   V: View,
