@@ -78,9 +78,12 @@ The release action only adds versions to a package that already exists in
 `microsoft/winget-pkgs`, so the first submission is manual.
 
 1. Fork `microsoft/winget-pkgs` into the account that will own the PRs.
-2. Create a **classic** PAT with the `public_repo` scope (fine-grained tokens
-   are not supported by the action) and add it to the `release` environment
-   as `WINGET_TOKEN`.
+2. Create a **classic** PAT with the `public_repo` and `workflow` scopes
+   (fine-grained tokens are not supported by the action) and add it to the
+   `release` environment as `WINGET_TOKEN`. `workflow` is for the fork sync the
+   action does first: without it GitHub refuses the sync whenever upstream has
+   touched a workflow file, and the job fails until the fork is synced by hand
+   (`gh repo sync <you>/winget-pkgs --source microsoft/winget-pkgs`).
 3. Submit the first version with [komac](https://github.com/russellbanks/Komac),
    which reads the MSI and fills in the product code, install scope, and
    checksums:

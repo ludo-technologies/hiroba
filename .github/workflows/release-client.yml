@@ -231,7 +231,9 @@ jobs:
   # Open the winget-pkgs PR for this version. The package must already exist in
   # microsoft/winget-pkgs (see docs/PACKAGING.md for the one-time submission);
   # this action only adds versions. WINGET_TOKEN must be a *classic* PAT with
-  # the public_repo scope, owned by the account holding the winget-pkgs fork.
+  # the public_repo and workflow scopes, owned by the account holding the
+  # winget-pkgs fork: the action first syncs the fork with upstream, and GitHub
+  # refuses that sync whenever upstream has changed a workflow file.
   publish-winget:
     needs: publish-tauri
     if: ${{ !contains(github.ref_name, '-') }}
