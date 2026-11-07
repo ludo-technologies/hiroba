@@ -167,7 +167,10 @@ class FakePC {
   }
   addTrack(track) {
     (this.added ||= []).push(track);
-    return FakePC.makeSender?.();
+    // Like the real thing, a sender always comes back, carrying the track.
+    const sender = FakePC.makeSender?.() ?? plainSender();
+    sender.track = track;
+    return sender;
   }
   removeTrack() {}
   getTransceivers() {
@@ -178,8 +181,25 @@ class FakePC {
   }
 }
 FakePC.instances = [];
-/** Set by a test that needs addTrack to hand back a sender. */
+/** Set by a test that needs addTrack to hand back a particular sender. */
 FakePC.makeSender = null;
+
+/** A sender whose replaceTrack lands at once. */
+function plainSender() {
+  return {
+    track: null,
+    replaceTrack(track) {
+      this.track = track;
+      return Promise.resolve();
+    },
+    getParameters() {
+      return { encodings: [{}] };
+    },
+    setParameters() {
+      return Promise.resolve();
+    },
+  };
+}
 
 /** An RTCRtpSender whose replaceTrack resolves only when the test releases it,
  *  logging every call so ordering can be asserted. */
@@ -475,6 +495,86 @@ test("an offer from a peer the server never linked us with is dropped, not answe
   assert.equal(eng.peers.has("9"), false, "no peer is created for an unsolicited signal");
   assert.equal(FakePC.instances.length, 0, "no RTCPeerConnection, so no track is attached");
   assert.deepEqual(sent, [], "nothing is answered");
+  eng.destroy();
+});
+
+/** What a peer currently receives from our microphone: the track on its mic
+ *  sender (null = the sender is there but silent; undefined = no sender). */
+function micTo(eng, id) {
+  return eng.peers.get(id)?.audioSender?.track;
+}
+
+test("during a call our voice reaches the caller only, and the space again after", async () => {
+  installMocks();
+  const eng = new AudioEngine();
+  eng.init(SPACE, () => {}, () => {});
+  await eng.connect("near", true, "proximity");
+  await eng.toggleMute(); // live
+  const mic = FakeMic.lastTrack;
+  assert.equal(micTo(eng, "near"), mic, "outside a call the space hears us");
+
+  await eng.connect("caller", true, "page");
+  await tick();
+  assert.equal(micTo(eng, "caller"), mic, "the call hears us");
+  assert.equal(micTo(eng, "near"), null, "the peer next to us does not");
+
+  // Someone walking up mid-call is linked, but hears nothing of it either.
+  await eng.connect("late", true, "proximity");
+  await tick();
+  assert.equal(micTo(eng, "late"), null, "a peer arriving during the call does not");
+  assert.deepEqual(FakePC.instances.find((pc) => pc === eng.peers.get("late").pc).added, [mic],
+    "…though the sender is there, so no renegotiation is needed when the call ends");
+
+  eng.endPage("caller");
+  await tick();
+  assert.equal(micTo(eng, "near"), mic, "hanging up gives our voice back to the space");
+  assert.equal(micTo(eng, "late"), mic);
+  eng.destroy();
+});
+
+test("unmuting during a call sends the new mic to the call only", async () => {
+  installMocks();
+  const eng = new AudioEngine();
+  eng.init(SPACE, () => {}, () => {});
+  await eng.connect("near", true, "proximity");
+  await eng.connect("caller", true, "page");
+  await eng.toggleMute(); // the auto-unmute on answering takes this path
+  await tick();
+  const mic = FakeMic.lastTrack;
+  assert.equal(micTo(eng, "caller"), mic);
+  assert.equal(micTo(eng, "near"), null, "the space never gets the track");
+  eng.destroy();
+});
+
+test("switching microphones during a call moves the call over and keeps the space silent", async () => {
+  installMocks();
+  const eng = new AudioEngine();
+  eng.init(SPACE, () => {}, () => {});
+  await eng.connect("near", true, "proximity");
+  await eng.toggleMute();
+  await eng.connect("caller", true, "page");
+  await tick();
+  const before = FakeMic.lastTrack;
+
+  await eng.setMicDevice("usb");
+  const after = FakeMic.lastTrack;
+  assert.notEqual(after, before);
+  assert.equal(micTo(eng, "caller"), after, "the call carries the new mic");
+  assert.equal(micTo(eng, "near"), null, "the space still hears nothing");
+  assert.equal(before.stopped, true, "the old mic is let go");
+  eng.destroy();
+});
+
+test("paging the peer next to us keeps our voice on that link", async () => {
+  installMocks();
+  const eng = new AudioEngine();
+  eng.init(SPACE, () => {}, () => {});
+  await eng.connect("9", true, "proximity");
+  await eng.toggleMute();
+  const mic = FakeMic.lastTrack;
+  await eng.connect("9", true, "page");
+  await tick();
+  assert.equal(micTo(eng, "9"), mic, "the shared link is the call");
   eng.destroy();
 });
 

@@ -608,6 +608,12 @@ In the lobby, gain falls off with distance (proximity voice). Page links are
 1:1 and always full-gain (no spatialization). Applied via a Web Audio
 `GainNode`; updates every animation frame (cheap).
 
+**A live page is private, both ways.** While a client has a page link up, it
+plays proximity peers at gain 0 **and sends its microphone to page peers
+only**: proximity links stay open (so voice resumes the moment the call ends)
+but carry none of the call. A client MUST NOT send call audio to anyone it is
+not paging.
+
 ## Connection limits
 
 The server closes a connection that:

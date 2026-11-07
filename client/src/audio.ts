@@ -139,6 +139,8 @@ interface PeerConn {
   sink: HTMLAudioElement | null;
   /** Smoothed 0..1 speech level, updated by pollLevels(). */
   level: number;
+  /** Sender for our microphone on this link — see {@link _syncMicSenders}. */
+  audioSender: RTCRtpSender | null;
   /** Sender carrying our local video (screen or camera) to this peer, if any. */
   videoSender: RTCRtpSender | null;
   /** Remote video stream from this peer, if currently present. */
@@ -378,8 +380,10 @@ export class AudioEngine {
       // onnegotiationneeded, which drives the offer through perfect negotiation.
     }
     // The new link may be in our video's audience — or, when a call opens,
-    // end a share meant for the place around us.
+    // end a share meant for the place around us. A call opening also takes
+    // our voice off the space.
     this._syncVideoLinks();
+    void this._syncMicSenders();
   }
 
   /** Hard-close and forget a peer regardless of membership (used on teardown). */
@@ -387,6 +391,7 @@ export class AudioEngine {
     const entry = this.peers.get(peerId);
     if (!entry) return;
     this._dropPeer(entry);
+    void this._syncMicSenders(); // it may have been the last call
   }
 
   /**
@@ -411,8 +416,10 @@ export class AudioEngine {
     if (!entry) return;
     entry.page = false;
     if (!entry.proximity) this._dropPeer(entry);
-    // The last call ending ends the video shared in it.
+    // The last call ending ends the video shared in it, and gives our voice
+    // back to the space.
     this._syncVideoLinks();
+    void this._syncMicSenders();
   }
 
   /**
@@ -608,7 +615,8 @@ export class AudioEngine {
    *
    * While any page link is live the space audio is fully muted (product
    * decision): page takes over the ears, and proximity gain is restored when
-   * the page ends.
+   * the page ends. It takes over our mouth too (`_syncMicSenders`): the space
+   * hears none of the call.
    *
    * The same positions decide who a place share reaches, so this also keeps
    * our video in step with people walking in and out of the meeting room.
@@ -1298,6 +1306,7 @@ export class AudioEngine {
       analyser: null,
       sink: null,
       level: 0,
+      audioSender: null,
       videoSender: null,
       remoteVideoStream: null,
       remoteVideoTrack: null,
@@ -1347,15 +1356,46 @@ export class AudioEngine {
       }
     });
 
-    // If we already have a mic track, add it now (kicks off negotiation).
-    if (this.localTrack && this.localStream) {
+    // The mic, if we hold one, goes on in `connect` (`_syncMicSenders`): only
+    // once the link's membership is known is it known whether the peer may
+    // hear us.
+    return entry;
+  }
+
+  /**
+   * Point every peer's microphone sender at what that peer may hear: our mic,
+   * or — while a call is live and the peer is not in it — nothing. A call
+   * takes over our mouth as it takes over our ears (`updateGains`): the space
+   * keeps its links, so our voice is back the moment the call ends, but hears
+   * none of the call meanwhile. A peer without a sender gets one (its first
+   * track negotiates it in); otherwise the swap is a `replaceTrack`, which
+   * needs no renegotiation. Resolves once every swap has landed.
+   */
+  private _syncMicSenders(): Promise<void> {
+    const track = this.localTrack;
+    const stream = this.localStream;
+    if (!track || !stream) return Promise.resolve();
+    const paging = this.hasPage();
+    const swaps: Promise<void>[] = [];
+    for (const entry of this.peers.values()) {
+      const want = paging && !entry.page ? null : track;
       try {
-        pc.addTrack(this.localTrack, this.localStream);
+        // addTrack then replaceTrack(null) in the same task: the null is
+        // queued ahead of the negotiation the add triggers, so not one packet
+        // of the live track reaches a peer outside the call.
+        entry.audioSender ??= entry.pc.addTrack(track, stream);
+        if (entry.audioSender.track !== want) {
+          swaps.push(
+            entry.audioSender.replaceTrack(want).catch((err) => {
+              console.error("[audio] replaceTrack error:", err);
+            }),
+          );
+        }
       } catch (err) {
         console.error("[audio] addTrack error:", err);
       }
     }
-    return entry;
+    return Promise.all(swaps).then(() => undefined);
   }
 
   private _addVideoTrack(entry: PeerConn): void {
@@ -1648,15 +1688,9 @@ export class AudioEngine {
       this.localTrack = track;
       this.micAcquired = true;
 
-      // Add the track (with its stream) to every existing peer. Each addTrack
-      // fires onnegotiationneeded, renegotiating to send our audio.
-      for (const entry of this.peers.values()) {
-        try {
-          entry.pc.addTrack(track, stream);
-        } catch {
-          // PC may have closed in the meantime — ignore.
-        }
-      }
+      // Give the track to every existing peer that may hear it. Each new
+      // sender fires onnegotiationneeded, renegotiating to send our audio.
+      void this._syncMicSenders();
       this._updateMicHold(); // no peers by now → start the idle release
     } catch (err) {
       if (stream && stream !== this.localStream) {
@@ -1693,19 +1727,12 @@ export class AudioEngine {
     }
     track.enabled = !this.muted;
 
-    for (const entry of this.peers.values()) {
-      const sender = entry.pc.getSenders().find((s) => s.track === oldTrack);
-      try {
-        if (sender) await sender.replaceTrack(track);
-        else entry.pc.addTrack(track, stream);
-      } catch (err) {
-        console.error("[audio] replaceTrack error:", err);
-      }
-    }
-
     this._tapLocalStream(stream);
     this.localStream = stream;
     this.localTrack = track;
+    // Senders outside a live call stay empty; the rest take the new track
+    // before the old one stops, so the switch has no gap.
+    await this._syncMicSenders();
     if (oldTrack) oldTrack.stop();
     if (oldStream) oldStream.getTracks().forEach((t) => { if (t !== oldTrack) t.stop(); });
   }
@@ -1735,6 +1762,7 @@ export class AudioEngine {
     entry.analyser = null;
     entry.sink = null;
     entry.level = 0;
+    entry.audioSender = null;
     entry.videoSender = null;
     try {
       entry.pc.close();
