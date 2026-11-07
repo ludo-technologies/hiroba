@@ -176,7 +176,9 @@ channels are unaffected.
    `release-client.yml`, with the `msstore` CLI). The CLI copies the last
    published submission and swaps in the new package, so the version must
    grow, which the tag guarantees, and everything else is as Partner Center
-   last had it. One-time setup, free (an Entra ID tenant and app registration
+   last had it. A language the manifest gains without a listing is opted out
+   of listings on its own (a `ListingOptOutWarning`; v0.3.4 did this for `es`
+   and `fr`), which is the same as Remove in step 5. One-time setup, free (an Entra ID tenant and app registration
    cost nothing):
    - Account settings → Tenants: associate the Microsoft Entra tenant, or
      create one there.
