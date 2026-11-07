@@ -3,7 +3,7 @@
 /// Start-up sequence
 /// ─────────────────
 ///   1. Init tracing (respects RUST_LOG env var).
-///   2. Build the auth resolver + tenant registry; pre-seed the configured org
+///   2. Build the auth resolver + tenant registry; in guest mode pre-seed its org
 ///      (self-host single tenant, lobby + a default team space).
 ///   3. Spawn the tick loop (per-space position broadcast + proximity, ~12 Hz,
 ///      across every tenant).
@@ -167,12 +167,13 @@ async fn main() {
         Err(_) => OrgRegistry::new(),
     };
 
-    // Self-host single-tenant path: pre-seed the configured org so an operator's
-    // floor exists before the first guest connects. Hosted tenants are created
-    // lazily on first authenticated connection.
-    let org_id = env::var("HIROBA_ORG").unwrap_or_else(|_| "ludo".to_string());
-    let org_name = env::var("HIROBA_ORG_NAME").unwrap_or_else(|_| "Ludo".to_string());
-    registry.seed(org_id, org_name).await;
+    // Guest mode is the single-tenant path: pre-seed its org so an operator's
+    // floor exists before the first guest connects. With JWT/OIDC auth every
+    // tenant is named by a token and created on its first connection.
+    if let Auth::Guest { org_id } = auth.as_ref() {
+        let org_name = env::var("HIROBA_ORG_NAME").unwrap_or_else(|_| "Ludo".to_string());
+        registry.seed(org_id.clone(), org_name).await;
+    }
 
     // ── ICE/TURN issuer ────────────────────────────────────────────────────
     let ice = IceIssuer::from_env();

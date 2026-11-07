@@ -159,7 +159,7 @@ sudo systemctl enable --now hiroba
 |-------------------|----------------|-----------------------------------------------|
 | `HIROBA_ADDR`     | `0.0.0.0:8787` | Address:port the server binds to.             |
 | `HIROBA_ORG`      | `ludo`         | The guest-mode org (tenant) id. With JWT/OIDC auth every token names its own org. |
-| `HIROBA_ORG_NAME` | `Ludo`         | Org display name shown atop the roster.       |
+| `HIROBA_ORG_NAME` | `Ludo`         | The guest-mode org's display name, shown atop the roster. |
 | `HIROBA_DB`       | *(unset → in-memory)* | Path to a SQLite file persisting orgs, space catalogs and chat messages across restarts (created on first boot). Unset keeps the fully DB-less profile; spaces created and messages posted at runtime are then lost on restart. The container image presets `/data/hiroba.db`. |
 | `HIROBA_CORS_ALLOW_ORIGINS` | *(unset → any)* | Comma-separated CORS origin allow-list for the HTTP endpoints (`/ice`, `/health`). See below. |
 | `RUST_LOG`        | `info`         | Log verbosity (`error`/`warn`/`info`/…).      |
