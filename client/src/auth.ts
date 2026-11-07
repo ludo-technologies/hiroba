@@ -426,12 +426,20 @@ function enqueue<T>(op: () => Promise<T>): Promise<T> {
 }
 
 /**
- * Bumped, synchronously, by every sign-out. A renewal in flight at that moment
- * is answering for a session the user has since discarded: writing its rotated
- * tokens back would un-sign-them-out, and the delete has already been queued —
- * so a restore that spans a sign-out must come back empty-handed instead.
+ * Bumped, synchronously, by every sign-out and by every session adopted from
+ * elsewhere (a sign-in, a web handoff, an org switch). A renewal in flight at
+ * that moment is answering for a session the user has since discarded or
+ * replaced: writing its rotated tokens back would un-sign-them-out, or put
+ * the previous org back in the keychain so the next launch opens there — so
+ * a restore that spans either must come back empty-handed instead.
  */
 let sessionEpoch = 0;
+
+/** A session obtained some other way now stands: a restore still in flight
+ *  must neither be adopted nor persisted. Synchronous, like a sign-out. */
+export function supersedeRestore(): void {
+  sessionEpoch += 1;
+}
 
 /**
  * Why a restore couldn't hand back a *usable* session. Both mean "try again
@@ -568,7 +576,7 @@ export async function saveSession(session: AuthSession): Promise<SaveOutcome> {
 export async function clearSession(): Promise<void> {
   // Before the first await: an in-flight renewal has to see this immediately,
   // or it will happily write its answer in after the delete.
-  sessionEpoch += 1;
+  supersedeRestore();
   if (!isTauri()) return;
   try {
     await enqueue(() =>

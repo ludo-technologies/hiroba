@@ -67,6 +67,7 @@ import {
   openExternal,
   redeemHandoff,
   saveSession,
+  supersedeRestore,
   switchOrg,
   type AuthSession,
   type SessionClaims,
@@ -790,6 +791,7 @@ async function handleSwitchOrg(orgSlug: string): Promise<void> {
       // exactly what the user just discarded.
       if (authSession !== session) return;
       cancelRestoreRetry();
+      supersedeRestore();
       authSession = switched;
       reflectAuthSession();
       if ((await saveSession(switched)) === "failed") ui.showError(t.errSessionNotSaved);
@@ -873,10 +875,14 @@ async function adoptLogin(result: OAuthResult): Promise<void> {
 }
 
 /** Make `session` the signed-in one: live state, chip, keychain. It
- *  supersedes any org-setup step still on screen, provisional token and all. */
+ *  supersedes any org-setup step still on screen, provisional token and all,
+ *  and any restore still in flight — whose renewed tokens would otherwise be
+ *  written to the keychain after ours and bring the previous org back on the
+ *  next launch. */
 async function adoptSession(session: AuthSession): Promise<void> {
   pendingProvisionalToken = null;
   cancelRestoreRetry();
+  supersedeRestore();
   authSession = session;
   bindSessionEndpoints();
   ui.hideOrgSetup();
@@ -1327,6 +1333,9 @@ async function effectiveToken(manual: string, serverUrl: string, signal?: AbortS
   if (orgSwitchPending) await orgSwitchPending;
   if (!authSession || !isLive(authSession.claims)) {
     const { session, problem } = await loadSession(ui.getAuthUrl());
+    // A session adopted while that was in flight (a handoff, a sign-in)
+    // outranks its answer, exactly as in `restoreAuthSession`.
+    if (authSession && isLive(authSession.claims)) return authSession.token;
     authSession = session;
     reflectAuthSession();
     // Three different dead ends, three different things to do about them: sign

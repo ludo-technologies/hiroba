@@ -26,6 +26,7 @@ import {
   redeemHandoff,
   sanitizeCode,
   saveSession,
+  supersedeRestore,
   switchOrg,
 } from "../.test-build/auth.js";
 
@@ -424,6 +425,32 @@ test("a sign-out mid-renewal is not undone by the answer that lands after it", a
     // user has just discarded.
     assert.equal(result.session, null);
     assert.equal(tauri.store.size, 0);
+  } finally {
+    globalThis.fetch = real;
+    tauri.restore();
+  }
+});
+
+test("a session adopted mid-renewal is not overwritten by the answer that lands after it", async () => {
+  // The app is launched by a hiroba://auth/<code> link with an expired
+  // session on disk: the renewal of that (previous-org) session and the
+  // handoff's redemption are in flight together.
+  const tauri = withTauri({ store: storedSession(jwt(-60)) });
+  const real = globalThis.fetch;
+  let release;
+  const answered = new Promise((r) => (release = r));
+  globalThis.fetch = () => answered;
+  try {
+    const restoring = loadSession("https://auth.example.com");
+    // The handoff wins the race: its session is adopted and persisted.
+    supersedeRestore();
+    await saveSession({ token: jwt(43200), claims: { exp: 0 }, refreshToken: "handoff" });
+    release(jsonResponse(200, { token: jwt(43200), refresh_token: "rotated-previous-org" }));
+    const result = await restoring;
+    // The late renewal neither comes back nor reaches the keychain: the next
+    // launch must open in the org the handoff joined, not the previous one.
+    assert.equal(result.session, null);
+    assert.equal(tauri.store.get("refresh-token"), "handoff");
   } finally {
     globalThis.fetch = real;
     tauri.restore();
