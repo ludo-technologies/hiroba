@@ -732,6 +732,14 @@ export class UIManager {
     elJoinStatus.toggleAttribute("hidden", !on);
   }
 
+  /** Enter the office with what the join form holds, as if the user had
+   *  pressed its button: same validation (a missing name is pointed at, not
+   *  guessed), same persistence, same `onJoin`. For the web sign-in handoff,
+   *  whose joined page promises the app opens straight into the office. */
+  submitJoin(): void {
+    elJoinForm.requestSubmit();
+  }
+
   /** Show the join overlay and hide everything else (leave / error / give-up). */
   showJoin(error?: string): void {
     elJoin.removeAttribute("hidden");

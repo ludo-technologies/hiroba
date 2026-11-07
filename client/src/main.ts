@@ -896,17 +896,29 @@ async function adoptSession(session: AuthSession): Promise<void> {
  *  there, and the code buys the session that sign-in minted. It may also land
  *  on the org-setup step (they signed in here first, then took the invite on
  *  the web); the handoff closes that step. A refused code is not a lost
- *  membership: a plain sign-in finds the org, and the toast says so. */
+ *  membership: a plain sign-in finds the org, and the toast says so.
+ *
+ *  The joined page promises the app opens straight into the office, so the
+ *  session alone is not the end of it: an office already open belongs to the
+ *  previous org (its connection was authenticated with that org's token, and
+ *  the chip would say one org while the floor shows another), so it is left
+ *  first, and the join form is then submitted as if the user had pressed
+ *  Enter — a name still missing just puts the cursor there. The code is only
+ *  spent on success; a refused one leaves whatever office is open alone. */
 async function handleHandoff(code: string): Promise<void> {
   // The switch owns the session until it settles (see `orgSwitchPending`).
   if (orgSwitchPending) await orgSwitchPending;
+  let session: AuthSession;
   try {
-    const session = await redeemHandoff(ui.getAuthUrl(), code);
-    await adoptSession(session);
-    ui.showToast(t.joinedOrg(session.claims.org_name || session.claims.org));
+    session = await redeemHandoff(ui.getAuthUrl(), code);
   } catch (err) {
     ui.showToast(err instanceof HandoffRejectedError ? t.errHandoffExpired : t.errConnect, "error");
+    return;
   }
+  leaveSession();
+  await adoptSession(session);
+  ui.showToast(t.joinedOrg(session.claims.org_name || session.claims.org));
+  ui.submitJoin();
 }
 
 function handleLogout(): void {
