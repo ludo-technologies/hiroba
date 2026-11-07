@@ -18,7 +18,7 @@
 /// holds an org lock across an await.
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::{Instant, SystemTime};
+use std::time::SystemTime;
 
 use axum::extract::ws::{Message, WebSocket};
 use futures_util::{SinkExt, StreamExt};
@@ -26,6 +26,7 @@ use tokio::sync::mpsc;
 use tokio::time::{interval, Duration};
 use tracing::{debug, info, warn};
 
+use crate::allowance::Allowance;
 use crate::auth::{Auth, Role};
 use crate::beacon::GuestBeacon;
 use crate::outbox::Outbox;
@@ -366,38 +367,6 @@ pub async fn handle_ws(
                 )
                 .await;
         });
-    }
-}
-
-/// A refilling allowance (token bucket): `burst` at most, `per_sec` back.
-struct Allowance {
-    left: f64,
-    burst: f64,
-    per_sec: f64,
-    at: Instant,
-}
-
-impl Allowance {
-    fn new(burst: f64, per_sec: f64) -> Self {
-        Self {
-            left: burst,
-            burst,
-            per_sec,
-            at: Instant::now(),
-        }
-    }
-
-    /// Spend `n`; false once the allowance is used up.
-    fn take(&mut self, n: f64) -> bool {
-        let now = Instant::now();
-        let refill = now.duration_since(self.at).as_secs_f64() * self.per_sec;
-        self.left = (self.left + refill).min(self.burst);
-        self.at = now;
-        if self.left < n {
-            return false;
-        }
-        self.left -= n;
-        true
     }
 }
 

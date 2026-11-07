@@ -93,6 +93,23 @@ class Client {
   ok(Array.isArray(iceBody.iceServers), "/ice returns an ICE server list");
   const iceMissing = await fetch(ICE_URL);
   ok(iceMissing.status === 401, "/ice rejects missing token in JWT mode");
+  const iceSetup = await fetch(ICE_URL, { headers: { authorization: `Bearer ${mint({ sub: "u-p", org: "" })}` } });
+  ok(iceSetup.status === 401, "/ice rejects an org-less (setup) token");
+
+  // Issuance is capped per account (20 an hour) and per address (100).
+  const iceAs = (claims, ip) =>
+    fetch(ICE_URL, {
+      headers: { authorization: `Bearer ${mint(claims)}`, ...(ip ? { "fly-client-ip": ip } : {}) },
+    }).then((r) => r.status);
+  const capped = [];
+  for (let i = 0; i < 21; i++) capped.push(await iceAs({ sub: "u-ice", org: "acme" }));
+  ok(capped.slice(0, 20).every((s) => s === 200) && capped[20] === 429,
+    "/ice turns an account away past its hourly issuances");
+  ok((await iceAs({ sub: "u-ice2", org: "acme" })) === 200, "…another account is unaffected");
+  const byIp = [];
+  for (let i = 0; i < 101; i++) byIp.push(await iceAs({ sub: `u-ip-${i}`, org: "acme" }, "203.0.113.7"));
+  ok(byIp.slice(0, 100).every((s) => s === 200) && byIp[100] === 429,
+    "/ice turns an address away past its hourly issuances, across accounts");
 
   // ── 2) Missing token → auth_failed ──────────────────────────────────────
   const B = new Client();

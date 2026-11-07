@@ -15,17 +15,17 @@
 //!   profile DB-less.
 //!
 //! * **Cloudflare Realtime TURN** (hosted): credentials are minted by
-//!   Cloudflare's API, so `/ice` proxies one `generate-ice-servers` call and
-//!   caches the answer for half its lifetime. Cloudflare's list includes
-//!   `turns:` on TCP 443, which is what gets through corporate firewalls.
+//!   Cloudflare's API, one `generate-ice-servers` call per `/ice` request, so
+//!   every caller holds its own credential — one that can be revoked alone
+//!   (Cloudflare's `/credentials/{username}/revoke`) and traced back to who it
+//!   went to (the issuance log line). Cloudflare's list includes `turns:` on
+//!   TCP 443, which is what gets through corporate firewalls.
 //!
 //! When no TURN is configured the endpoint still returns the public STUN server,
 //! so a client that fetches `/ice` always gets a usable list (self-host default).
 
 use std::env;
-use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tokio::sync::Mutex;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
 use hmac::{Hmac, Mac};
@@ -41,8 +41,9 @@ const DEFAULT_STUN: &str = "stun:stun.l.google.com:19302";
 const CLOUDFLARE_TURN_API: &str = "https://rtc.live.cloudflare.com/v1/turn/keys";
 const CLOUDFLARE_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Default credential lifetimes. coturn creds are cheap to re-mint, so short;
-/// Cloudflare creds cost an API round-trip and back a whole working day.
+/// Default credential lifetimes. coturn creds are cheap to re-mint, so short.
+/// Cloudflare's must outlast the longest call: a live connection keeps the
+/// credential it was built with, and the relay goes when that expires.
 const DEFAULT_COTURN_TTL_SECS: u64 = 3600;
 const DEFAULT_CLOUDFLARE_TTL_SECS: u64 = 86_400;
 
@@ -102,15 +103,6 @@ struct CloudflareTurn {
     api_token: String,
     ttl_secs: u64,
     http: reqwest::Client,
-    /// Last list fetched from Cloudflare; reused while less than half its
-    /// lifetime has elapsed so `/ice` doesn't cost an API call per client.
-    cache: Arc<Mutex<Option<CachedIce>>>,
-}
-
-#[derive(Clone)]
-struct CachedIce {
-    servers: Vec<IceServer>,
-    issued_at: Instant,
 }
 
 #[derive(Deserialize)]
@@ -258,37 +250,13 @@ impl CloudflareTurn {
                 .timeout(CLOUDFLARE_TIMEOUT)
                 .build()
                 .expect("Cloudflare TURN HTTP client"),
-            cache: Arc::new(Mutex::new(None)),
         }
     }
 
     async fn issue(&self) -> Result<IceConfig, String> {
-        let refresh_after = Duration::from_secs(self.ttl_secs / 2);
-        // Held across the Cloudflare round-trip on purpose: every client was
-        // handed the same ttl, so they all come back for a renewal at the same
-        // moment, and without single-flighting each would miss the cache and
-        // hit the API on its own (rate limits, a burst of 502s). Waiters get
-        // the list the first one fetched.
-        let mut cache = self.cache.lock().await;
-        let cached = match &*cache {
-            Some(c) if c.issued_at.elapsed() < refresh_after => c.clone(),
-            _ => {
-                let servers = self.fetch().await?;
-                let fresh = CachedIce {
-                    servers,
-                    issued_at: Instant::now(),
-                };
-                *cache = Some(fresh.clone());
-                fresh
-            }
-        };
-        drop(cache);
-        let remaining = self
-            .ttl_secs
-            .saturating_sub(cached.issued_at.elapsed().as_secs());
         Ok(IceConfig {
-            ice_servers: cached.servers,
-            ttl: Some(remaining),
+            ice_servers: self.fetch().await?,
+            ttl: Some(self.ttl_secs),
         })
     }
 
@@ -335,6 +303,7 @@ fn ephemeral_credential(secret: &str, user: &str, expiry: u64) -> (String, Strin
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     #[tokio::test]
     async fn stun_only_when_no_turn_configured() {
@@ -435,7 +404,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cloudflare_list_is_proxied_and_cached() {
+    async fn every_caller_gets_a_credential_of_its_own() {
         let hits = Arc::new(AtomicUsize::new(0));
         let base = spawn_fake_cloudflare(hits.clone()).await;
         let issuer = IceIssuer {
@@ -457,37 +426,11 @@ mod tests {
             .any(|u| u.starts_with("turns:") && u.contains(":443")));
         assert_eq!(cfg.ttl, Some(600));
 
-        let again = issuer.issue().await.unwrap();
-        assert_eq!(again.ice_servers.len(), 2);
+        issuer.issue().await.unwrap();
         assert_eq!(
             hits.load(Ordering::SeqCst),
-            1,
-            "second call served from cache"
-        );
-    }
-
-    #[tokio::test]
-    async fn concurrent_cache_misses_share_one_cloudflare_call() {
-        let hits = Arc::new(AtomicUsize::new(0));
-        let base = spawn_fake_cloudflare(hits.clone()).await;
-        let issuer = IceIssuer {
-            stun_url: DEFAULT_STUN.to_string(),
-            relay: Relay::Cloudflare(CloudflareTurn::new(
-                base,
-                "key123".to_string(),
-                "tok".to_string(),
-                600,
-            )),
-        };
-
-        let (a, b, c) = tokio::join!(issuer.issue(), issuer.issue(), issuer.issue());
-        for cfg in [a.unwrap(), b.unwrap(), c.unwrap()] {
-            assert_eq!(cfg.ice_servers.len(), 2);
-        }
-        assert_eq!(
-            hits.load(Ordering::SeqCst),
-            1,
-            "a refresh burst is single-flighted"
+            2,
+            "no credential is shared between callers"
         );
     }
 

@@ -289,6 +289,9 @@ signaling WebSocket. The client resolves its ICE list in this order
    secret ever lives in the client. `/ice` follows the same auth boundary as the
    WebSocket: in JWT/OIDC mode it requires `Authorization: Bearer <token>` (else
    `401`); in guest mode it is open. The client sends the join token automatically.
+   Issuance is capped at 20 an hour per account (`sub`) and 100 an hour per
+   client address (the `fly-client-ip` header, when the server runs on Fly);
+   past either, `/ice` answers `429` and the client carries on with STUN.
 3. Public STUN — the default when nothing else is set.
 
 A malformed override or a failed/garbled `/ice` response is ignored and the client
@@ -330,8 +333,10 @@ relay.
 
 **Alternative: Cloudflare Realtime TURN (no coturn to run).** Create a TURN key
 in the Cloudflare dashboard (Realtime → TURN) and hand the server its id and
-API token. `/ice` then proxies Cloudflare's credential API (one call, cached
-for half the TTL) and returns Cloudflare's list, which includes `turns:` on
+API token. `/ice` then proxies Cloudflare's credential API (one call per
+request, so every caller holds a credential of its own that can be revoked
+alone; the server logs which went to whom as `relay_user`) and returns
+Cloudflare's list, which includes `turns:` on
 TCP 443 — the transport that gets through corporate firewalls. This is what
 the hosted service uses. Mutually exclusive with `HIROBA_TURN_URL`/`SECRET`;
 setting both, or only one of the pair below, aborts start-up.

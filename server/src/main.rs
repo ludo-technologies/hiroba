@@ -23,8 +23,9 @@ use axum::{
     Json, Router,
 };
 use hiroba_common::cors_from_env;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
+mod allowance;
 mod auth;
 mod beacon;
 mod billing;
@@ -37,6 +38,7 @@ mod state;
 mod store;
 mod ws;
 
+use allowance::Allowances;
 use auth::Auth;
 use beacon::GuestBeacon;
 use billing::BillingGate;
@@ -52,6 +54,10 @@ struct AppState {
     registry: OrgRegistry,
     auth: Arc<Auth>,
     ice: IceIssuer,
+    /// `/ice` issuances per account and per client address — see
+    /// [`ice_handler`].
+    ice_by_sub: Arc<Allowances>,
+    ice_by_ip: Arc<Allowances>,
     /// Billing lock check, or `None` when billing enforcement is off (self-host).
     billing: Option<Arc<BillingGate>>,
     /// Guest-exit reporter, or `None` when unconfigured (self-host).
@@ -67,17 +73,49 @@ async fn health() -> &'static str {
     "ok"
 }
 
+/// `/ice` issuances an hour (and in one burst). A client asks once per connect
+/// and again at the credential's half-life, so an account needs a handful even
+/// on a flaky network; an address is roomier, for an office behind one NAT.
+const ICE_PER_SUB_PER_HOUR: f64 = 20.0;
+const ICE_PER_IP_PER_HOUR: f64 = 100.0;
+
 /// ICE/TURN config: GET /ice → `{ iceServers: [...] }` (NFR-07, §7.4). Returns
 /// STUN always, plus TURN entries with freshly minted short-lived credentials
 /// when a relay is configured. Delivered out-of-band over HTTP, never the WS.
 async fn ice_handler(State(state): State<AppState>, headers: HeaderMap) -> Response {
     let token = bearer_token(&headers);
-    if let Err(err) = state.auth.resolve(token).await {
-        debug!(reason = %err, "ICE config rejected");
-        return StatusCode::UNAUTHORIZED.into_response();
+    let identity = match state.auth.resolve(token).await {
+        Ok(identity) => identity,
+        Err(err) => {
+            debug!(reason = %err, "ICE config rejected");
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
+    };
+    // Each call mints a relay credential that works from any TURN client for
+    // its whole lifetime, and anyone the public demo admits can call: cap how
+    // many one account, and one address, can collect. A client turned away
+    // carries on with STUN.
+    let ip = client_ip(&headers);
+    let sub = identity.sub.as_deref();
+    if !sub.is_none_or(|sub| state.ice_by_sub.take(sub))
+        || !ip.is_none_or(|ip| state.ice_by_ip.take(ip))
+    {
+        warn!(org = %identity.org_id, sub = sub.unwrap_or("-"), ip = ip.unwrap_or("-"), "ICE issuance limit reached");
+        return StatusCode::TOO_MANY_REQUESTS.into_response();
     }
     match state.ice.issue().await {
-        Ok(cfg) => Json(cfg).into_response(),
+        Ok(cfg) => {
+            // Who holds which relay credential: what a revocation needs.
+            let relay_user = cfg.ice_servers.iter().find_map(|s| s.username.as_deref());
+            info!(
+                org = %identity.org_id,
+                sub = sub.unwrap_or("-"),
+                ip = ip.unwrap_or("-"),
+                relay_user = relay_user.unwrap_or("-"),
+                "ICE config issued"
+            );
+            Json(cfg).into_response()
+        }
         Err(err) => {
             error!(error = %err, "ICE config issuance failed");
             StatusCode::BAD_GATEWAY.into_response()
@@ -91,12 +129,7 @@ async fn ws_handler(
     upgrade: WebSocketUpgrade,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    // Fly terminates TLS at the edge, so the TCP peer is always fly-proxy;
-    // `fly-client-ip` is the only place the real origin survives.
-    let ip = headers
-        .get("fly-client-ip")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("-");
+    let ip = client_ip(&headers).unwrap_or("-");
     let ua = headers
         .get("user-agent")
         .and_then(|v| v.to_str().ok())
@@ -114,6 +147,13 @@ async fn ws_handler(
                 state.beacon,
             )
         })
+}
+
+/// The caller's address, where the edge reports it. Fly terminates TLS at the
+/// edge, so the TCP peer is always fly-proxy; `fly-client-ip` is the only place
+/// the real origin survives. Absent off Fly (a self-host without that edge).
+fn client_ip(headers: &HeaderMap) -> Option<&str> {
+    headers.get("fly-client-ip").and_then(|v| v.to_str().ok())
 }
 
 fn bearer_token(headers: &HeaderMap) -> Option<&str> {
@@ -209,6 +249,14 @@ async fn main() {
             registry,
             auth,
             ice,
+            ice_by_sub: Arc::new(Allowances::new(
+                ICE_PER_SUB_PER_HOUR,
+                ICE_PER_SUB_PER_HOUR / 3600.0,
+            )),
+            ice_by_ip: Arc::new(Allowances::new(
+                ICE_PER_IP_PER_HOUR,
+                ICE_PER_IP_PER_HOUR / 3600.0,
+            )),
             billing,
             beacon,
         });
