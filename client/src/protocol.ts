@@ -250,6 +250,14 @@ export interface PingMsg {
   t: "ping";
 }
 
+/** Renew the connection's credential with a fresh token for the same org,
+ *  subject and role. The server closes a connection when the token it was
+ *  opened with expires, unless one of these has moved the deadline on. */
+export interface ReauthMsg {
+  t: "reauth";
+  token: string;
+}
+
 /** Union of all messages the client sends to the server. */
 export type ClientMsg =
   | HelloMsg
@@ -266,7 +274,8 @@ export type ClientMsg =
   | PageAcceptMsg
   | PageEndMsg
   | ByeMsg
-  | PingMsg;
+  | PingMsg
+  | ReauthMsg;
 
 // ---------------------------------------------------------------------------
 // Server → Client messages

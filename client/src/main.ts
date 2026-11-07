@@ -236,6 +236,14 @@ let heartbeatCapable = false;
 const ICE_REFRESH_RETRY_MS = 60_000;
 let iceRefreshTimer = 0;
 
+/** The server closes a connection when the token it was opened with expires
+ *  (`exp` plus its 60s leeway) unless `reauth` hands it a fresh one. That
+ *  minute past `exp` is the window to renew in; a failed attempt retries
+ *  inside it, and past it the reconnect path takes over. */
+const REAUTH_LEEWAY_MS = 60_000;
+const REAUTH_RETRY_MS = 15_000;
+let reauthTimer = 0;
+
 // Loop bookkeeping.
 let rafId = 0;
 let rafScheduled = false;
@@ -1335,7 +1343,7 @@ function openConnection(values: JoinFormValues, signal: AbortSignal): Promise<{ 
 async function connectSession(
   values: JoinFormValues,
   signal: AbortSignal,
-): Promise<{ net: HirobaNet; msg: WelcomeMsg; ice: IceResolution }> {
+): Promise<{ net: HirobaNet; msg: WelcomeMsg; ice: IceResolution; token: string }> {
   // The credential is resolved per attempt, not once per join: a reconnect
   // hours in must not carry a JWT that has since expired.
   values = { ...values, token: await effectiveToken(values.token, signal) };
@@ -1343,7 +1351,7 @@ async function connectSession(
   // leave post-welcome events arriving before session handlers are installed.
   const ice = await resolveIceServers(values.serverUrl, values.token, signal);
   const { net, msg } = await openConnection(values, signal);
-  return { net, msg, ice };
+  return { net, msg, ice, token: values.token };
 }
 
 async function handleJoin(values: JoinFormValues): Promise<void> {
@@ -1358,12 +1366,12 @@ async function handleJoin(values: JoinFormValues): Promise<void> {
   connectAbort?.abort();
   connectAbort = controller;
   try {
-    const { net, msg, ice } = await connectSession(values, controller.signal);
+    const { net, msg, ice, token } = await connectSession(values, controller.signal);
     if (controller.signal.aborted || connectAbort !== controller) {
       net.close();
       return;
     }
-    startSession(net, msg, ice);
+    startSession(net, msg, ice, token);
     if (!localStorage.getItem(LS_MOVE_HINT_SEEN)) {
       moveHintActive = true;
       ui.showMoveHint();
@@ -1413,12 +1421,13 @@ function isPermanentConnectionError(code: string): boolean {
   return ["auth_failed", "org_suspended", "space_full", "space_limit", "unknown_space", "forbidden", "guest_invite"].includes(code);
 }
 
-function startSession(net: HirobaNet, msg: WelcomeMsg, ice: IceResolution): void {
+function startSession(net: HirobaNet, msg: WelcomeMsg, ice: IceResolution, token: string): void {
   net.onClose(onSessionDropped);
   net.onError(onSessionDropped);
 
   initSession(net, msg, ice.iceServers);
   scheduleIceRefresh(ice.ttlSeconds);
+  scheduleReauth(token);
   bindServerMessages(net);
   startHeartbeat(msg.heartbeat === true);
   reconnectAttempts = 0;
@@ -1446,24 +1455,13 @@ function scheduleIceRefresh(
     // The JWT is good for 12h and `/ice` refuses an expired one, so a session
     // that outlives it has to renew the token before every re-resolve —
     // otherwise each retry from here on would 401 and the day ends on STUN.
-    let token: string;
-    try {
-      token = await effectiveToken(lastJoin.token);
-    } catch (err) {
-      if (session !== s) return;
-      const code = err instanceof Error ? err.message : "";
-      if (isPermanentConnectionError(code)) {
-        // The credential itself is gone (a revoked guest invite): the floor
-        // is closed to us, and the next relay would fail anyway.
-        leaveSession();
-        ui.showJoin(connectionErrorCopy(code));
-        return;
-      }
+    const token = await renewToken(s);
+    if (session !== s || !lastJoin) return;
+    if (token === null) {
       // A blip at the auth server must not end the renewals for the day.
       scheduleIceRefresh(ttlSeconds, ICE_REFRESH_RETRY_MS);
       return;
     }
-    if (session !== s) return;
     const ice = await resolveIceServers(lastJoin.serverUrl, token);
     if (session !== s) return;
     if (ice.ttlSeconds === null) {
@@ -1473,6 +1471,52 @@ function scheduleIceRefresh(
     s.audio.setIceServers(ice.iceServers);
     scheduleIceRefresh(ice.ttlSeconds);
   }, delayMs);
+}
+
+/**
+ * Keep the connection's credential ahead of the server's deadline for it: once
+ * `token` is due for renewal (`effectiveToken` renews one with under a minute
+ * left), send a fresh one as `reauth`, so the floor, its links and any call
+ * carry on instead of dropping into a reconnect.
+ */
+function scheduleReauth(token: string, delayMs?: number): void {
+  window.clearTimeout(reauthTimer);
+  const claims = decodeClaims(token);
+  if (!claims) return; // no token (guest-mode server): nothing expires
+  const s = session;
+  const deadline = claims.exp * 1000 + REAUTH_LEEWAY_MS;
+  const due = delayMs ?? Math.max(0, deadline - 2 * REAUTH_LEEWAY_MS - Date.now() + 1_000);
+  reauthTimer = window.setTimeout(async () => {
+    if (!s || session !== s) return;
+    const next = await renewToken(s);
+    if (session !== s) return;
+    if (next && next !== token) {
+      s.net.send({ t: "reauth", token: next });
+      scheduleReauth(next);
+      return;
+    }
+    // Nothing fresher yet: the auth server is unreachable, or the token was
+    // typed in and cannot be renewed. Retry while the server still holds the
+    // connection open.
+    if (Date.now() + REAUTH_RETRY_MS < deadline) scheduleReauth(token, REAUTH_RETRY_MS);
+  }, due);
+}
+
+/** A fresh credential for the live session `s`, or null when none can be had
+ *  right now. A credential that is gone for good (a revoked guest invite)
+ *  closes the floor: the next connect, relay or reauth would fail anyway. */
+async function renewToken(s: Session): Promise<string | null> {
+  if (!lastJoin) return null;
+  try {
+    return await effectiveToken(lastJoin.token);
+  } catch (err) {
+    const code = err instanceof Error ? err.message : "";
+    if (session === s && isPermanentConnectionError(code)) {
+      leaveSession();
+      ui.showJoin(connectionErrorCopy(code));
+    }
+    return null;
+  }
 }
 
 function onSessionDropped(): void {
@@ -1536,12 +1580,12 @@ function scheduleReconnect(): void {
     const controller = new AbortController();
     connectAbort = controller;
     try {
-      const { net, msg, ice } = await connectSession(lastJoin, controller.signal);
+      const { net, msg, ice, token } = await connectSession(lastJoin, controller.signal);
       if (userLeaving || controller.signal.aborted || connectAbort !== controller) {
         net.close();
         return;
       }
-      startSession(net, msg, ice);
+      startSession(net, msg, ice, token);
     } catch (err) {
       const code = err instanceof Error ? err.message : "";
       if (userLeaving || code === "cancelled" || (err instanceof DOMException && err.name === "AbortError")) return;
@@ -2764,6 +2808,7 @@ function teardownSession(): void {
   window.clearTimeout(idleTimer);
   window.clearInterval(heartbeatTimer);
   window.clearTimeout(iceRefreshTimer);
+  window.clearTimeout(reauthTimer);
   if (rafId) cancelAnimationFrame(rafId);
   rafId = 0;
   rafScheduled = false;
