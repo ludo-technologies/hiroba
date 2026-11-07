@@ -294,7 +294,11 @@ jobs:
           MSSTORE_CLIENT_SECRET: ${{ secrets.MSSTORE_CLIENT_SECRET }}
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
-          msstore settings --enableTelemetry false
+          # Telemetry off from the first command: `msstore settings
+          # --enableTelemetry false` only takes effect on the runs after it, and
+          # errors out ("SellerId is not set") until `reconfigure` has run.
+          $settings = New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\Microsoft\MSStore.CLI"
+          '{"TelemetryEnabled":false}' | Set-Content "$settings\telemetrySettings.json"
           msstore reconfigure --tenantId $env:MSSTORE_TENANT_ID --sellerId $env:MSSTORE_SELLER_ID `
             --clientId $env:MSSTORE_CLIENT_ID --clientSecret $env:MSSTORE_CLIENT_SECRET
           $msix = @(Get-ChildItem msix -Filter *.msix -File)
