@@ -66,6 +66,9 @@ const DEFAULT_AUTH_SERVER: string = import.meta.env.DEV
   ? import.meta.env.VITE_HIROBA_AUTH_SERVER || "http://127.0.0.1:8788"
   : import.meta.env.VITE_HIROBA_AUTH_SERVER!;
 
+/** The auth server and Hiroba server this build ships pointed at. */
+export const BUILT_IN_ENDPOINTS = { auth: DEFAULT_AUTH_SERVER, server: DEFAULT_SERVER } as const;
+
 function isLoopbackUrl(value: string): boolean {
   try {
     const host = new URL(value).hostname.toLowerCase();
@@ -380,6 +383,9 @@ export interface UICallbacks {
   onEmailVerify(code: string, authUrl: string): void;
   /** Drop the stored session and return to the signed-out state. */
   onLogout(): void;
+  /** The server settings dialog closed: the auth or Hiroba server URL may
+   *  have changed. */
+  onEndpointsChange(): void;
   /** Re-anchor the session in another org the user belongs to (chip dropdown
    *  or the billing-lock escape hatch). */
   onSwitchOrg(orgSlug: string): void;
@@ -1039,6 +1045,7 @@ export class UIManager {
 
   private hideServerSettings(): void {
     elServerSettings.setAttribute("hidden", "");
+    this.callbacks.onEndpointsChange();
   }
 
   private _bindServerSettings(): void {

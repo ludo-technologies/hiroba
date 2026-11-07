@@ -26,6 +26,7 @@ import { InputHandler, isTypingTarget } from "./input.js";
 import { AudioEngine, BackgroundEffectError, inGroupPlace, spatialGain } from "./audio.js";
 import type { CameraBackground } from "./background.js";
 import {
+  BUILT_IN_ENDPOINTS,
   UIManager,
   type InviteEntry,
   type InviteSource,
@@ -289,6 +290,7 @@ const ui = new UIManager(
     onEmailStart: handleEmailStart,
     onEmailVerify: handleEmailVerify,
     onLogout: handleLogout,
+    onEndpointsChange: handleEndpointsChange,
     onSwitchOrg: (orgSlug) => void handleSwitchOrg(orgSlug),
     onCreateOrg: handleCreateOrg,
     onCancelOrgSetup: handleCancelOrgSetup,
@@ -592,6 +594,10 @@ let restoreTimer: ReturnType<typeof setTimeout> | null = null;
  * because "sign in again" is the one instruction that doesn't fix either.
  */
 async function restoreAuthSession(): Promise<void> {
+  // Signed in for other servers than the ones configured: the stored session
+  // stays put (it comes back when the settings do) but is neither renewed
+  // here nor used.
+  if (!sessionUsableWith(ui.getServerUrl())) return stepSessionAside();
   // A live session in hand beats anything on disk — and a retry that fired
   // after an interactive sign-in must not undo it.
   if (authSession && isLive(authSession.claims)) return cancelRestoreRetry();
@@ -609,6 +615,58 @@ async function restoreAuthSession(): Promise<void> {
   if (problem === "keychain") ui.showError(session ? t.errSessionNotSaved : t.errKeychain);
   if (session && !isLive(session.claims)) scheduleRestoreRetry();
   else cancelRestoreRetry();
+}
+
+// ---------------------------------------------------------------------------
+// Session endpoints
+// ---------------------------------------------------------------------------
+
+/** Where the signed-in session may be used: the auth server that issued it
+ *  and the Hiroba server it was signed in for. Its tokens go nowhere else — a
+ *  server URL edited to point at someone else's server must not hand that
+ *  server a JWT good on ours, nor an edited auth URL a refresh token. */
+interface SessionEndpoints {
+  auth: string;
+  server: string;
+}
+
+const LS_SESSION_ENDPOINTS = "hiroba_session_endpoints";
+
+function normalizeUrl(url: string): string {
+  return url.trim().replace(/\/+$/, "");
+}
+
+/** Record the configured servers as the ones the session just adopted is for. */
+function bindSessionEndpoints(): void {
+  const bound: SessionEndpoints = { auth: ui.getAuthUrl(), server: ui.getServerUrl() };
+  localStorage.setItem(LS_SESSION_ENDPOINTS, JSON.stringify(bound));
+}
+
+/** Whether the session may be used with the configured auth server and with
+ *  the Hiroba server at `serverUrl`. A session stored before endpoints were
+ *  recorded was signed in with the built-in pair. */
+function sessionUsableWith(serverUrl: string): boolean {
+  const raw = localStorage.getItem(LS_SESSION_ENDPOINTS);
+  const bound: SessionEndpoints = raw ? JSON.parse(raw) : BUILT_IN_ENDPOINTS;
+  return (
+    normalizeUrl(bound.auth) === normalizeUrl(ui.getAuthUrl()) &&
+    normalizeUrl(bound.server) === normalizeUrl(serverUrl)
+  );
+}
+
+/** Stop using the session in memory without forgetting the stored one. */
+function stepSessionAside(): void {
+  cancelRestoreRetry();
+  if (!authSession) return;
+  authSession = null;
+  reflectAuthSession();
+}
+
+/** The server settings closed: a session bound elsewhere steps aside, and one
+ *  bound to what is configured now comes back. */
+function handleEndpointsChange(): void {
+  if (!sessionUsableWith(ui.getServerUrl())) stepSessionAside();
+  else if (!authSession) void restoreAuthSession();
 }
 
 function scheduleRestoreRetry(): void {
@@ -820,6 +878,7 @@ async function adoptSession(session: AuthSession): Promise<void> {
   pendingProvisionalToken = null;
   cancelRestoreRetry();
   authSession = session;
+  bindSessionEndpoints();
   ui.hideOrgSetup();
   reflectAuthSession();
   // Persisting is what makes the *next* launch free; failing at it must not
@@ -847,6 +906,7 @@ async function handleHandoff(code: string): Promise<void> {
 function handleLogout(): void {
   cancelRestoreRetry();
   authSession = null;
+  localStorage.removeItem(LS_SESSION_ENDPOINTS);
   void clearSession();
   reflectAuthSession();
 }
@@ -1234,7 +1294,7 @@ window.addEventListener("focus", () => void syncBillingLock());
 /** The token a new connection should present: a manual (Advanced) token wins,
  *  then a live OAuth session; otherwise guest. Expired sessions are dropped
  *  on the spot so we don't knock on the server with a dead JWT. */
-async function effectiveToken(manual: string, signal?: AbortSignal): Promise<string> {
+async function effectiveToken(manual: string, serverUrl: string, signal?: AbortSignal): Promise<string> {
   if (manual) return manual;
   if (webInvite) {
     // Minted afresh for every connect and ICE renewal, never reused: the
@@ -1260,6 +1320,8 @@ async function effectiveToken(manual: string, signal?: AbortSignal): Promise<str
     reflectAuthSession();
     return session.token;
   }
+  // The session's tokens go only to the servers it was signed in for.
+  if (!sessionUsableWith(serverUrl)) return "";
   // An org switch in flight owns the session: connecting with the pre-switch
   // token would put the user in the org the chip no longer shows.
   if (orgSwitchPending) await orgSwitchPending;
@@ -1346,7 +1408,7 @@ async function connectSession(
 ): Promise<{ net: HirobaNet; msg: WelcomeMsg; ice: IceResolution; token: string }> {
   // The credential is resolved per attempt, not once per join: a reconnect
   // hours in must not carry a JWT that has since expired.
-  values = { ...values, token: await effectiveToken(values.token, signal) };
+  values = { ...values, token: await effectiveToken(values.token, values.serverUrl, signal) };
   // Resolve ICE before opening the WebSocket so a slow /ice response cannot
   // leave post-welcome events arriving before session handlers are installed.
   const ice = await resolveIceServers(values.serverUrl, values.token, signal);
@@ -1508,7 +1570,7 @@ function scheduleReauth(token: string, delayMs?: number): void {
 async function renewToken(s: Session): Promise<string | null> {
   if (!lastJoin) return null;
   try {
-    return await effectiveToken(lastJoin.token);
+    return await effectiveToken(lastJoin.token, lastJoin.serverUrl);
   } catch (err) {
     const code = err instanceof Error ? err.message : "";
     if (session === s && isPermanentConnectionError(code)) {
