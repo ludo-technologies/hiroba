@@ -38,6 +38,15 @@ use tracing::{debug, warn};
 /// bound on staleness, not the only refresh trigger.
 const JWKS_TTL: Duration = Duration::from_secs(3600);
 
+/// The least time between two JWKS fetches. Picking a `kid` costs nothing and
+/// is read before any signature is checked, so without a floor anyone could make
+/// the server fetch the JWKS once per made-up token.
+const JWKS_MIN_REFETCH: Duration = Duration::from_secs(30);
+
+/// How long one JWKS fetch may take. Verifications wait on it (see
+/// [`JwksCache::key_for`]), so a hung provider must not hold them for long.
+const JWKS_FETCH_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// What a caller may do beyond the baseline every connection gets. Today that
 /// is only the space chat: admins delete any message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -278,11 +287,12 @@ impl KeySource {
 // ---------------------------------------------------------------------------
 
 /// Caches a provider's signing keys (by `kid`) so we verify locally after the
-/// first fetch. A `kid` miss or staleness past [`JWKS_TTL`] forces a refetch,
-/// which transparently picks up provider key rotation.
+/// first fetch. A `kid` miss or staleness past [`JWKS_TTL`] refetches, which
+/// picks up provider key rotation — at most once per [`JWKS_MIN_REFETCH`].
 #[derive(Clone)]
 pub struct JwksCache {
     url: String,
+    http: reqwest::Client,
     inner: Arc<Mutex<JwksInner>>,
 }
 
@@ -290,6 +300,9 @@ struct JwksInner {
     /// kid → (n, e) RSA components, base64url as published in the JWKS.
     keys: HashMap<String, RsaComponents>,
     fetched_at: Option<Instant>,
+    /// The last fetch started, successful or not: the refetch floor counts
+    /// from here, so a failing provider is not retried on every token either.
+    attempted_at: Option<Instant>,
 }
 
 #[derive(Clone)]
@@ -317,37 +330,41 @@ impl JwksCache {
     fn new(url: String) -> Self {
         Self {
             url,
+            http: reqwest::Client::builder()
+                .timeout(JWKS_FETCH_TIMEOUT)
+                .build()
+                .expect("JWKS HTTP client"),
             inner: Arc::new(Mutex::new(JwksInner {
                 keys: HashMap::new(),
                 fetched_at: None,
+                attempted_at: None,
             })),
         }
     }
 
-    /// Resolve a `kid` to a usable [`DecodingKey`], fetching/refreshing the JWKS
-    /// if the key is unknown or the cache is stale.
+    /// Resolve a `kid` to a usable [`DecodingKey`], fetching the JWKS first if
+    /// the key is unknown or the cache is stale — unless a fetch started within
+    /// [`JWKS_MIN_REFETCH`], in which case the cache answers as it stands.
     async fn key_for(&self, kid: &str) -> Result<DecodingKey, AuthError> {
-        // Fast path: a fresh cache that already has the kid.
-        {
-            let guard = self.inner.lock().await;
-            if guard.is_fresh() {
-                if let Some(c) = guard.keys.get(kid) {
-                    return decoding_key_from_rsa(&c.n, &c.e);
-                }
-            }
+        // The lock is held across the fetch: a burst of misses shares one.
+        let mut inner = self.inner.lock().await;
+        if (!inner.is_fresh() || !inner.keys.contains_key(kid)) && inner.may_fetch() {
+            inner.attempted_at = Some(Instant::now());
+            inner.keys = self.fetch().await?;
+            inner.fetched_at = Some(Instant::now());
         }
-        // Slow path: refetch (rotation or first use), then look up once more.
-        self.refresh().await?;
-        let guard = self.inner.lock().await;
-        match guard.keys.get(kid) {
+        match inner.keys.get(kid) {
             Some(c) => decoding_key_from_rsa(&c.n, &c.e),
             None => Err(AuthError::Invalid(format!("unknown signing key: {kid}"))),
         }
     }
 
-    async fn refresh(&self) -> Result<(), AuthError> {
+    async fn fetch(&self) -> Result<HashMap<String, RsaComponents>, AuthError> {
         debug!(url = %self.url, "fetching JWKS");
-        let jwks: Jwks = reqwest::get(&self.url)
+        let jwks: Jwks = self
+            .http
+            .get(&self.url)
+            .send()
             .await
             .and_then(|r| r.error_for_status())
             .map_err(|e| AuthError::Invalid(format!("JWKS fetch failed: {e}")))?
@@ -364,11 +381,7 @@ impl JwksCache {
         if keys.is_empty() {
             warn!(url = %self.url, "JWKS contained no usable RSA keys");
         }
-
-        let mut guard = self.inner.lock().await;
-        guard.keys = keys;
-        guard.fetched_at = Some(Instant::now());
-        Ok(())
+        Ok(keys)
     }
 }
 
@@ -377,6 +390,12 @@ impl JwksInner {
         self.fetched_at
             .map(|t| t.elapsed() < JWKS_TTL)
             .unwrap_or(false)
+    }
+
+    fn may_fetch(&self) -> bool {
+        self.attempted_at
+            .map(|t| t.elapsed() >= JWKS_MIN_REFETCH)
+            .unwrap_or(true)
     }
 }
 
@@ -645,6 +664,29 @@ mod tests {
             hs256_auth(secret).resolve(Some(&token)).await,
             Err(AuthError::Invalid(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn unknown_kids_share_one_jwks_fetch_per_interval() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let hits = Arc::new(AtomicUsize::new(0));
+        let counter = hits.clone();
+        let app = axum::Router::new().route(
+            "/jwks",
+            axum::routing::get(move || {
+                counter.fetch_add(1, Ordering::SeqCst);
+                async { axum::Json(serde_json::json!({ "keys": [] })) }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let cache = JwksCache::new(format!("http://{addr}/jwks"));
+        for i in 0..5 {
+            assert!(cache.key_for(&format!("made-up-{i}")).await.is_err());
+        }
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
     }
 
     #[test]
