@@ -16,8 +16,10 @@ class Client {
   constructor(name) {
     this.name = name;
     this.msgs = [];
+    this.closed = false;
     this.ws = new WebSocket(URL);
     this.ws.addEventListener("message", (e) => this.msgs.push(JSON.parse(e.data)));
+    this.ws.addEventListener("close", () => { this.closed = true; });
     this.ready = new Promise((res, rej) => {
       this.ws.addEventListener("open", res);
       this.ws.addEventListener("error", rej);
@@ -33,6 +35,11 @@ class Client {
       await sleep(20);
     }
     return null;
+  }
+  async waitClosed(ms = 2000) {
+    const deadline = Date.now() + ms;
+    while (Date.now() < deadline && !this.closed) await sleep(20);
+    return this.closed;
   }
   drain(t) { return this.msgs.filter((m) => m.t === t); }
   clear() { this.msgs.length = 0; }
@@ -326,6 +333,21 @@ class Client {
   B.send({ t: "bye" });
   const leftOrg = await A.wait((m) => m.t === "presence_left" && m.id === idB);
   ok(!!leftOrg, "A receives presence_left after B says bye");
+
+  // ── 9) Limits: message size and inbound rate ────────────────────────────
+  const big = new Client("Big");
+  await big.ready;
+  big.send({ t: "hello", name: "Big" });
+  await big.wait((m) => m.t === "welcome");
+  big.send({ t: "post_note", text: "x".repeat(256 * 1024) });
+  ok(await big.waitClosed(), "an oversized message closes the connection");
+
+  const flood = new Client("Flood");
+  await flood.ready;
+  flood.send({ t: "hello", name: "Flood" });
+  await flood.wait((m) => m.t === "welcome");
+  for (let i = 0; i < 1500; i++) flood.send({ t: "move", x: 100, y: 100 });
+  ok(await flood.waitClosed(), "a client flooding past its inbound allowance is disconnected");
 
   A.close(); B.close();
   await sleep(100);

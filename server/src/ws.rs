@@ -18,7 +18,7 @@
 /// holds an org lock across an await.
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{Instant, SystemTime};
 
 use axum::extract::ws::{Message, WebSocket};
 use futures_util::{SinkExt, StreamExt};
@@ -28,6 +28,7 @@ use tracing::{debug, info, warn};
 
 use crate::auth::{Auth, Role};
 use crate::beacon::GuestBeacon;
+use crate::outbox::Outbox;
 use crate::protocol::{ClientMsg, PeerPos, ServerMsg};
 use crate::proximity;
 use crate::registry::OrgRegistry;
@@ -38,13 +39,21 @@ use crate::state::{
 /// Capacity of the per-peer outbound channel.
 const CHANNEL_CAP: usize = 64;
 
-/// Slots kept free in each peer's outbound channel for control messages.
-///
-/// Position broadcasts are lossy by nature — the next tick supersedes them —
-/// so a client whose socket has backed up stops receiving them well before the
-/// queue is full. Proximity/page/presence messages are never replayed, so they
-/// must not be the ones a flood of positions squeezes out.
-const CONTROL_RESERVE: usize = 16;
+/// Largest message a client may send: a `hello` with its avatar (up to 64 KiB)
+/// is the biggest legitimate one; an SDP with video is a few KiB.
+pub const MAX_MESSAGE_BYTES: usize = 128 * 1024;
+
+/// How long a new connection may sit before saying `hello`.
+const HELLO_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// What a connection may send, per second and in one burst. Roomy enough for a
+/// client opening links to a full team space at once (a burst of offers,
+/// answers and candidates, each relayed to one peer); a client past it is
+/// flooding the peers its messages fan out to, and is disconnected.
+const INBOUND_MSGS_PER_SEC: f64 = 200.0;
+const INBOUND_MSG_BURST: f64 = 1000.0;
+const INBOUND_BYTES_PER_SEC: f64 = 512.0 * 1024.0;
+const INBOUND_BYTE_BURST: f64 = 2.0 * 1024.0 * 1024.0;
 
 /// Server position-broadcast rate. All spaces share the same rate (NFR-04:
 /// 10–15 Hz); it matches `SpaceDescriptor::tick_hz`.
@@ -68,27 +77,34 @@ pub async fn handle_ws(
     let (mut ws_tx, mut ws_rx) = socket.split();
 
     let (tx, mut rx) = mpsc::channel::<ServerMsg>(CHANNEL_CAP);
+    let outbox = Outbox::from(tx.clone());
 
     // ── Phase 1: wait for `hello` ───────────────────────────────────────────
-    let (token, name, color, avatar) = loop {
-        match ws_rx.next().await {
-            None => return, // disconnected before hello — nothing to clean up
-            Some(Err(e)) => {
-                debug!("ws error before hello: {e}");
-                return;
+    let hello = tokio::time::timeout(HELLO_TIMEOUT, async {
+        loop {
+            match ws_rx.next().await {
+                None => return None, // disconnected before hello — nothing to clean up
+                Some(Err(e)) => {
+                    debug!("ws error before hello: {e}");
+                    return None;
+                }
+                Some(Ok(Message::Text(text))) => match serde_json::from_str::<ClientMsg>(&text) {
+                    Ok(ClientMsg::Hello {
+                        token,
+                        name,
+                        color,
+                        avatar,
+                    }) => return Some((token, name, color, avatar)),
+                    Ok(_) => debug!("ignoring pre-hello message"),
+                    Err(e) => debug!("parse error before hello: {e}"),
+                },
+                Some(Ok(_)) => {} // non-text frames ignored
             }
-            Some(Ok(Message::Text(text))) => match serde_json::from_str::<ClientMsg>(&text) {
-                Ok(ClientMsg::Hello {
-                    token,
-                    name,
-                    color,
-                    avatar,
-                }) => break (token, name, color, avatar),
-                Ok(_) => debug!("ignoring pre-hello message"),
-                Err(e) => debug!("parse error before hello: {e}"),
-            },
-            Some(Ok(_)) => {} // non-text frames ignored
         }
+    })
+    .await;
+    let Ok(Some((token, name, color, avatar))) = hello else {
+        return; // no hello in time, or gone before one
     };
 
     // ── Phase 2: authenticate → tenant + identity, then register ────────────
@@ -147,7 +163,7 @@ pub async fn handle_ws(
             avatar,
             identity.sub.clone(),
             identity.role,
-            tx.clone(),
+            outbox.clone(),
         )
         .await;
     let peer_id = match &welcome {
@@ -205,6 +221,8 @@ pub async fn handle_ws(
     // carries a fresh one forward, otherwise the connection ends with it — so a
     // revoked invite or a removed member is out within one token lifetime.
     let mut expiry = identity.expires_at;
+    let mut msgs = Allowance::new(INBOUND_MSG_BURST, INBOUND_MSGS_PER_SEC);
+    let mut bytes = Allowance::new(INBOUND_BYTE_BURST, INBOUND_BYTES_PER_SEC);
     'read: loop {
         let frame = tokio::select! {
             frame = ws_rx.next() => frame,
@@ -212,8 +230,21 @@ pub async fn handle_ws(
                 info!(peer_id = %pid, "token expired");
                 break 'read;
             }
+            () = outbox.kicked() => {
+                info!(peer_id = %pid, "disconnected by the server");
+                break 'read;
+            }
         };
         let Some(frame) = frame else { break 'read };
+        let size = match &frame {
+            Ok(Message::Text(text)) => text.len(),
+            Ok(Message::Binary(data)) => data.len(),
+            _ => 0,
+        };
+        if !msgs.take(1.0) || !bytes.take(size as f64) {
+            warn!(peer_id = %pid, "inbound rate exceeded; disconnecting");
+            break 'read;
+        }
         match frame {
             Ok(Message::Text(text)) => match serde_json::from_str::<ClientMsg>(&text) {
                 Ok(ClientMsg::Move { x, y }) => org.set_pos(&pid, x, y).await,
@@ -334,6 +365,38 @@ pub async fn handle_ws(
     }
 }
 
+/// A refilling allowance (token bucket): `burst` at most, `per_sec` back.
+struct Allowance {
+    left: f64,
+    burst: f64,
+    per_sec: f64,
+    at: Instant,
+}
+
+impl Allowance {
+    fn new(burst: f64, per_sec: f64) -> Self {
+        Self {
+            left: burst,
+            burst,
+            per_sec,
+            at: Instant::now(),
+        }
+    }
+
+    /// Spend `n`; false once the allowance is used up.
+    fn take(&mut self, n: f64) -> bool {
+        let now = Instant::now();
+        let refill = now.duration_since(self.at).as_secs_f64() * self.per_sec;
+        self.left = (self.left + refill).min(self.burst);
+        self.at = now;
+        if self.left < n {
+            return false;
+        }
+        self.left -= n;
+        true
+    }
+}
+
 /// Resolves at `at` (wall clock, as a token's `exp` is); never, when there is
 /// no deadline.
 async fn until(at: Option<SystemTime>) {
@@ -427,13 +490,7 @@ pub fn spawn_tick_loop(registry: OrgRegistry) {
                             if others.is_empty() {
                                 continue; // only one member — skip (protocol §state)
                             }
-                            if member.tx.capacity() <= CONTROL_RESERVE {
-                                // Slow consumer: positions are lossy (the next tick
-                                // supersedes them), so they yield the tail of the
-                                // queue to control messages, which are not replayed.
-                                continue;
-                            }
-                            let _ = member.tx.try_send(ServerMsg::State { peers: others });
+                            member.tx.send_lossy(ServerMsg::State { peers: others });
                         }
 
                         // --- proximity (computed within this space) -------------------
@@ -458,8 +515,10 @@ pub fn spawn_tick_loop(registry: OrgRegistry) {
                             tick.meeting_room.as_ref(),
                         );
 
-                        // Members whose delta never reached them (rolled back).
-                        let mut taken_back: Vec<&str> = Vec::new();
+                        // A delta that cannot be queued is never recomputed —
+                        // `update_proximity` has recorded it as applied — so the
+                        // outbox disconnects that client rather than leave it with
+                        // a link the server believes is torn down (or opened).
                         for member in &tick.members {
                             let Some(delta) = deltas.get(&member.info.id) else {
                                 continue;
@@ -467,42 +526,10 @@ pub fn spawn_tick_loop(registry: OrgRegistry) {
                             if delta.is_empty() {
                                 continue;
                             }
-                            let queued = member
-                                .tx
-                                .try_send(ServerMsg::Proximity {
-                                    connect: delta.connect.clone(),
-                                    disconnect: delta.disconnect.clone(),
-                                })
-                                .is_ok();
-                            if !queued {
-                                // The delta never reached the client, and nothing
-                                // replays it — `update_proximity` has already
-                                // recorded it as applied. Undo it so the next tick
-                                // recomputes and resends instead of leaving a link
-                                // the server believes is torn down (or opened).
-                                proximity::rollback_delta(&member.info.id, delta, sets);
-                                taken_back.push(&member.info.id);
-                            }
-                        }
-                        // The other side of a taken-back connect may hold its half
-                        // and be offering into a link the server no longer has:
-                        // `route_signal` drops those, and the offerer would then sit
-                        // on an unanswered offer, ignoring (as the impolite peer)
-                        // the one the next tick's re-`connect` makes the other side
-                        // send. Tell it to tear down now, so both restart from
-                        // nothing. Sent after every delta, so it lands behind the
-                        // connect it undoes.
-                        for id in taken_back {
-                            for c in &deltas[id].connect {
-                                let Some(other) = tick.members.iter().find(|m| m.info.id == c.id)
-                                else {
-                                    continue;
-                                };
-                                let _ = other.tx.try_send(ServerMsg::Proximity {
-                                    connect: Vec::new(),
-                                    disconnect: vec![id.to_string()],
-                                });
-                            }
+                            member.tx.send(ServerMsg::Proximity {
+                                connect: delta.connect.clone(),
+                                disconnect: delta.disconnect.clone(),
+                            });
                         }
                     }
                 })

@@ -390,7 +390,11 @@ fn decoding_key_from_rsa(n: &str, e: &str) -> Result<DecodingKey, AuthError> {
 /// Common JWT validation: require `exp`; check `iss`/`aud` when given. Without
 /// an audience `aud` validation is off (otherwise `jsonwebtoken` rejects any
 /// token lacking the claim).
-fn build_validation(alg: Algorithm, issuer: Option<String>, audience: Option<String>) -> Validation {
+fn build_validation(
+    alg: Algorithm,
+    issuer: Option<String>,
+    audience: Option<String>,
+) -> Validation {
     let mut validation = Validation::new(alg);
     if let Some(iss) = issuer {
         validation.set_issuer(&[iss]);

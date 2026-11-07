@@ -608,6 +608,24 @@ In the lobby, gain falls off with distance (proximity voice). Page links are
 1:1 and always full-gain (no spatialization). Applied via a Web Audio
 `GainNode`; updates every animation frame (cheap).
 
+## Connection limits
+
+The server closes a connection that:
+- sends no `hello` within 10 seconds of connecting;
+- sends a message larger than 128 KiB (a `hello` with its avatar is the largest
+  legitimate one);
+- sends faster than its inbound allowance (on the order of 200 messages and
+  512 KiB per second, with bursts of 1000 messages / 2 MiB for opening links to
+  a full space at once);
+- falls so far behind reading that a control message (presence, proximity,
+  space, page, chat) cannot be queued for it. Control messages are never
+  replayed, so the client starts again from a fresh `welcome` rather than carry
+  on with a view the server no longer shares. Positions (`state`) and relayed
+  `signal`s are dropped first and never crowd a control message out.
+
+One account (`sub`) holds at most 3 connections at once; a fourth closes the
+oldest.
+
 ## Lifecycle summary
 
 ```

@@ -10,15 +10,16 @@
 ///
 /// The design keeps v1's discipline: a single `tokio::sync::Mutex` over the
 /// whole `OrgInner`, held only for brief in-memory work and *never* across a
-/// `.await` on a socket. All outbound sends are non-blocking `try_send`.
+/// `.await` on a socket. All outbound sends are non-blocking (see `Outbox`).
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::Mutex;
 
 use crate::auth::Role;
+use crate::outbox::Outbox;
 use crate::protocol::{
     NoteInfo, OrgInfo, PeerInfo, PeerPos, Reaction, ReactionInfo, Rect, RosterMember, ServerMsg,
     SpaceDescriptor, Status, TeamLayout,
@@ -69,6 +70,11 @@ const MAX_AVATAR_LEN: usize = 64 * 1024;
 /// How long an unanswered page rings before auto-declining (callee silence =
 /// decline). Short enough to avoid long surprise rings on an always-on tool.
 const PAGE_RING_TIMEOUT: Duration = Duration::from_secs(25);
+
+/// Connections one account may hold at once: the desktop app, a browser tab,
+/// and a reconnect racing the socket it replaces. Past it the oldest is closed —
+/// the newest is the one the person is looking at.
+const MAX_CONNECTIONS_PER_SUB: usize = 3;
 
 /// True iff `s` is a well-formed `data:image/(png|jpeg|webp);base64,<base64>`
 /// URL within [`MAX_AVATAR_LEN`]. Like the colour, the avatar is relayed
@@ -170,8 +176,8 @@ pub struct Member {
     pub ringing_out: HashSet<String>,
     /// Peers ringing us (incoming page offers awaiting accept/decline).
     pub ringing_in: HashSet<String>,
-    /// Channel to the per-connection writer task.
-    pub tx: mpsc::Sender<ServerMsg>,
+    /// Queue to the per-connection writer task.
+    pub tx: Outbox,
 }
 
 impl Member {
@@ -227,7 +233,7 @@ pub struct TickMember {
     /// Raw DND flag — the proximity engine skips (and tears down) any pair
     /// with a DND side.
     pub dnd: bool,
-    pub tx: mpsc::Sender<ServerMsg>,
+    pub tx: Outbox,
 }
 
 /// All the per-space data the tick loop needs, captured under one lock so the
@@ -389,7 +395,7 @@ impl OrgInner {
     fn broadcast_org_except(&self, except: &str, msg: ServerMsg) {
         for (id, m) in &self.members {
             if id != except {
-                let _ = m.tx.try_send(msg.clone());
+                m.tx.send(msg.clone());
             }
         }
     }
@@ -400,7 +406,7 @@ impl OrgInner {
             for id in &space.member_ids {
                 if id != except {
                     if let Some(m) = self.members.get(id) {
-                        let _ = m.tx.try_send(msg.clone());
+                        m.tx.send(msg.clone());
                     }
                 }
             }
@@ -446,7 +452,7 @@ impl OrgInner {
     fn broadcast_notes(&self, space_id: &str) {
         for id in &self.spaces[space_id].member_ids {
             if let Some(m) = self.members.get(id) {
-                let _ = m.tx.try_send(self.notes_msg_for(m));
+                m.tx.send(self.notes_msg_for(m));
             }
         }
     }
@@ -671,8 +677,9 @@ impl Org {
         avatar: Option<String>,
         sub: Option<String>,
         role: Role,
-        tx: mpsc::Sender<ServerMsg>,
+        tx: impl Into<Outbox>,
     ) -> ServerMsg {
+        let tx = tx.into();
         let num_id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let id = num_id.to_string();
 
@@ -705,6 +712,20 @@ impl Org {
             .desc
             .clone();
         let (x, y) = guard.pick_spawn("lobby");
+
+        if let Some(sub) = &sub {
+            let mut same: Vec<&Member> = guard
+                .members
+                .values()
+                .filter(|m| m.sub.as_ref() == Some(sub))
+                .collect();
+            if same.len() >= MAX_CONNECTIONS_PER_SUB {
+                same.sort_by_key(|m| m.joined_at);
+                for m in &same[..=same.len() - MAX_CONNECTIONS_PER_SUB] {
+                    m.tx.kick();
+                }
+            }
+        }
 
         // Everyone already here now has one more peer than they had; the
         // newcomer's peers are everyone already here.
@@ -811,7 +832,7 @@ impl Org {
         for partner_id in &member.paging {
             if let Some(partner) = guard.members.get_mut(partner_id) {
                 partner.paging.remove(id);
-                let _ = partner.tx.try_send(ServerMsg::PageEnd {
+                partner.tx.send(ServerMsg::PageEnd {
                     from: id.to_string(),
                     reason: "ended".to_string(),
                 });
@@ -826,7 +847,7 @@ impl Org {
         for callee_id in &member.ringing_out {
             if let Some(callee) = guard.members.get_mut(callee_id) {
                 callee.ringing_in.remove(id);
-                let _ = callee.tx.try_send(ServerMsg::PageEnd {
+                callee.tx.send(ServerMsg::PageEnd {
                     from: id.to_string(),
                     reason: "cancelled".to_string(),
                 });
@@ -835,7 +856,7 @@ impl Org {
         for caller_id in &member.ringing_in {
             if let Some(caller) = guard.members.get_mut(caller_id) {
                 caller.ringing_out.remove(id);
-                let _ = caller.tx.try_send(ServerMsg::PageRejected {
+                caller.tx.send(ServerMsg::PageRejected {
                     to: id.to_string(),
                     reason: "offline".to_string(),
                 });
@@ -1075,7 +1096,7 @@ impl Org {
         let spaces = guard.catalog();
         // Broadcast to the whole org (including the creator).
         for m in guard.members.values() {
-            let _ = m.tx.try_send(ServerMsg::Spaces {
+            m.tx.send(ServerMsg::Spaces {
                 spaces: spaces.clone(),
             });
         }
@@ -1090,7 +1111,7 @@ impl Org {
     pub async fn send_notes(&self, id: &str) {
         let guard = self.inner.lock().await;
         if let Some(m) = guard.members.get(id) {
-            let _ = m.tx.try_send(guard.notes_msg_for(m));
+            m.tx.send(guard.notes_msg_for(m));
         }
     }
 
@@ -1153,7 +1174,7 @@ impl Org {
             .iter()
             .find(|n| n.id == note_id)
         else {
-            let _ = member.tx.try_send(guard.notes_msg_for(member));
+            member.tx.send(guard.notes_msg_for(member));
             return Ok(());
         };
         if !can_remove(member, note) {
@@ -1194,7 +1215,7 @@ impl Org {
             .iter()
             .find(|n| n.id == note_id)
         else {
-            let _ = member.tx.try_send(guard.notes_msg_for(member));
+            member.tx.send(guard.notes_msg_for(member));
             return Ok(());
         };
         let entry = (reaction, sub);
@@ -1262,10 +1283,10 @@ impl Org {
         }
 
         if let Some(a) = guard.members.get(from) {
-            let _ = a.tx.try_send(ServerMsg::PageRinging { to: to.to_string() });
+            a.tx.send(ServerMsg::PageRinging { to: to.to_string() });
         }
         if let Some(b) = guard.members.get(to) {
-            let _ = b.tx.try_send(ServerMsg::PageOffer {
+            b.tx.send(ServerMsg::PageOffer {
                 from: from.to_string(),
             });
         }
@@ -1325,13 +1346,13 @@ impl Org {
         // Initiator tie-break: smaller numeric id offers (avoids glare).
         let caller_initiates = caller_num < accepter_num;
         if let Some(c) = guard.members.get(caller) {
-            let _ = c.tx.try_send(ServerMsg::PageConnect {
+            c.tx.send(ServerMsg::PageConnect {
                 peer: accepter.to_string(),
                 initiator: caller_initiates,
             });
         }
         if let Some(a) = guard.members.get(accepter) {
-            let _ = a.tx.try_send(ServerMsg::PageConnect {
+            a.tx.send(ServerMsg::PageConnect {
                 peer: caller.to_string(),
                 initiator: !caller_initiates,
             });
@@ -1359,7 +1380,7 @@ impl Org {
             }
             if let Some(b) = guard.members.get_mut(to) {
                 if b.paging.remove(from) {
-                    let _ = b.tx.try_send(ServerMsg::PageEnd {
+                    b.tx.send(ServerMsg::PageEnd {
                         from: from.to_string(),
                         reason: "ended".to_string(),
                     });
@@ -1383,7 +1404,7 @@ impl Org {
             }
             if let Some(b) = guard.members.get_mut(to) {
                 b.ringing_in.remove(from);
-                let _ = b.tx.try_send(ServerMsg::PageEnd {
+                b.tx.send(ServerMsg::PageEnd {
                     from: from.to_string(),
                     reason: "cancelled".to_string(),
                 });
@@ -1402,7 +1423,7 @@ impl Org {
             }
             if let Some(b) = guard.members.get_mut(to) {
                 b.ringing_out.remove(from);
-                let _ = b.tx.try_send(ServerMsg::PageRejected {
+                b.tx.send(ServerMsg::PageRejected {
                     to: from.to_string(),
                     reason: "declined".to_string(),
                 });
@@ -1428,14 +1449,14 @@ impl Org {
 
         if let Some(c) = guard.members.get_mut(caller) {
             c.ringing_out.remove(callee);
-            let _ = c.tx.try_send(ServerMsg::PageRejected {
+            c.tx.send(ServerMsg::PageRejected {
                 to: callee.to_string(),
                 reason: "timeout".to_string(),
             });
         }
         if let Some(a) = guard.members.get_mut(callee) {
             a.ringing_in.remove(caller);
-            let _ = a.tx.try_send(ServerMsg::PageEnd {
+            a.tx.send(ServerMsg::PageEnd {
                 from: caller.to_string(),
                 reason: "timeout".to_string(),
             });
@@ -1472,7 +1493,7 @@ impl Org {
         if !allowed {
             return;
         }
-        let _ = to.tx.try_send(ServerMsg::Signal {
+        to.tx.send_lossy(ServerMsg::Signal {
             from: from_id.to_string(),
             data,
         });
@@ -1502,7 +1523,7 @@ impl Org {
     /// a client never receives a signal before the `connect` that explains it.
     ///
     /// `f` must therefore stay synchronous and non-blocking: it walks the
-    /// snapshot and `try_send`s, nothing more.
+    /// snapshot and queues sends, nothing more.
     pub async fn with_tick<R>(
         &self,
         f: impl FnOnce(&[SpaceTick], &mut HashMap<String, proximity::LinkSets>) -> R,
@@ -1561,6 +1582,7 @@ impl Org {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::sync::mpsc;
 
     #[test]
     fn hex_color_accepts_strict_rrggbb_only() {
@@ -1645,7 +1667,7 @@ mod tests {
                     paging: HashSet::new(),
                     ringing_out: HashSet::new(),
                     ringing_in: HashSet::new(),
-                    tx: tx.clone(),
+                    tx: Outbox::from(tx.clone()),
                 },
             );
             member_ids.insert(id);
@@ -2025,5 +2047,50 @@ mod tests {
         // Ids carry on after the reload instead of colliding.
         post(&org, &a, "next").await;
         assert!(a.board()[1].id > board[0].id);
+    }
+
+    #[tokio::test]
+    async fn an_account_past_its_connection_cap_loses_the_oldest() {
+        let org = Org::new("o", "O", None);
+        let mut outs = Vec::new();
+        for _ in 0..=MAX_CONNECTIONS_PER_SUB {
+            let (tx, _rx) = mpsc::channel(64);
+            let out = Outbox::from(tx);
+            org.join(
+                "Aoi".into(),
+                String::new(),
+                None,
+                Some("u".into()),
+                Role::Member,
+                out.clone(),
+            )
+            .await;
+            outs.push(out);
+        }
+        let kicked = |out: &Outbox| {
+            let out = out.clone();
+            async move {
+                tokio::time::timeout(Duration::from_millis(10), out.kicked())
+                    .await
+                    .is_ok()
+            }
+        };
+        assert!(kicked(&outs[0]).await, "the oldest connection is closed");
+        for out in &outs[1..] {
+            assert!(!kicked(out).await, "the newer ones stay");
+        }
+        // Another account is not counted against this one.
+        let (tx, _rx) = mpsc::channel(64);
+        let other = Outbox::from(tx);
+        org.join(
+            "Bo".into(),
+            String::new(),
+            None,
+            Some("v".into()),
+            Role::Member,
+            other.clone(),
+        )
+        .await;
+        assert!(!kicked(&other).await);
     }
 }

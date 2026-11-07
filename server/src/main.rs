@@ -29,6 +29,7 @@ mod auth;
 mod beacon;
 mod billing;
 mod ice;
+mod outbox;
 mod protocol;
 mod proximity;
 mod registry;
@@ -101,15 +102,18 @@ async fn ws_handler(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("-");
     tracing::info!(ip = %ip, ua = %ua, "ws upgrade");
-    upgrade.on_upgrade(move |socket| {
-        ws::handle_ws(
-            socket,
-            state.registry,
-            state.auth,
-            state.billing,
-            state.beacon,
-        )
-    })
+    upgrade
+        .max_message_size(ws::MAX_MESSAGE_BYTES)
+        .max_frame_size(ws::MAX_MESSAGE_BYTES)
+        .on_upgrade(move |socket| {
+            ws::handle_ws(
+                socket,
+                state.registry,
+                state.auth,
+                state.billing,
+                state.beacon,
+            )
+        })
 }
 
 fn bearer_token(headers: &HeaderMap) -> Option<&str> {
