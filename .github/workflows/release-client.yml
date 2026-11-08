@@ -2,8 +2,10 @@
 #
 # Usage:
 #   1. Bump is optional — the workflow syncs client version from the tag (v0.2.0 → 0.2.0).
-#   2. git tag v0.1.0 && git push origin v0.1.0
-#   3. Wait for all matrix jobs; assets appear on the Release page.
+#   2. Write client/release-notes/<version>.md (the update banner's "What's new";
+#      format in client/src/release-notes.ts). The release fails without it.
+#   3. git tag v0.1.0 && git push origin v0.1.0
+#   4. Wait for all matrix jobs; assets appear on the Release page.
 #
 # Every secret below is an environment secret of `release`, which only `v*`
 # tags may deploy to, so no other ref or workflow can read the signing keys.
@@ -34,7 +36,55 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The Release body: boilerplate, then client/release-notes/<version>.md.
+  # tauri-action also writes the body into latest.json as `notes`, which is
+  # what the update banner's "What's new" shows. A tag without a notes file,
+  # or with one the app can't read, stops here before any build starts.
+  release-notes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      body: ${{ steps.body.outputs.body }}
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - run: npm ci
+
+      - name: Check that every notes file parses
+        run: npx tsc -p tsconfig.test.json && node --test tests/release-notes.test.mjs
+
+      - name: Compose the Release body
+        id: body
+        run: |
+          NOTES="release-notes/${GITHUB_REF_NAME#v}.md"
+          if [ ! -f "$NOTES" ]; then
+            echo "::error::client/$NOTES is missing. Write this release's notes first (format: client/src/release-notes.ts)."
+            exit 1
+          fi
+          {
+            echo 'body<<HIROBA_RELEASE_BODY'
+            echo "Desktop installers for Hiroba $GITHUB_REF_NAME."
+            echo
+            echo 'After installing, open an invite link or point the app at your server.'
+            echo "Server self-hosting: [docs/SELF_HOSTING.md](https://github.com/$GITHUB_REPOSITORY/blob/main/docs/SELF_HOSTING.md)"
+            echo
+            cat "$NOTES"
+            echo
+            echo 'HIROBA_RELEASE_BODY'
+          } >> "$GITHUB_OUTPUT"
+
   publish-tauri:
+    needs: release-notes
     environment: release
     permissions:
       contents: write
@@ -135,11 +185,7 @@ jobs:
           projectPath: client
           tagName: ${{ github.ref_name }}
           releaseName: Hiroba ${{ github.ref_name }}
-          releaseBody: |
-            Desktop installers for Hiroba ${{ github.ref_name }}.
-
-            After installing, open an invite link or point the app at your server.
-            Server self-hosting: [docs/SELF_HOSTING.md](https://github.com/${{ github.repository }}/blob/main/docs/SELF_HOSTING.md)
+          releaseBody: ${{ needs.release-notes.outputs.body }}
           generateReleaseNotes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           # Attach latest.json so installed apps can discover this release
