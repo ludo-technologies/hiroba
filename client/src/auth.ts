@@ -12,9 +12,14 @@
  *
  * Plus session-token persistence: under Tauri the JWT lives in the **OS
  * keychain** via the `secret_*` commands — localStorage never holds a
- * credential. In a plain browser (vite dev / web build) there is neither a
- * loopback receiver nor a keychain, so the login block is hidden entirely and
- * the manual token field in the join form remains the fallback there.
+ * credential.
+ *
+ * The browser build has neither a loopback receiver nor a keychain. Where its
+ * auth server offers web sign-in (`web` in GET /providers), OAuth runs as a
+ * page navigation through the server (`/web/login`) and comes back as a
+ * handoff code, and the refresh token never reaches script at all: it is an
+ * HttpOnly cookie on the auth server, traded for JWTs through `/web/*`
+ * ({@link webSessionFetch}). Its sessions carry no `refreshToken`.
  */
 
 // ---------------------------------------------------------------------------
@@ -58,7 +63,9 @@ export interface SessionClaims {
 export interface AuthSession {
   token: string;
   claims: SessionClaims;
-  refreshToken: string;
+  /** `null` in the browser build, whose refresh token is the auth server's
+   *  HttpOnly cookie. */
+  refreshToken: string | null;
 }
 
 /** Decode a JWT payload without verifying — the server verifies; we only need
@@ -108,13 +115,43 @@ interface SessionPayload {
 }
 
 /** Turn a session payload into an {@link AuthSession}, refusing anything
- *  short of a decodable JWT plus its refresh token. */
+ *  short of a decodable JWT plus — under Tauri — its refresh token. */
 function sessionFromPayload(data: SessionPayload): AuthSession {
   const claims = data.token ? decodeClaims(data.token) : null;
-  if (!data.token || !data.refresh_token || !claims) {
+  if (!data.token || !claims || (isTauri() && !data.refresh_token)) {
     throw new Error("auth backend returned a malformed token");
   }
-  return { token: data.token, claims, refreshToken: data.refresh_token };
+  return { token: data.token, claims, refreshToken: isTauri() ? data.refresh_token ?? null : null };
+}
+
+/**
+ * A call that reads or sets the browser build's session cookie (`/web/*`).
+ * One at a time across this origin's tabs: each rotates the single-use
+ * refresh token behind the cookie, and a second call sent alongside would
+ * carry the token the first one spent.
+ */
+async function webSessionFetch(
+  authBase: string,
+  path: string,
+  body: unknown,
+  bearer?: string,
+): Promise<Response> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (bearer) headers.Authorization = `Bearer ${bearer}`;
+  return await navigator.locks.request("hiroba-web-session", () =>
+    fetch(authEndpoint(authBase, path), {
+      method: "POST",
+      credentials: "include",
+      headers,
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+/** Browser build: leave for the provider through the auth server. The page
+ *  comes back with `#handoff=` or `#setup=` (deeplink.ts). */
+export function startWebLogin(authBase: string, provider: Provider): void {
+  window.location.assign(authEndpoint(authBase, `/web/login/${provider}`));
 }
 
 /** Session or org-setup handoff, as the login endpoints answer. */
@@ -208,20 +245,24 @@ export async function emailStart(
 /**
  * Trade a mailed code for a session. Mirrors {@link oauthLogin}'s result: a
  * first-time user who belongs to no org gets the org-setup handoff instead.
+ * The browser build's answer is a handoff code, which it collects into its
+ * session cookie.
  */
 export async function emailVerify(
   authBase: string,
   email: string,
   code: string,
 ): Promise<OAuthResult> {
-  const resp = await fetch(authEndpoint(authBase, "/email/verify"), {
+  const resp = await fetch(authEndpoint(authBase, isTauri() ? "/email/verify" : "/web/email/verify"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, code }),
   });
   if (resp.status === 401) throw new CodeRejectedError();
   if (!resp.ok) throw new Error(await resp.text());
-  return loginResult(await resp.json());
+  const data: SessionPayload & { handoff?: string } = await resp.json();
+  if (data.handoff) return { kind: "session", session: await redeemHandoff(authBase, data.handoff) };
+  return loginResult(data);
 }
 
 // ---------------------------------------------------------------------------
@@ -239,16 +280,20 @@ export class HandoffRejectedError extends Error {
 }
 
 /**
- * Redeem the single-use code the invite page's "open in Hiroba" link carries
- * (`POST /handoff`). The invitee signed in and joined on the web; this trades
- * that for the session the app would have minted itself.
+ * Redeem the single-use code a web sign-in parked (`POST /handoff`): the
+ * invite page's "open in Hiroba" link, or — in the browser build, through
+ * `/web/handoff` into its session cookie — its "continue in the browser" and
+ * the build's own sign-in. Trades it for the session the app would have
+ * minted itself.
  */
 export async function redeemHandoff(authBase: string, code: string): Promise<AuthSession> {
-  const resp = await fetch(authEndpoint(authBase, "/handoff"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ code }),
-  });
+  const resp = isTauri()
+    ? await fetch(authEndpoint(authBase, "/handoff"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      })
+    : await webSessionFetch(authBase, "/web/handoff", { code });
   if (resp.status === 401) throw new HandoffRejectedError();
   if (!resp.ok) throw new Error(await resp.text());
   return sessionFromPayload(await resp.json());
@@ -386,21 +431,45 @@ export async function listOrgs(authBase: string, token: string): Promise<OrgSumm
  */
 export async function switchOrg(
   authBase: string,
-  refreshToken: string,
+  session: AuthSession,
   orgSlug: string,
 ): Promise<AuthSession> {
-  const resp = await fetch(authEndpoint(authBase, "/refresh"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refresh_token: refreshToken, org: orgSlug }),
-  });
+  const resp = session.refreshToken
+    ? await fetch(authEndpoint(authBase, "/refresh"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: session.refreshToken, org: orgSlug }),
+      })
+    : await webSessionFetch(authBase, "/web/session", { org: orgSlug });
   if (!resp.ok) throw new Error(`org switch refused with HTTP ${resp.status}`);
-  const data: { token?: string; refresh_token?: string } = await resp.json();
-  const claims = data.token ? decodeClaims(data.token) : null;
-  if (!data.token || !data.refresh_token || !claims) {
-    throw new Error("org switch response malformed");
+  return sessionFromPayload(await resp.json());
+}
+
+/** Thrown when `POST /orgs` refuses (the status says why: 401 is a token
+ *  that has run out). */
+export class OrgCreateRefusedError extends Error {
+  constructor(readonly status: number) {
+    super(`org creation refused with HTTP ${status}`);
+    this.name = "OrgCreateRefusedError";
   }
-  return { token: data.token, claims, refreshToken: data.refresh_token };
+}
+
+/** Found an org with `token` (a pending sign-in's provisional token, or a
+ *  member's session) and get the session in it. */
+export async function createOrg(
+  authBase: string,
+  token: string,
+  body: Record<string, string>,
+): Promise<AuthSession> {
+  const resp = isTauri()
+    ? await fetch(authEndpoint(authBase, "/orgs"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      })
+    : await webSessionFetch(authBase, "/web/orgs", body, token);
+  if (!resp.ok) throw new OrgCreateRefusedError(resp.status);
+  return sessionFromPayload(await resp.json());
 }
 
 // ---------------------------------------------------------------------------
@@ -450,7 +519,8 @@ export function supersedeRestore(): void {
  *     we simply couldn't read/write it.
  *   - `network` — a stored session is present but its 12h JWT has expired, and
  *     the auth server wasn't reachable to renew it. The caller still gets the
- *     stale session: the user *is* signed in, just not right now.
+ *     stale session: the user *is* signed in, just not right now. (The browser
+ *     build stores nothing it could hand back, so it gets `null` with this.)
  *
  * A genuinely signed-out user carries no problem at all — only then is the
  * sign-in form the honest thing to show.
@@ -469,14 +539,13 @@ export interface RestoreResult {
 /** Restore a saved session, refreshing its short-lived JWT when necessary. */
 export function loadSession(authUrl: string): Promise<RestoreResult> {
   if (loadingSession) return loadingSession;
-  loadingSession = restoreSession(authUrl).finally(() => {
+  loadingSession = (isTauri() ? restoreSession : restoreWebSession)(authUrl).finally(() => {
     loadingSession = null;
   });
   return loadingSession;
 }
 
 async function restoreSession(authUrl: string): Promise<RestoreResult> {
-  if (!isTauri()) return { session: null };
   const epoch = sessionEpoch;
   /** True once a sign-out has overtaken this restore. */
   const abandoned = () => epoch !== sessionEpoch;
@@ -495,7 +564,7 @@ async function restoreSession(authUrl: string): Promise<RestoreResult> {
   if (abandoned() || !token || !refreshToken) return { session: null };
   const claims = decodeClaims(token);
   if (!claims) {
-    await clearSession();
+    await clearSession(authUrl);
     return { session: null };
   }
   const stored: AuthSession = { token, claims, refreshToken };
@@ -516,7 +585,7 @@ async function restoreSession(authUrl: string): Promise<RestoreResult> {
     return { session: stored, problem: "network" };
   }
   if (resp.status === 401) {
-    await clearSession();
+    await clearSession(authUrl);
     return { session: null };
   }
   if (!resp.ok) {
@@ -549,7 +618,26 @@ async function restoreSession(authUrl: string): Promise<RestoreResult> {
   return saved === "failed" ? { session, problem: "keychain" } : { session };
 }
 
-/** `skipped` = a plain-browser build, which persists nothing by design. */
+/** The browser build's restore: its session cookie, traded for a fresh JWT
+ *  (and rotated) on every launch. 401 is signed out; anything else that keeps
+ *  the answer away is a bad moment for the network, as for the app. */
+async function restoreWebSession(authUrl: string): Promise<RestoreResult> {
+  const epoch = sessionEpoch;
+  let session: AuthSession;
+  try {
+    const resp = await webSessionFetch(authUrl, "/web/session", {});
+    if (resp.status === 401) return { session: null };
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    session = sessionFromPayload(await resp.json());
+  } catch (err) {
+    console.warn("hiroba: could not renew the browser session", err);
+    return { session: null, problem: "network" };
+  }
+  // Signed out (or signed in some other way) meanwhile: not ours to adopt.
+  return epoch === sessionEpoch ? { session } : { session: null };
+}
+
+/** `skipped` = the browser build, whose session is the auth server's cookie. */
 export type SaveOutcome = "saved" | "skipped" | "failed";
 
 /** Persist a session to the OS keychain. Never throws: a device that can't
@@ -572,12 +660,18 @@ export async function saveSession(session: AuthSession): Promise<SaveOutcome> {
 }
 
 /** Forget the stored session. Queued behind any save already running, so an
- *  explicit sign-out is never the write that loses the race. */
-export async function clearSession(): Promise<void> {
+ *  explicit sign-out is never the write that loses the race. The browser
+ *  build's sign-out happens on the auth server, which revokes the cookie's
+ *  refresh token and drops the cookie. */
+export async function clearSession(authBase: string): Promise<void> {
   // Before the first await: an in-flight renewal has to see this immediately,
   // or it will happily write its answer in after the delete.
   supersedeRestore();
-  if (!isTauri()) return;
+  if (!isTauri()) {
+    const resp = await webSessionFetch(authBase, "/web/signout", {});
+    if (!resp.ok) throw new Error(`sign-out refused with HTTP ${resp.status}`);
+    return;
+  }
   try {
     await enqueue(() =>
       Promise.all([

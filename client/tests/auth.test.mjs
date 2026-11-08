@@ -3,7 +3,10 @@
  * `?invite=` (`extractInviteCode`, which accepts a bare code or a shared https
  * link), the deep-link parser (`parseAuthDeepLink`, hiroba://auth/<code>
  * only) and its redemption (`redeemHandoff`), plus the e-mail one-time-code
- * client (`sanitizeCode`, `emailStart`, `emailVerify`).
+ * client (`sanitizeCode`, `emailStart`, `emailVerify`). Each session call is
+ * checked twice where the two builds part: under Tauri (`withTauri`, tokens
+ * in the body, keychain) and in the browser (no `window.__TAURI__`, the
+ * refresh token an HttpOnly cookie behind `/web/*`).
  *
  * Run via `npm test` (compiled first by tsc into .test-build/).
  */
@@ -15,7 +18,9 @@ import {
   CodeThrottledError,
   HandoffRejectedError,
   InviteRejectedError,
+  OrgCreateRefusedError,
   clearSession,
+  createOrg,
   emailStart,
   emailVerify,
   extractInviteCode,
@@ -92,16 +97,34 @@ test("redeemHandoff trades the code for the session it names", async () => {
     JSON.stringify({ sub: "google:1", org: "acme", exp: 9999999999 }),
   ).toString("base64url");
   const token = `h.${claims}.s`;
+  const tauri = withTauri();
+  try {
+    const { result, calls } = await withFetch(
+      () => jsonResponse(200, { token, refresh_token: "r1" }),
+      () => redeemHandoff("https://auth.example.com/", "c0de"),
+    );
+    assert.equal(calls[0].url, "https://auth.example.com/handoff");
+    assert.equal(calls[0].init.method, "POST");
+    assert.deepEqual(calls[0].body, { code: "c0de" });
+    assert.equal(result.token, token);
+    assert.equal(result.refreshToken, "r1");
+    assert.equal(result.claims.org, "acme");
+  } finally {
+    tauri.restore();
+  }
+});
+
+test("the browser collects a handoff into its session cookie", async () => {
   const { result, calls } = await withFetch(
-    () => jsonResponse(200, { token, refresh_token: "r1" }),
+    () => jsonResponse(200, { token: jwt(43200) }),
     () => redeemHandoff("https://auth.example.com/", "c0de"),
   );
-  assert.equal(calls[0].url, "https://auth.example.com/handoff");
-  assert.equal(calls[0].init.method, "POST");
+  assert.equal(calls[0].url, "https://auth.example.com/web/handoff");
+  // The cookie is what the auth server sets and later reads back.
+  assert.equal(calls[0].init.credentials, "include");
   assert.deepEqual(calls[0].body, { code: "c0de" });
-  assert.equal(result.token, token);
-  assert.equal(result.refreshToken, "r1");
-  assert.equal(result.claims.org, "acme");
+  assert.equal(result.refreshToken, null);
+  assert.equal(result.claims.sub, "email:aoi@example.com");
 });
 
 test("redeemHandoff tells a refused code apart from a failed request", async () => {
@@ -170,16 +193,38 @@ test("emailVerify returns a session", async () => {
     JSON.stringify({ sub: "email:aoi@example.com", exp: 9999999999 }),
   ).toString("base64url");
   const token = `h.${claims}.s`;
+  const tauri = withTauri();
+  try {
+    const { result, calls } = await withFetch(
+      () => jsonResponse(200, { token, refresh_token: "r1" }),
+      () => emailVerify("https://auth.example.com", "aoi@example.com", "012345"),
+    );
+    assert.equal(calls[0].url, "https://auth.example.com/email/verify");
+    // Membership is settled on the web now; a sign-in carries no invite.
+    assert.deepEqual(calls[0].body, { email: "aoi@example.com", code: "012345" });
+    assert.equal(result.kind, "session");
+    assert.equal(result.session.refreshToken, "r1");
+    assert.equal(result.session.claims.sub, "email:aoi@example.com");
+  } finally {
+    tauri.restore();
+  }
+});
+
+test("the browser's e-mail sign-in collects the handoff it answers with", async () => {
   const { result, calls } = await withFetch(
-    () => jsonResponse(200, { token, refresh_token: "r1" }),
+    (url) =>
+      url.endsWith("/web/email/verify")
+        ? jsonResponse(200, { handoff: "h4nd" })
+        : jsonResponse(200, { token: jwt(43200) }),
     () => emailVerify("https://auth.example.com", "aoi@example.com", "012345"),
   );
-  assert.equal(calls[0].url, "https://auth.example.com/email/verify");
-  // Membership is settled on the web now; a sign-in carries no invite.
-  assert.deepEqual(calls[0].body, { email: "aoi@example.com", code: "012345" });
+  assert.deepEqual(
+    calls.map((c) => c.url),
+    ["https://auth.example.com/web/email/verify", "https://auth.example.com/web/handoff"],
+  );
+  assert.deepEqual(calls[1].body, { code: "h4nd" });
   assert.equal(result.kind, "session");
-  assert.equal(result.session.refreshToken, "r1");
-  assert.equal(result.session.claims.sub, "email:aoi@example.com");
+  assert.equal(result.session.refreshToken, null);
 });
 
 test("emailVerify surfaces the org-setup handoff", async () => {
@@ -235,30 +280,85 @@ test("listOrgs throws on a refusal or a malformed answer", async () => {
   }
 });
 
+/** A session as the app holds one (`refresh`) or the browser does (`null`). */
+const held = (refreshToken) => ({ token: jwt(3600), claims: { exp: 0 }, refreshToken });
+
 test("switchOrg posts the refresh token with the target org and adopts the answer", async () => {
   const fresh = jwt(43200);
+  const tauri = withTauri();
+  try {
+    const { result, calls } = await withFetch(
+      () => jsonResponse(200, { token: fresh, refresh_token: "r2" }),
+      () => switchOrg("https://auth.example.com", held("r1"), "beta"),
+    );
+    assert.equal(calls[0].url, "https://auth.example.com/refresh");
+    assert.deepEqual(calls[0].body, { refresh_token: "r1", org: "beta" });
+    assert.equal(result.token, fresh);
+    assert.equal(result.refreshToken, "r2");
+    assert.equal(result.claims.sub, "email:aoi@example.com");
+  } finally {
+    tauri.restore();
+  }
+});
+
+test("the browser switches orgs through its session cookie", async () => {
   const { result, calls } = await withFetch(
-    () => jsonResponse(200, { token: fresh, refresh_token: "r2" }),
-    () => switchOrg("https://auth.example.com", "r1", "beta"),
+    () => jsonResponse(200, { token: jwt(43200) }),
+    () => switchOrg("https://auth.example.com", held(null), "beta"),
   );
-  assert.equal(calls[0].url, "https://auth.example.com/refresh");
-  assert.deepEqual(calls[0].body, { refresh_token: "r1", org: "beta" });
-  assert.equal(result.token, fresh);
-  assert.equal(result.refreshToken, "r2");
-  assert.equal(result.claims.sub, "email:aoi@example.com");
+  assert.equal(calls[0].url, "https://auth.example.com/web/session");
+  assert.equal(calls[0].init.credentials, "include");
+  assert.deepEqual(calls[0].body, { org: "beta" });
+  assert.equal(result.refreshToken, null);
 });
 
 test("switchOrg throws on a refusal and on a malformed session", async () => {
-  for (const answer of [
-    () => new Response("invalid refresh token", { status: 401 }),
-    () => jsonResponse(200, { token: "not-a-jwt", refresh_token: "r2" }),
-    () => jsonResponse(200, { token: jwt(43200) }), // no refresh token
-  ]) {
-    const { result } = await withFetch(answer, () =>
-      switchOrg("https://auth.example.com", "r1", "beta").catch((e) => e),
-    );
-    assert.ok(result instanceof Error);
+  const tauri = withTauri();
+  try {
+    for (const answer of [
+      () => new Response("invalid refresh token", { status: 401 }),
+      () => jsonResponse(200, { token: "not-a-jwt", refresh_token: "r2" }),
+      () => jsonResponse(200, { token: jwt(43200) }), // no refresh token
+    ]) {
+      const { result } = await withFetch(answer, () =>
+        switchOrg("https://auth.example.com", held("r1"), "beta").catch((e) => e),
+      );
+      assert.ok(result instanceof Error);
+    }
+  } finally {
+    tauri.restore();
   }
+});
+
+test("createOrg founds the org with the token it is given, in either build", async () => {
+  const tauri = withTauri();
+  try {
+    const { result, calls } = await withFetch(
+      () => jsonResponse(200, { token: jwt(43200), refresh_token: "r1" }),
+      () => createOrg("https://auth.example.com", "prov", { name: "Acme" }),
+    );
+    assert.equal(calls[0].url, "https://auth.example.com/orgs");
+    assert.equal(calls[0].init.headers.Authorization, "Bearer prov");
+    assert.deepEqual(calls[0].body, { name: "Acme" });
+    assert.equal(result.refreshToken, "r1");
+  } finally {
+    tauri.restore();
+  }
+  const { result, calls } = await withFetch(
+    () => jsonResponse(200, { token: jwt(43200) }),
+    () => createOrg("https://auth.example.com", "prov", { name: "Acme" }),
+  );
+  assert.equal(calls[0].url, "https://auth.example.com/web/orgs");
+  assert.equal(calls[0].init.credentials, "include");
+  assert.equal(calls[0].init.headers.Authorization, "Bearer prov");
+  assert.equal(result.refreshToken, null);
+
+  const { result: refused } = await withFetch(
+    () => new Response("invalid token", { status: 401 }),
+    () => createOrg("https://auth.example.com", "prov", { name: "Acme" }).catch((e) => e),
+  );
+  assert.ok(refused instanceof OrgCreateRefusedError);
+  assert.equal(refused.status, 401);
 });
 
 // ---------------------------------------------------------------------------
@@ -418,7 +518,7 @@ test("a sign-out mid-renewal is not undone by the answer that lands after it", a
   try {
     const restoring = loadSession("https://auth.example.com");
     // The user signs out while the renewal is still in flight.
-    await clearSession();
+    await clearSession("https://auth.example.com");
     release(jsonResponse(200, { token: jwt(43200), refresh_token: "rotated" }));
     const result = await restoring;
     // Neither on screen nor on disk: a renewal can't resurrect a session the
@@ -463,7 +563,7 @@ test("a sign-out queued behind an in-flight save still wins", async () => {
   const tauri = withTauri({ gate });
   try {
     const saving = saveSession({ token: jwt(3600), claims: { exp: 0 }, refreshToken: "r1" });
-    const clearing = clearSession(); // user hits Sign out mid-write
+    const clearing = clearSession("https://auth.example.com"); // user hits Sign out mid-write
     release();
     await Promise.all([saving, clearing]);
     // The delete runs after the save it was queued behind, not against it.
@@ -483,6 +583,69 @@ test("saveSession reports failure instead of throwing away a completed sign-in",
   }
   // No shell at all (plain-browser build): nothing to persist, nothing to warn about.
   assert.equal(await saveSession(session), "skipped");
+});
+
+// ---------------------------------------------------------------------------
+// The browser build's session: an HttpOnly cookie on the auth server
+// ---------------------------------------------------------------------------
+
+test("the browser restores its session from the cookie, renewing it", async () => {
+  const { result, calls } = await withFetch(
+    () => jsonResponse(200, { token: jwt(43200) }),
+    () => loadSession("https://auth.example.com"),
+  );
+  assert.equal(calls[0].url, "https://auth.example.com/web/session");
+  assert.equal(calls[0].init.credentials, "include");
+  assert.equal(result.session.refreshToken, null);
+  assert.equal(result.problem, undefined);
+});
+
+test("the browser reads a 401 as signed out and anything else as the network", async () => {
+  const { result: signedOut } = await withFetch(
+    () => new Response("no session", { status: 401 }),
+    () => loadSession("https://auth.example.com"),
+  );
+  assert.deepEqual(signedOut, { session: null });
+  for (const answer of [
+    () => Promise.reject(new TypeError("Failed to fetch")),
+    () => new Response("storage error", { status: 500 }),
+    () => jsonResponse(200, { token: "not-a-jwt" }),
+  ]) {
+    const { result } = await withFetch(answer, () => loadSession("https://auth.example.com"));
+    // Nothing stored to fall back on, but not "sign in again" either.
+    assert.deepEqual(result, { session: null, problem: "network" });
+  }
+});
+
+test("a browser sign-out mid-renewal is not undone by the answer that lands after it", async () => {
+  const real = globalThis.fetch;
+  let release;
+  const answered = new Promise((r) => (release = r));
+  const urls = [];
+  globalThis.fetch = (url) => {
+    urls.push(url);
+    return url.endsWith("/web/signout") ? Promise.resolve(new Response(null, { status: 204 })) : answered;
+  };
+  try {
+    const restoring = loadSession("https://auth.example.com");
+    const signingOut = clearSession("https://auth.example.com");
+    release(jsonResponse(200, { token: jwt(43200) }));
+    assert.equal((await restoring).session, null);
+    await signingOut;
+    // One at a time: the sign-out went out after the renewal rotated the
+    // cookie, so it revoked the token the browser actually holds.
+    assert.deepEqual(urls, ["https://auth.example.com/web/session", "https://auth.example.com/web/signout"]);
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+test("a browser sign-out the auth server refuses is not reported as done", async () => {
+  const { result } = await withFetch(
+    () => new Response("storage error", { status: 500 }),
+    () => clearSession("https://auth.example.com").catch((e) => e),
+  );
+  assert.ok(result instanceof Error);
 });
 
 test("guestLogin trades an invite and a name for a refresh-less session", async () => {

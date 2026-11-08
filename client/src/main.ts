@@ -44,12 +44,19 @@ import {
 } from "./loop.js";
 import { startUpdateChecks } from "./updater.js";
 import { layoutVideos, LOCAL_VIDEO, type LaidOutVideo } from "./videolayout.js";
-import { inviteFromLocation, returnFromLocation, startDeepLinkListener } from "./deeplink.js";
+import {
+  installedAppInvite,
+  inviteFromLocation,
+  returnFromLocation,
+  startDeepLinkListener,
+  webSignInFromLocation,
+} from "./deeplink.js";
 import { resolveIceServers, type IceResolution } from "./config.js";
 import { locale, spaceLabel, t } from "./i18n.js";
 import {
   clearSession,
   CodeRejectedError,
+  createOrg,
   CodeThrottledError,
   decodeClaims,
   emailStart,
@@ -65,8 +72,10 @@ import {
   loadSession,
   oauthLogin,
   openExternal,
+  OrgCreateRefusedError,
   redeemHandoff,
   saveSession,
+  startWebLogin,
   supersedeRestore,
   switchOrg,
   type AuthSession,
@@ -346,16 +355,28 @@ startUpdateChecks(ui);
 // Sign-in handoff deep links (hiroba://auth/<code>): the invite page's "open
 // in Hiroba" button, after the invitee signed in and joined there. No-op
 // outside Tauri.
-startDeepLinkListener((code) => void handleHandoff(code));
+startDeepLinkListener((code) => void handleHandoff(code, true));
 
 // Browser guest: the web build opened from an invite link (?invite=…). The
 // invite stands in for a sign-in — `effectiveToken` trades it for a guest
 // session on every connect, so a re-entry hours later needs no new link.
-const webInvite = inviteFromLocation();
-if (webInvite) ui.setGuestMode(true);
+// Such a tab is the guest's choice on the invite page, so it offers no member
+// sign-in (see `offerSignIn`).
+const urlInvite = inviteFromLocation();
+// The installed app opens without one; it enters with the invite its browser
+// was last opened with — unless a member is signed in.
+const installedInvite = urlInvite ? "" : installedAppInvite();
 // The page that sent the guest here (the landing page's demo button): leaving
 // goes back to it instead of stranding them on the join form.
-const guestReturnUrl = webInvite ? returnFromLocation() : "";
+const guestReturnUrl = urlInvite ? returnFromLocation() : "";
+
+/** The invite a browser guest enters with right now, or `""` (a member, or
+ *  no invite at all). */
+function guestInvite(): string {
+  return urlInvite || (authSession ? "" : installedInvite);
+}
+// Nobody is signed in yet; `reflectAuthSession` keeps this current from here.
+ui.setGuestMode(urlInvite !== "" || installedInvite !== "");
 
 // Warm the connections a join will open — auth (`/guest`, session restore)
 // and the signaling host (`/ice`) — while the user is still typing a name.
@@ -643,6 +664,7 @@ let restoreTimer: ReturnType<typeof setTimeout> | null = null;
  * because "sign in again" is the one instruction that doesn't fix either.
  */
 async function restoreAuthSession(): Promise<void> {
+  if (!signInOffered) return;
   // Signed in for other servers than the ones configured: the stored session
   // stays put (it comes back when the settings do) but is neither renewed
   // here nor used.
@@ -662,7 +684,7 @@ async function restoreAuthSession(): Promise<void> {
   authSession = session;
   reflectAuthSession();
   if (problem === "keychain") ui.showError(session ? t.errSessionNotSaved : t.errKeychain);
-  if (session && !isLive(session.claims)) scheduleRestoreRetry();
+  if (problem === "network") scheduleRestoreRetry();
   else cancelRestoreRetry();
 }
 
@@ -735,13 +757,43 @@ function cancelRestoreRetry(): void {
   restoreAttempt = 0;
 }
 
-void restoreAuthSession();
+/** Whether members sign in here: always under Tauri; in the browser build
+ *  only where its auth server offers it (`web` in GET /providers — a self-host
+ *  without web sign-in stays guest-only), and never in a tab opened as a
+ *  guest. */
+let signInOffered = isTauri();
+
+async function offerSignIn(): Promise<boolean> {
+  if (signInOffered || urlInvite) return signInOffered;
+  try {
+    const resp = await fetch(`${ui.getAuthUrl()}/providers`);
+    const data: { web?: string[] } = resp.ok ? await resp.json() : {};
+    signInOffered = (data.web?.length ?? 0) > 0;
+  } catch {
+    return false; // offline: asked again on the way back online
+  }
+  if (signInOffered) ui.enableWebSignIn();
+  return signInOffered;
+}
+
+// A web sign-in (browser build) comes back to this page with its outcome in
+// the fragment: a session to collect, or a first sign-in naming its org.
+const webSignIn = webSignInFromLocation();
+
+void (async () => {
+  if (!(await offerSignIn())) return;
+  if (webSignIn?.kind === "handoff") await handleHandoff(webSignIn.code, false);
+  else if (webSignIn?.kind === "setup") {
+    await adoptLogin({ kind: "pending_org", provisionalToken: webSignIn.token });
+  }
+  await restoreAuthSession();
+})();
 
 // Coming back online is the one signal worth more than the backoff clock.
 window.addEventListener("online", () => {
   if (authSession && isLive(authSession.claims)) return;
   cancelRestoreRetry();
-  void restoreAuthSession();
+  void offerSignIn().then(() => restoreAuthSession());
 });
 
 /** Provisional token held while the org-setup step is on screen (a first
@@ -759,6 +811,7 @@ function reflectAuthSession(): void {
     ui.setAuthSession(null);
     ui.setAdminVisible(false);
   }
+  ui.setGuestMode(guestInvite() !== "");
   // Learn about a billing lock before a join attempt bounces off it (the
   // lock screen carries the fix — the admin's subscribe CTA).
   void syncBillingLock();
@@ -833,7 +886,7 @@ async function handleSwitchOrg(orgSlug: string): Promise<void> {
   if (orgSwitchPending || !session || orgSlug === session.claims.org) return;
   const run = (async () => {
     try {
-      const switched = await switchOrg(ui.getAuthUrl(), session.refreshToken, orgSlug);
+      const switched = await switchOrg(ui.getAuthUrl(), session, orgSlug);
       // A sign-out (or any other session change) while the switch was in
       // flight owns the state now — adopting the answer would resurrect
       // exactly what the user just discarded.
@@ -861,6 +914,9 @@ async function handleSwitchOrg(orgSlug: string): Promise<void> {
 }
 
 async function handleLogin(provider: "google" | "github", authUrl: string): Promise<void> {
+  // The browser build signs in by leaving for the provider; the page comes
+  // back with the outcome (`webSignIn` above).
+  if (!isTauri()) return startWebLogin(authUrl, provider);
   ui.setLoginBusy(true);
   try {
     await adoptLogin(await oauthLogin(authUrl, provider));
@@ -952,8 +1008,13 @@ async function adoptSession(session: AuthSession): Promise<void> {
  *  the chip would say one org while the floor shows another), so it is left
  *  first, and the join form is then submitted as if the user had pressed
  *  Enter — a name still missing just puts the cursor there. The code is only
- *  spent on success; a refused one leaves whatever office is open alone. */
-async function handleHandoff(code: string): Promise<void> {
+ *  spent on success; a refused one leaves whatever office is open alone.
+ *
+ *  The browser build collects its own sign-ins the same way, where "you
+ *  joined" would be news to a returning member — so `announce` is the app's
+ *  alone (the joined page already said it to an invitee who chose the
+ *  browser). */
+async function handleHandoff(code: string, announce: boolean): Promise<void> {
   // The switch owns the session until it settles (see `orgSwitchPending`).
   if (orgSwitchPending) await orgSwitchPending;
   let session: AuthSession;
@@ -965,7 +1026,7 @@ async function handleHandoff(code: string): Promise<void> {
   }
   leaveSession();
   await adoptSession(session);
-  ui.showToast(t.joinedOrg(session.claims.org_name || session.claims.org));
+  if (announce) ui.showToast(t.joinedOrg(session.claims.org_name || session.claims.org));
   ui.submitJoin();
 }
 
@@ -973,7 +1034,7 @@ function handleLogout(): void {
   cancelRestoreRetry();
   authSession = null;
   localStorage.removeItem(LS_SESSION_ENDPOINTS);
-  void clearSession();
+  void clearSession(ui.getAuthUrl());
   reflectAuthSession();
 }
 
@@ -992,20 +1053,15 @@ function orgSetupToken(): string | null {
 /** `POST /orgs`: trade `token` for a full session in the org it founds.
  *  Returns the session claims, with the org-setup step already gone. */
 async function foundOrg(token: string, body: Record<string, string>): Promise<SessionClaims> {
-  const resp = await fetch(`${ui.getAuthUrl()}/orgs`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(body),
-  });
-  if (!resp.ok) throw new Error(resp.status === 401 ? t.errSessionExpired : t.errOrgCreate);
-  const data: { token: string; refresh_token: string } = await resp.json();
-  const claims = decodeClaims(data.token);
-  if (!claims || !data.refresh_token) throw new Error(t.errOrgCreate);
-  await adoptSession({ token: data.token, claims, refreshToken: data.refresh_token });
-  return claims;
+  let session: AuthSession;
+  try {
+    session = await createOrg(ui.getAuthUrl(), token, body);
+  } catch (err) {
+    const expired = err instanceof OrgCreateRefusedError && err.status === 401;
+    throw new Error(expired ? t.errSessionExpired : t.errOrgCreate);
+  }
+  await adoptSession(session);
+  return session.claims;
 }
 
 async function handleCreateOrg(name: string): Promise<void> {
@@ -1362,6 +1418,7 @@ window.addEventListener("focus", () => void syncBillingLock());
  *  on the spot so we don't knock on the server with a dead JWT. */
 async function effectiveToken(manual: string, serverUrl: string, signal?: AbortSignal): Promise<string> {
   if (manual) return manual;
+  const webInvite = guestInvite();
   if (webInvite) {
     // Minted afresh for every connect and ICE renewal, never reused: the
     // invite is the credential, and a revoked one must stop the next entry

@@ -734,9 +734,10 @@ export class UIManager {
     this._bindSidebar();
     this._bindPhone();
     this._refreshAvatar();
-    // No loopback receiver in a plain browser → no interactive login there.
-    // Under Tauri a stored session may still be on its way in, so the sign-in
-    // buttons wait rather than greet a signed-in user with a login form.
+    // The browser build signs members in only where its auth server offers
+    // it (enableWebSignIn). Under Tauri a stored session may still be on its
+    // way in, so the sign-in buttons wait rather than greet a signed-in user
+    // with a login form.
     if (this.tauri) this.setAuthRestoring(true);
     else {
       elAuthBlock.setAttribute("hidden", "");
@@ -955,6 +956,13 @@ export class UIManager {
   // -------------------------------------------------------------------------
   // Auth (interactive OAuth login, FR-13)
   // -------------------------------------------------------------------------
+
+  /** The browser build's auth server signs members in: the sign-in block
+   *  appears, held on its placeholder until the session cookie has answered. */
+  enableWebSignIn(): void {
+    elAuthBlock.removeAttribute("hidden");
+    this.setAuthRestoring(true);
+  }
 
   /**
    * Hold the sign-in block back while the stored session is being restored.

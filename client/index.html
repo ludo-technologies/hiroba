@@ -72,8 +72,9 @@
         <!-- Browser guest: the web build opened from an invite link
              (?invite=…). Copy set from ui.ts; hidden otherwise. -->
         <p id="guest-hint" class="auth-hint guest-hint" hidden></p>
-        <!-- OAuth login (FR-13 / AUTH_PLAN). Hidden in plain-browser builds,
-             where the manual token field below stays the fallback. -->
+        <!-- OAuth login (FR-13 / AUTH_PLAN). Hidden in the browser build unless
+             its auth server offers web sign-in (ui.enableWebSignIn); the
+             manual token field below stays the fallback there. -->
         <div id="auth-block" class="auth-block">
           <!-- Placeholder held until the keychain restore settles, so a signed-in
                user never opens the app on a sign-in form (AUTH_PLAN §2.1). -->
