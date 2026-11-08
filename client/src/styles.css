@@ -1849,11 +1849,10 @@ a.hud-pill {
   cursor: default;
 }
 
-.update-later {
+.update-later,
+.update-notes-toggle {
   border: none;
   background: none;
-  color: var(--ink);
-  opacity: 0.55;
   font: inherit;
   font-size: 12.5px;
   font-weight: 600;
@@ -1861,12 +1860,68 @@ a.hud-pill {
   cursor: pointer;
 }
 
+.update-later {
+  color: var(--ink);
+  opacity: 0.55;
+}
+
 .update-later:hover {
   opacity: 0.9;
 }
 
-.update-later[hidden] {
+.update-notes-toggle {
+  color: var(--accent-lo);
+}
+
+.update-notes-toggle:hover,
+.update-notes-toggle[aria-expanded="true"] {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.update-later[hidden],
+.update-notes-toggle[hidden] {
   display: none;
+}
+
+/* "What's new" — the release's notes, anchored above the banner with their
+   right edges aligned, so opening it never moves the banner. */
+.update-notes {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  width: min(340px, calc(100vw - 44px));
+  max-height: min(50vh, 320px);
+  overflow-y: auto;
+  padding: 13px 16px 14px;
+  background: var(--paper);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-btn);
+  box-shadow: var(--shadow-hud);
+  animation: nudge-in 0.2s var(--ease);
+}
+
+.update-notes[hidden] {
+  display: none;
+}
+
+.update-notes-title {
+  margin-bottom: 7px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.update-notes-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+.update-notes-list li + li {
+  margin-top: 4px;
 }
 
 .toasts {

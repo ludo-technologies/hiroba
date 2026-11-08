@@ -30,6 +30,7 @@ import { CustomSelect, type SelectOption } from "./select.js";
 import { bindOverlayDismiss } from "./overlay.js";
 import { AVATAR_MAX_CHARS, AVATAR_PRESETS, encodeAvatar, encodePreset, isPresetId, loadImage, presetSvg } from "./avatars.js";
 import type { CameraBackground } from "./background.js";
+import { notesIn, type ReleaseNotes } from "./release-notes.js";
 
 /** Picker order; the first is the default. */
 const TEAM_LAYOUTS: TeamLayout[] = ["meeting", "desks", "lounge", "cafe"];
@@ -281,6 +282,10 @@ const elUpdateBanner = $<HTMLDivElement>("update-banner");
 const elUpdateText = $<HTMLSpanElement>("update-text");
 const elUpdateInstall = $<HTMLButtonElement>("update-install");
 const elUpdateLater = $<HTMLButtonElement>("update-later");
+const elUpdateNotesToggle = $<HTMLButtonElement>("update-notes-toggle");
+const elUpdateNotes = $<HTMLDivElement>("update-notes");
+const elUpdateNotesTitle = $<HTMLDivElement>("update-notes-title");
+const elUpdateNotesList = $<HTMLUListElement>("update-notes-list");
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -625,6 +630,7 @@ export class UIManager {
   private lastMembers: MemberEntry[] | null = null;
   private lastReconnect: { attempt: number; max: number; offline: boolean } | null = null;
   private lastUpdateVersion: string | null = null;
+  private lastUpdateNotes: ReleaseNotes | null = null;
   private lastLoginBusy = false;
   private lastEmailBusy = false;
   private lastCodeBusy = false;
@@ -1150,6 +1156,7 @@ export class UIManager {
       } else {
         elUpdateInstall.textContent = t.updateDownloading;
       }
+      this._renderUpdateNotes();
     }
 
     // Device selects keep their options; only the "System default" label needs a refresh.
@@ -2431,10 +2438,17 @@ export class UIManager {
   // Update banner (desktop auto-update; driven by updater.ts)
   // -------------------------------------------------------------------------
 
-  /** Offer an available update. `onInstall` downloads, installs, relaunches. */
-  showUpdateBanner(version: string, onInstall: () => void): void {
+  /** Offer an available update. `onInstall` downloads, installs, relaunches;
+   *  `notes` (when the release has readable ones) backs the "What's new"
+   *  panel. A superseding offer closes a panel left open on the old one. */
+  showUpdateBanner(version: string, notes: ReleaseNotes | null, onInstall: () => void): void {
     this.lastUpdateVersion = version;
+    this.lastUpdateNotes = notes;
     elUpdateText.textContent = t.updateAvailable(version);
+    this._setUpdateNotesOpen(false);
+    elUpdateNotesToggle.toggleAttribute("hidden", notes === null);
+    elUpdateNotesToggle.onclick = () => this._setUpdateNotesOpen(elUpdateNotes.hidden);
+    this._renderUpdateNotes();
     elUpdateInstall.disabled = false;
     elUpdateInstall.textContent = t.updateInstall;
     // Plain assignment (not addEventListener) so a re-offer never stacks handlers.
@@ -2447,6 +2461,24 @@ export class UIManager {
     elUpdateLater.onclick = () => elUpdateBanner.setAttribute("hidden", "");
     elUpdateLater.removeAttribute("hidden");
     elUpdateBanner.removeAttribute("hidden");
+  }
+
+  private _setUpdateNotesOpen(open: boolean): void {
+    elUpdateNotes.toggleAttribute("hidden", !open);
+    elUpdateNotesToggle.setAttribute("aria-expanded", String(open));
+  }
+
+  /** Fill the "What's new" panel in the active language. */
+  private _renderUpdateNotes(): void {
+    if (!this.lastUpdateVersion || !this.lastUpdateNotes) return;
+    elUpdateNotesTitle.textContent = t.updateNotesTitle(this.lastUpdateVersion);
+    elUpdateNotesList.replaceChildren(
+      ...notesIn(this.lastUpdateNotes, locale).map((text) => {
+        const li = document.createElement("li");
+        li.textContent = text;
+        return li;
+      }),
+    );
   }
 
   /** Re-arm the banner after a failed download/install and say so. */

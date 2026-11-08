@@ -4,7 +4,8 @@
  * Checks the release feed (endpoints baked in via tauri.conf.json) shortly
  * after launch and every few hours while the app stays open — an office app
  * routinely runs for days. When a newer signed build exists, ui.ts shows a
- * calm banner; one click downloads, installs, and relaunches.
+ * calm banner; one click downloads, installs, and relaunches, and another
+ * opens the release's "What's new" (release-notes.ts).
  *
  * The check keeps running on its interval even after the banner has been
  * shown. It costs one small request, and it is what tells us the install is
@@ -30,6 +31,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { isTauri } from "./auth.js";
+import { parseReleaseNotes, type ReleaseNotes } from "./release-notes.js";
 import type { UIManager } from "./ui.js";
 
 /** Startup grace so the join screen paints before we touch the network. */
@@ -85,7 +87,21 @@ async function checkOnce(ui: UIManager): Promise<void> {
   await pending?.close().catch(() => {});
   pending = update;
   offeredVersion = update.version;
-  ui.showUpdateBanner(update.version, () => void install(ui, update));
+  ui.showUpdateBanner(update.version, readNotes(update), () => void install(ui, update));
+}
+
+/** The offer's "What's new", or null when the feed carries none the app can
+ *  read (a self-hosted feed without notes) — the banner then omits the button
+ *  but still offers the update. Our own releases can't hit the error path:
+ *  the release workflow refuses notes that don't parse. */
+function readNotes(update: Update): ReleaseNotes | null {
+  if (!update.body) return null;
+  try {
+    return parseReleaseNotes(update.body);
+  } catch (e) {
+    console.error("[updater] release notes unreadable:", e);
+    return null;
+  }
 }
 
 async function install(ui: UIManager, update: Update): Promise<void> {

@@ -229,6 +229,8 @@ const EN = {
   updateInstall: "Restart to update",
   updateDownloading: "Updating…",
   updateLater: "Later",
+  updateNotes: "What's new",
+  updateNotesTitle: (v: string) => `What's new in Hiroba ${v}`,
   updateFailed: "Update failed — please try again later.",
 
   // Web sign-in handoff (hiroba://auth/<code>): the invite page's "open in Hiroba"
@@ -554,6 +556,8 @@ const JA: typeof EN = {
   updateInstall: "更新して再起動",
   updateDownloading: "更新中…",
   updateLater: "後で",
+  updateNotes: "変更内容",
+  updateNotesTitle: (v: string) => `Hiroba ${v} の変更内容`,
   updateFailed: "更新に失敗しました。しばらくしてからもう一度お試しください。",
 
   // Web sign-in handoff (hiroba://auth/<code>): the invite page's "open in Hiroba"
@@ -878,6 +882,8 @@ const ES: typeof EN = {
   updateInstall: "Reiniciar para actualizar",
   updateDownloading: "Actualizando…",
   updateLater: "Más tarde",
+  updateNotes: "Novedades",
+  updateNotesTitle: (v: string) => `Novedades de Hiroba ${v}`,
   updateFailed: "No se pudo actualizar. Inténtalo de nuevo más tarde.",
 
   // Web sign-in handoff (hiroba://auth/<code>): the invite page's "open in Hiroba"
@@ -1203,6 +1209,8 @@ const FR: typeof EN = {
   updateInstall: "Redémarrer pour mettre à jour",
   updateDownloading: "Mise à jour…",
   updateLater: "Plus tard",
+  updateNotes: "Nouveautés",
+  updateNotesTitle: (v: string) => `Nouveautés de Hiroba ${v}`,
   updateFailed: "Échec de la mise à jour. Veuillez réessayer plus tard.",
 
   // Web sign-in handoff (hiroba://auth/<code>): the invite page's "open in Hiroba"

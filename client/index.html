@@ -660,9 +660,16 @@
       </form>
     </section>
 
-    <!-- Update banner: a newer signed release exists; one click installs + relaunches -->
+    <!-- Update banner: a newer signed release exists; one click installs + relaunches,
+         "What's new" opens the release's notes above it -->
     <div id="update-banner" class="update-banner" hidden role="status" aria-live="polite">
+      <div id="update-notes" class="update-notes" hidden>
+        <div id="update-notes-title" class="update-notes-title"></div>
+        <ul id="update-notes-list" class="update-notes-list"></ul>
+      </div>
       <span id="update-text">Update available</span>
+      <button id="update-notes-toggle" type="button" class="update-notes-toggle" hidden
+              aria-expanded="false" aria-controls="update-notes" data-i18n="updateNotes">What's new</button>
       <button id="update-install" type="button" data-i18n="updateInstall">Restart to update</button>
       <button id="update-later" type="button" class="update-later" data-i18n="updateLater">Later</button>
     </div>
