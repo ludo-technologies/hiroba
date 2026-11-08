@@ -15,7 +15,7 @@
  */
 
 import { REACTIONS, type NoteInfo, type Reaction, type SpaceDescriptor, type TeamLayout } from "./protocol.js";
-import { paintLayoutPreview } from "./render.js";
+import { paintLayoutPreview, type Fill } from "./render.js";
 import { luminance, mixHex } from "./color.js";
 import {
   applyStaticI18n,
@@ -217,6 +217,17 @@ const elChatForm = $<HTMLFormElement>("chat-form");
 const elChatInput = $<HTMLInputElement>("chat-input");
 const elChatToggle = $<HTMLButtonElement>("chat-toggle");
 const elChatUnread = $<HTMLSpanElement>("chat-unread");
+const elMTabButtons = [...$<HTMLElement>("m-tabs").querySelectorAll<HTMLButtonElement>("button[data-mtab]")];
+const elMChatUnread = $<HTMLSpanElement>("m-chat-unread");
+const elMFit = $<HTMLButtonElement>("m-fit");
+const elMFitWhole = $<HTMLSpanElement>("m-fit-whole");
+const elMFitZoom = $<HTMLSpanElement>("m-fit-zoom");
+
+/** The phone layout (styles.css): a screen too narrow for the rail. */
+const phoneLayout = window.matchMedia("(max-width: 599px)");
+
+/** What the phone layout shows: one of these takes the screen. */
+type MobileTab = "office" | "members" | "chat";
 const elInvitePanelError = $<HTMLParagraphElement>("invite-panel-error");
 
 const elScreenPerm = $<HTMLDivElement>("screen-perm");
@@ -440,6 +451,9 @@ export interface UICallbacks {
   onReact(id: number, emoji: Reaction): void;
   /** The HUD chat button or the panel's close button: open / close the chat. */
   onSetChatOpen(open: boolean): void;
+  /** How the room should meet the viewport: the phone layout fills its
+   *  height unless the user asked for the whole room. */
+  onFill(fill: Fill): void;
   /** Start a page (cross-space 1:1) with a roster member (FR-10). */
   onPage(memberId: string): void;
   /** Accept an incoming page offer. */
@@ -588,6 +602,8 @@ export class UIManager {
   /** Running under Tauri: interactive login is possible and the session token
    *  lives in the OS keychain, so localStorage must NOT hold tokens. */
   private tauri: boolean;
+  /** The phone layout shows the whole room rather than filling its height. */
+  private wholeRoom = false;
 
   // Self status flags, mirrored on the exclusive Active / Away / DND control.
   // Server effective priority is in_call > dnd > away; the UI shows one choice
@@ -701,6 +717,7 @@ export class UIManager {
     this._bindAudioSettings();
     this._bindReconnect();
     this._bindSidebar();
+    this._bindPhone();
     this._refreshAvatar();
     // No loopback receiver in a plain browser → no interactive login there.
     // Under Tauri a stored session may still be on its way in, so the sign-in
@@ -757,6 +774,7 @@ export class UIManager {
     elAudioSettings.setAttribute("hidden", "");
     elSidebar.setAttribute("hidden", "");
     elTabs.setAttribute("hidden", "");
+    delete document.body.dataset.mtab;
     this.hideOrgSetup();
     this.hideInviteSetup();
     this.hideInvitePanel();
@@ -782,6 +800,7 @@ export class UIManager {
     elHud.removeAttribute("hidden");
     elSidebar.removeAttribute("hidden");
     elTabs.removeAttribute("hidden");
+    this._showPhoneTab(elChatPanel.hidden ? "office" : "chat");
     elJoinError.setAttribute("hidden", "");
     this.setConnecting(false);
     // Join via Enter can leave focus stranded on a now-hidden input. Shortcuts
@@ -800,6 +819,7 @@ export class UIManager {
     elHud.setAttribute("hidden", "");
     elSidebar.setAttribute("hidden", "");
     elTabs.setAttribute("hidden", "");
+    delete document.body.dataset.mtab;
     elReconnect.removeAttribute("hidden");
     elReconnectMsg.textContent = reconnectCopy(this.lastReconnect);
   }
@@ -2255,9 +2275,16 @@ export class UIManager {
   setChatVisible(visible: boolean, focus = false): void {
     elChatPanel.hidden = !visible;
     elChatToggle.setAttribute("aria-pressed", visible ? "true" : "false");
+    // In a space, the phone layout shows the chat as its own tab.
+    if (document.body.dataset.mtab) {
+      if (visible) this._showPhoneTab("chat");
+      else if (document.body.dataset.mtab === "chat") this._showPhoneTab("office");
+    }
     if (visible) {
       this.scrollChatToEnd();
-      if (focus) elChatInput.focus();
+      // Not on a phone: there the focus would throw up the keyboard over
+      // the messages just opened to read.
+      if (focus && !phoneLayout.matches) elChatInput.focus();
     } else {
       // A hidden input cannot keep focus; say so explicitly so the movement
       // keys are ours again the moment the panel closes.
@@ -2267,8 +2294,10 @@ export class UIManager {
 
   /** Unread badge on the HUD chat button (0 hides it). */
   setChatUnread(count: number): void {
-    elChatUnread.textContent = count > 99 ? "99+" : String(count);
-    elChatUnread.hidden = count === 0;
+    for (const el of [elChatUnread, elMChatUnread]) {
+      el.textContent = count > 99 ? "99+" : String(count);
+      el.hidden = count === 0;
+    }
   }
 
   /** The server refused the message: hand it back to fix or re-send, unless
@@ -2487,6 +2516,49 @@ export class UIManager {
     elUpdateInstall.textContent = t.updateInstall;
     elUpdateLater.removeAttribute("hidden");
     this.showToast(t.updateFailed, "error");
+  }
+
+  /** Whether the phone layout is in effect (a narrow portrait screen). */
+  phoneLayout(): boolean {
+    return phoneLayout.matches;
+  }
+
+  private _bindPhone(): void {
+    for (const btn of elMTabButtons) {
+      btn.addEventListener("click", () => {
+        const tab = btn.dataset.mtab as MobileTab;
+        // The chat tab is the chat panel: opening it goes through the app,
+        // which comes back through setChatVisible.
+        if (tab === "chat") {
+          this.callbacks.onSetChatOpen(true);
+          return;
+        }
+        if (!elChatPanel.hidden) this.callbacks.onSetChatOpen(false);
+        this._showPhoneTab(tab);
+      });
+    }
+    elMFit.addEventListener("click", () => {
+      this.wholeRoom = !this.wholeRoom;
+      this._applyFill();
+    });
+    phoneLayout.addEventListener("change", () => this._applyFill());
+    this._applyFill();
+  }
+
+  private _showPhoneTab(tab: MobileTab): void {
+    document.body.dataset.mtab = tab;
+    for (const btn of elMTabButtons) {
+      if (btn.dataset.mtab === tab) btn.setAttribute("aria-current", "page");
+      else btn.removeAttribute("aria-current");
+    }
+  }
+
+  private _applyFill(): void {
+    const fill: Fill = phoneLayout.matches && !this.wholeRoom ? "height" : "fit";
+    // The button offers the other view.
+    elMFitWhole.hidden = fill !== "height";
+    elMFitZoom.hidden = fill === "height";
+    this.callbacks.onFill(fill);
   }
 
   private _bindSidebar(): void {

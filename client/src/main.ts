@@ -304,6 +304,7 @@ const ui = new UIManager(
     onRemoveNote: (id) => session?.net.send({ t: "remove_note", id }),
     onReact: (id, emoji) => session?.net.send({ t: "react", id, emoji }),
     onSetChatOpen: (open) => setChatOpen(open, false, open),
+    onFill: (fill) => renderer.setFill(fill),
     onOpenMembersPanel: handleOpenMembersPanel,
     onRemoveMember: handleRemoveMember,
     onOpenBilling: handleOpenBilling,
@@ -410,9 +411,9 @@ window.addEventListener("keydown", (e) => {
 // Dragging with the button held steers free walk (seats are only snap-picked
 // on pointerdown so dragging across furniture doesn't re-target every stool).
 // Keyboard input still wins — input.ts drops the target on the first key.
-function pointToWalk(e: PointerEvent): void {
-  if (!session || !e.isPrimary) return;
-  const world = renderer.screenToWorld(e.clientX, e.clientY);
+function walkTo(clientX: number, clientY: number): void {
+  if (!session) return;
+  const world = renderer.screenToWorld(clientX, clientY);
   if (!world) return;
   session.input.setMoveTarget(world.x, world.y);
 }
@@ -476,7 +477,9 @@ function updateBoardProximity(x: number, y: number): void {
   if (near === session.nearBoard) return;
   session.nearBoard = near;
   if (near) {
-    if (!session.chatOpen) setChatOpen(true, true);
+    // On a phone the chat takes the screen: walking past the board must not
+    // pull the user out of the office (a tap on the board still opens it).
+    if (!session.chatOpen && !ui.phoneLayout()) setChatOpen(true, true);
   } else if (session.chatByWalk) {
     setChatOpen(false, false);
   }
@@ -492,12 +495,12 @@ function canPagePeer(id: string): boolean {
   return session.roster.has(id);
 }
 
-canvas.addEventListener("pointerdown", (e) => {
-  if (e.button !== 0) return;
-  if (!session || !e.isPrimary) return;
+/** A click (or tap) on the floor at client px (x, y). */
+function pressFloor(x: number, y: number): void {
+  if (!session) return;
 
   // Peers first: clicking someone sitting on a stool should page them, not re-sit.
-  const peerId = renderer.peerAtScreen(e.clientX, e.clientY);
+  const peerId = renderer.peerAtScreen(x, y);
   if (peerId && canPagePeer(peerId)) {
     handlePage(peerId);
     renderer.setPageHover(null);
@@ -507,24 +510,49 @@ canvas.addEventListener("pointerdown", (e) => {
   }
 
   // The board opens the chat from wherever we stand; no walk needed.
-  if (renderer.boardAtScreen(e.clientX, e.clientY)) {
+  if (renderer.boardAtScreen(x, y)) {
     setChatOpen(true, false, true);
     return;
   }
 
-  const seat = renderer.seatAtScreen(e.clientX, e.clientY);
+  const seat = renderer.seatAtScreen(x, y);
   if (seat) {
     session.input.setMoveTarget(seat.x, seat.y);
-    seatClickAnchor = { x: e.clientX, y: e.clientY };
+    seatClickAnchor = { x, y };
     return;
   }
 
   seatClickAnchor = null;
-  pointToWalk(e);
+  walkTo(x, y);
+}
+
+// On a room wider than the viewport (a phone held upright) a drag looks
+// around instead of steering, so a press waits to learn which it is: past
+// the slop it pans, else its release acts as the click it was.
+let panPress: { x: number; y: number; lastX: number; panning: boolean } | null = null;
+const PAN_SLOP_PX = 8;
+
+canvas.addEventListener("pointerdown", (e) => {
+  if (e.button !== 0) return;
+  if (!session || !e.isPrimary) return;
+  if (renderer.pannable()) {
+    panPress = { x: e.clientX, y: e.clientY, lastX: e.clientX, panning: false };
+    return;
+  }
+  pressFloor(e.clientX, e.clientY);
 });
 
 canvas.addEventListener("pointermove", (e) => {
+  if (panPress && e.isPrimary) {
+    if (!panPress.panning && Math.hypot(e.clientX - panPress.x, e.clientY - panPress.y) >= PAN_SLOP_PX) {
+      panPress.panning = true;
+    }
+    if (panPress.panning) renderer.panBy(e.clientX - panPress.lastX);
+    panPress.lastX = e.clientX;
+    return;
+  }
   if (e.buttons === 1) {
+    if (!session || !e.isPrimary) return;
     // Free-steer while dragging; don't snap to every seat under the path.
     // A seat click keeps its snap until the pointer clearly drags away.
     if (seatClickAnchor) {
@@ -532,7 +560,7 @@ canvas.addEventListener("pointermove", (e) => {
       if (moved < SEAT_DRAG_SLOP_PX) return;
       seatClickAnchor = null;
     }
-    pointToWalk(e);
+    walkTo(e.clientX, e.clientY);
     return;
   }
   if (!session) return;
@@ -554,12 +582,20 @@ canvas.addEventListener("pointermove", (e) => {
   canvas.classList.toggle("can-sit", !!seat);
 });
 
-canvas.addEventListener("pointerup", () => {
+canvas.addEventListener("pointerup", (e) => {
   seatClickAnchor = null;
+  const press = panPress;
+  panPress = null;
+  if (press && !press.panning && e.isPrimary) pressFloor(press.x, press.y);
+});
+
+canvas.addEventListener("pointercancel", () => {
+  panPress = null;
 });
 
 canvas.addEventListener("pointerleave", () => {
   seatClickAnchor = null;
+  panPress = null;
   renderer.setPageHover(null);
   renderer.setSeatHover(null);
   canvas.classList.remove("can-page", "can-sit");

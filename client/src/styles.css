@@ -3309,3 +3309,230 @@ a.hud-pill {
   color: var(--ink-mute);
   padding: 4px 2px;
 }
+
+/* ---------------------------------------------------------------------------
+ * Phone layout: a portrait screen too narrow for the rail. In a space
+ * (body[data-mtab], set by ui.ts) the office, the members and the chat each
+ * take the screen, switched from a bottom bar, and the floor fills the
+ * screen's height and pans sideways (render.ts, Fill "height").
+ * --------------------------------------------------------------------------- */
+
+.m-tabs,
+.m-fit {
+  display: none;
+}
+
+@media (max-width: 599px) {
+  :root {
+    --rail: 0px;
+    --m-head: 52px;   /* the org bar: the sidebar's head */
+    --m-spaces: 50px; /* the space tabs under it */
+    --m-tabbar: 64px;
+  }
+
+  body[data-mtab] #space {
+    top: calc(var(--m-head) + var(--m-spaces));
+    height: calc(100% - var(--m-head) - var(--m-spaces) - var(--m-tabbar));
+  }
+
+  body[data-mtab] .m-tabs {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: var(--m-tabbar);
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    background: var(--paper);
+    border-top: 1px solid var(--edge);
+    z-index: 70;
+  }
+
+  .m-tabs button {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    border: 0;
+    background: transparent;
+    color: var(--ink-soft);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .m-tabs button[aria-current="page"] {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .m-tabs .chat-unread {
+    top: 6px;
+    right: auto;
+    left: calc(50% + 6px);
+  }
+
+  /* The sidebar: in the office only its head shows, as the top bar; on the
+     members tab it takes the screen. */
+  body[data-mtab] #sidebar {
+    width: auto;
+    right: 0;
+    bottom: var(--m-tabbar);
+    border-right: 0;
+    box-shadow: none;
+  }
+
+  body[data-mtab="office"] #sidebar {
+    bottom: auto;
+    height: var(--m-head);
+  }
+
+  body[data-mtab="office"] #sidebar > :not(.side-head) {
+    display: none;
+  }
+
+  body[data-mtab="office"] .side-head {
+    height: 100%;
+    box-sizing: border-box;
+    padding-block: 0;
+  }
+
+  body[data-mtab="chat"] #sidebar {
+    display: none;
+  }
+
+  /* The space tabs: a sideways-scrolling row under the org bar. */
+  body[data-mtab] .tabs {
+    top: var(--m-head);
+    left: 0;
+    right: 0;
+    max-width: none;
+    height: var(--m-spaces);
+    box-sizing: border-box;
+    padding: 0 12px;
+    background: var(--paper);
+    border-bottom: 1px solid var(--edge);
+    scrollbar-width: none;
+  }
+
+  body[data-mtab] .tab {
+    box-shadow: none;
+    padding: 7px 15px;
+    font-size: 14px;
+  }
+
+  body[data-mtab]:not([data-mtab="office"]) .tabs,
+  body[data-mtab]:not([data-mtab="office"]) #hud {
+    display: none;
+  }
+
+  body[data-mtab="office"] .m-fit {
+    display: inline-flex;
+    position: fixed;
+    top: calc(var(--m-head) + var(--m-spaces) + 10px);
+    right: 12px;
+    z-index: 50;
+  }
+
+  /* The HUD: the mic first and big. The chat is a tab; phones can't share
+     their screen; the desktop app is not for them. */
+  body[data-mtab] #hud {
+    left: 12px;
+    right: 12px;
+    bottom: calc(var(--m-tabbar) + 12px);
+  }
+
+  #chat-toggle,
+  #screen-share,
+  #hud-get-app {
+    display: none;
+  }
+
+  #mic {
+    padding: 13px 20px;
+    font-size: 15px;
+  }
+
+  /* The chat: the whole screen above the tab bar; the tab bar closes it. */
+  body[data-mtab] .chat-panel {
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: var(--m-tabbar);
+    width: auto;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    animation: none;
+    z-index: 65;
+  }
+
+  body[data-mtab] .chat-close {
+    display: none;
+  }
+
+  /* A call: a wide card above the HUD, its buttons sized for a thumb. */
+  body[data-mtab] .call-banner:not([hidden]) {
+    top: auto;
+    left: 12px;
+    right: 12px;
+    bottom: calc(var(--m-tabbar) + 76px);
+    display: flex;
+    flex-wrap: wrap;
+    padding: 12px 12px 12px 16px;
+    border-radius: 18px;
+    font-size: 15px;
+    z-index: 72;
+  }
+
+  body[data-mtab] #call-text {
+    flex: 1 1 auto;
+  }
+
+  body[data-mtab] #call-accept,
+  body[data-mtab] #hangup {
+    padding: 11px 18px;
+    font-size: 15px;
+  }
+
+  body[data-mtab] .screen-panel:not(.fullscreen) {
+    top: calc(var(--m-head) + var(--m-spaces) + 64px);
+    left: 12px;
+    right: 12px;
+    width: auto;
+  }
+
+  /* The roster: rows and their call button sized for a thumb. */
+  .roster-row {
+    padding: 10px 12px;
+  }
+
+  .page-btn {
+    padding: 10px 18px;
+    font-size: 14px;
+  }
+
+  /* Keyboard hints mean nothing on a phone. */
+  .onboard {
+    display: none;
+  }
+
+  .nudge {
+    left: 12px;
+    right: 12px;
+    bottom: calc(var(--m-tabbar) + 76px);
+  }
+
+  .nudge-room {
+    bottom: calc(var(--m-tabbar) + 120px);
+  }
+
+  .toasts {
+    top: calc(var(--m-head) + var(--m-spaces) + 8px);
+    left: 12px;
+    right: 12px;
+  }
+}
