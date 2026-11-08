@@ -25,14 +25,17 @@ const TOKEN_SHAPE = /^[A-Za-z0-9_-]{1,128}$/;
 
 /** The invite a browser tab was opened with (`?invite=<token or link>`), or
  *  `""`. Always `""` under Tauri, where invites arrive as deep links. Kept for
- *  {@link installedAppInvite}. */
+ *  {@link installedAppInvite}, unless the link names a page to go back to
+ *  (`?return=`, the landing page's demo button): an app installed during a
+ *  demo opens at sign-in, not in the demo office. */
 export function inviteFromLocation(): string {
   if (isTauri()) return "";
-  const raw = new URLSearchParams(window.location.search).get("invite");
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get("invite");
   if (raw === null) return "";
   const code = extractInviteCode(raw);
   if (!TOKEN_SHAPE.test(code)) return "";
-  localStorage.setItem(LS_WEB_INVITE, code);
+  if (!params.has("return")) localStorage.setItem(LS_WEB_INVITE, code);
   return code;
 }
 
