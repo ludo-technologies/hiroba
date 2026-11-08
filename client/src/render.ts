@@ -104,6 +104,11 @@ const CAM_ENTER: Camera = { yaw: Math.PI / 4, pitch: 0.56 };
 /** The swing's length, ms. */
 const ENTER_MS = 1500;
 
+/** How the room meets the viewport: "fit" shows all of it; "height" fills
+ *  the viewport's height and lets a room wider than the viewport pan
+ *  sideways (a phone held upright, where the whole room would be a strip). */
+export type Fill = "fit" | "height";
+
 /** The camera plus the fit: where the floor's centre lands on the canvas,
  *  and the pixels per world unit. */
 interface View {
@@ -115,6 +120,9 @@ interface View {
   scale: number;
   ox: number;
   oy: number;
+  /** How far, in canvas px, the centred room can pan either way before an
+   *  edge comes into view (0 when it fits). */
+  slack: number;
 }
 
 /** Project a world point (height z) to canvas pixels. */
@@ -364,6 +372,7 @@ const STATUS_CALL_PULSE_PERIOD = 1.7;
 // via 1 - exp(-dt/tau), so behaviour is identical at 30 or 144 Hz.
 const PEER_LERP_TAU = 0.09;
 const ANIM_TAU = 0.18; // spawn / leave fades
+const PAN_TAU = 0.15; // the camera catching up with self
 
 // A position within this many world units of its target is "settled".
 const SETTLE_EPS = 0.3;
@@ -518,6 +527,14 @@ export class Renderer {
   /** Called when the renderer needs the loop to wake (e.g. a resize repaint). */
   private onWake: (() => void) | null = null;
 
+  /** How the room meets the viewport (see {@link Fill}). */
+  private fill: Fill = "fit";
+  /** The camera's sideways offset from the centred room, canvas px — only a
+   *  room wider than the viewport has any (`View.slack`). */
+  private panX = 0;
+  /** The camera keeps self in the middle until a drag takes it elsewhere. */
+  private follow = true;
+
   constructor(canvas: HTMLCanvasElement, opts: RendererOptions = {}) {
     this.canvas = canvas;
     const ctx = canvas.getContext("2d");
@@ -550,6 +567,29 @@ export class Renderer {
     this.onWake = cb;
   }
 
+  /** Switch how the room meets the viewport; the camera returns to self. */
+  setFill(fill: Fill): void {
+    if (fill === this.fill) return;
+    this.fill = fill;
+    this.follow = true;
+    this.onWake?.();
+  }
+
+  /** Whether a drag pans the view: the room is wider than the viewport. */
+  pannable(): boolean {
+    return !!this.space && this._baseView(this.space, this.lastDraw).slack > 0;
+  }
+
+  /** Drag the view sideways by `dx` CSS px; the camera stays where it is
+   *  put until self moves. */
+  panBy(dx: number): void {
+    if (!this.space) return;
+    const { slack } = this._baseView(this.space, this.lastDraw);
+    this.panX = Math.max(-slack, Math.min(slack, this.panX + dx * (window.devicePixelRatio || 1)));
+    this.follow = false;
+    this.onWake?.();
+  }
+
   /** Call once after `welcome`, and again on `space_snapshot` (space switch). */
   init(space: SpaceDescriptor, self: Peer): void {
     // Re-measure before the first scene frame: the backing store may still
@@ -558,6 +598,7 @@ export class Renderer {
     this.space = space;
     this.self = this._mkPeer(self, /* spawned */ true);
     this.lastDraw = 0;
+    this.follow = true;
     this.peers.clear();
     this.plan = buildFloor(space);
     this.sortedYaw = NaN;
@@ -583,14 +624,31 @@ export class Renderer {
     this.paintIdle();
   }
 
-  /**
-   * The projection that fits the whole room — walls and slab included — in
-   * the viewport, centred. There is no camera to pan; a future zoom (a floor
-   * bigger than one screen) is what would bring one back, and both `draw`
-   * and the hit-tests would then need to share its state through here.
-   */
+  /** The room in the viewport per the fill, centred: the camera before its pan. */
+  private _baseView(space: SpaceDescriptor, now: number): View {
+    return fitView(this.canvas.width, this.canvas.height, space, this._camera(now), this.fill);
+  }
+
+  /** The projection the last frame was drawn with, pan included, so the
+   *  hit-tests see what the user sees. */
   private _view(space: SpaceDescriptor): View {
-    return fitView(this.canvas.width, this.canvas.height, space, this._camera(this.lastDraw));
+    const V = this._baseView(space, this.lastDraw);
+    V.ox += this.panX;
+    return V;
+  }
+
+  /** Glide the camera toward self while following, and keep it on the room;
+   *  true while it is still moving. */
+  private _steerPan(V: View, self: RenderPeer, dt: number): boolean {
+    const clamp = (x: number) => Math.max(-V.slack, Math.min(V.slack, x));
+    if (!this.follow) {
+      this.panX = clamp(this.panX);
+      return false;
+    }
+    const target = clamp(this.canvas.width / 2 - pt(V, self.x, self.y).x);
+    const next = this.panX + (target - this.panX) * ease(dt, PAN_TAU);
+    this.panX = Math.abs(target - next) < 0.5 ? target : next;
+    return this.panX !== target;
   }
 
   /** The camera at time `now`: mid-swing after `init`, else at rest. */
@@ -748,6 +806,8 @@ export class Renderer {
   /** Update self position from local input integration (every frame). */
   setSelfPosition(x: number, y: number): void {
     if (this.self) {
+      // Moving brings a panned-away camera back along.
+      if (x !== this.self.x || y !== this.self.y) this.follow = true;
       this.self.x = x;
       this.self.y = y;
       this.self.targetX = x;
@@ -864,7 +924,8 @@ export class Renderer {
     const swinging = this.enterStart > 0 && now - this.enterStart < ENTER_MS;
     if (swinging) highRate = true;
     else if (this.enterStart > 0) this.enterStart = 0;
-    const V = fitView(this.canvas.width, this.canvas.height, space, this._camera(now));
+    const V = this._baseView(space, now);
+    if (this._steerPan(V, self, dt)) highRate = true;
 
     // Furniture keeps its painter's order for the current yaw.
     if (this.sortedYaw !== V.cam.yaw) {
@@ -872,9 +933,11 @@ export class Renderer {
       this.sortedYaw = V.cam.yaw;
     }
 
-    // --- The static room, from the cache ---
+    // --- The static room, from the cache (painted unpanned, `slack` wider
+    //     on each side, so a pan is a blit offset rather than a repaint) ---
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.drawImage(this._scene(space, plan, V), 0, 0);
+    ctx.drawImage(this._scene(space, plan, V), this.panX - V.slack, 0);
+    V.ox += this.panX;
 
     // --- Flat, live marks on the floor ---
     ctx.save();
@@ -965,13 +1028,14 @@ export class Renderer {
   }
 
   /**
-   * The static backdrop at the current viewport, repainted only when
-   * something it depends on changed: size, space, board count, or the light
-   * step. Also refreshes the palette the standing pass draws with.
+   * The static backdrop at the current viewport — plus `V.slack` either
+   * side, for the pan — repainted only when something it depends on
+   * changed: size, fill, space, board count, or the light step. Also
+   * refreshes the palette the standing pass draws with.
    */
   private _scene(space: SpaceDescriptor, plan: FloorPlan, V: View): HTMLCanvasElement {
     const step = this._lightStep();
-    const key = `${this.canvas.width}x${this.canvas.height}|${space.id}|${this.boardNotes}|${step}|${V.cam.yaw}|${V.cam.pitch}`;
+    const key = `${this.canvas.width}x${this.canvas.height}|${this.fill}|${space.id}|${this.boardNotes}|${step}|${V.cam.yaw}|${V.cam.pitch}`;
     if (this.scene && this.sceneKey === key) return this.scene;
 
     let scene = this.scene;
@@ -979,7 +1043,7 @@ export class Renderer {
       scene = document.createElement("canvas");
       this.scene = scene;
     }
-    scene.width = this.canvas.width;
+    scene.width = this.canvas.width + 2 * V.slack;
     scene.height = this.canvas.height;
     const sctx = scene.getContext("2d");
     if (!sctx) throw new Error("Canvas 2D context not available");
@@ -990,7 +1054,7 @@ export class Renderer {
       this.palette = makePalette(this.light);
       this.lightStep = step;
     }
-    paintBackdrop(sctx, V, space, plan, this.boardNotes, this.light, this.palette, this.grain);
+    paintBackdrop(sctx, { ...V, ox: V.ox + V.slack }, space, plan, this.boardNotes, this.light, this.palette, this.grain);
 
     this.sceneKey = key;
     return scene;
@@ -1455,8 +1519,9 @@ function localHour(): number {
   return d.getHours() + d.getMinutes() / 60;
 }
 
-/** Fit the projected room — walls, floor and slab — into a viewport. */
-function fitView(vw: number, vh: number, space: SpaceDescriptor, cam: Camera): View {
+/** Fit the projected room — walls, floor and slab — into a viewport,
+ *  centred (see {@link Fill}). */
+function fitView(vw: number, vh: number, space: SpaceDescriptor, cam: Camera, fill: Fill = "fit"): View {
   const W = space.width;
   const H = space.height;
   const V: View = {
@@ -1468,6 +1533,7 @@ function fitView(vw: number, vh: number, space: SpaceDescriptor, cam: Camera): V
     scale: 1,
     ox: 0,
     oy: 0,
+    slack: 0,
   };
   // Projected extents of the room's box at scale 1, centred on the floor.
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -1483,10 +1549,12 @@ function fitView(vw: number, vh: number, space: SpaceDescriptor, cam: Camera): V
     }
   }
   minX -= VIEW_PAD; maxX += VIEW_PAD; minY -= VIEW_PAD; maxY += VIEW_PAD;
-  const scale = Math.min(vw / (maxX - minX), vh / (maxY - minY));
+  const toHeight = vh / (maxY - minY);
+  const scale = fill === "height" ? toHeight : Math.min(vw / (maxX - minX), toHeight);
   V.scale = scale;
   V.ox = (vw - (maxX + minX) * scale) / 2;
   V.oy = (vh - (maxY + minY) * scale) / 2;
+  V.slack = Math.max(0, Math.ceil(((maxX - minX) * scale - vw) / 2));
   return V;
 }
 
