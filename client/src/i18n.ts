@@ -208,6 +208,7 @@ const EN = {
   // Org switcher (signed-in chip; shown when the user belongs to 2+ orgs)
   orgSwitchAria: "Switch organization",
   errOrgSwitch: "Couldn't switch organizations. Please try again.",
+  errSignOut: "Couldn't sign out. Check your connection and try again.",
 
   // Join card (connecting) / reconnect overlay
   connecting: "Connecting…",
@@ -544,6 +545,7 @@ const JA: typeof EN = {
   // 組織切替(サインイン済みチップ — 2つ以上の組織に所属しているとき)
   orgSwitchAria: "組織を切り替え",
   errOrgSwitch: "組織を切り替えられませんでした。もう一度お試しください。",
+  errSignOut: "サインアウトできませんでした。接続を確認して、もう一度お試しください。",
 
   // Join card (connecting) / reconnect overlay
   connecting: "接続中…",
@@ -879,6 +881,7 @@ const ES: typeof EN = {
   // Org switcher (signed-in chip; shown when the user belongs to 2+ orgs)
   orgSwitchAria: "Cambiar de organización",
   errOrgSwitch: "No se pudo cambiar de organización. Inténtalo de nuevo.",
+  errSignOut: "No se pudo cerrar la sesión. Revisa tu conexión e inténtalo de nuevo.",
 
   // Join card (connecting) / reconnect overlay
   connecting: "Conectando…",
@@ -1215,6 +1218,7 @@ const FR: typeof EN = {
   // Org switcher (signed-in chip; shown when the user belongs to 2+ orgs)
   orgSwitchAria: "Changer d'organisation",
   errOrgSwitch: "Impossible de changer d'organisation. Veuillez réessayer.",
+  errSignOut: "Impossible de se déconnecter. Vérifiez votre connexion et réessayez.",
 
   // Join card (connecting) / reconnect overlay
   connecting: "Connexion…",

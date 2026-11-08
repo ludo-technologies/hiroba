@@ -1032,11 +1032,20 @@ async function handleHandoff(code: string, announce: boolean): Promise<void> {
   ui.submitJoin();
 }
 
-function handleLogout(): void {
+/** Sign out, and only say so once it has happened: the browser build's
+ *  session lives on the auth server, so a sign-out that never reached it
+ *  leaves a session the next load would walk straight back into. */
+async function handleLogout(): Promise<void> {
+  try {
+    await clearSession(ui.getAuthUrl());
+  } catch (err) {
+    console.warn("hiroba: sign-out failed", err);
+    ui.showToast(t.errSignOut, "error");
+    return;
+  }
   cancelRestoreRetry();
   authSession = null;
   localStorage.removeItem(LS_SESSION_ENDPOINTS);
-  void clearSession(ui.getAuthUrl());
   reflectAuthSession();
 }
 
