@@ -371,9 +371,11 @@ const installedInvite = urlInvite ? "" : installedAppInvite();
 const guestReturnUrl = urlInvite ? returnFromLocation() : "";
 
 /** The invite a browser guest enters with right now, or `""` (a member, or
- *  no invite at all). */
+ *  no invite at all). A guest's own session doesn't count as a member: it is
+ *  minted afresh from the invite on every connect. */
 function guestInvite(): string {
-  return urlInvite || (authSession ? "" : installedInvite);
+  const member = authSession !== null && authSession.claims.role !== "guest";
+  return urlInvite || (member ? "" : installedInvite);
 }
 // Nobody is signed in yet; `reflectAuthSession` keeps this current from here.
 ui.setGuestMode(urlInvite !== "" || installedInvite !== "");
