@@ -15,3 +15,14 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+/** Chrome's install prompt (not in lib.dom): main.ts holds it back with
+ *  preventDefault and the phone layout offers it (ui.offerInstall). */
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  readonly userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+}
+
+interface WindowEventMap {
+  beforeinstallprompt: BeforeInstallPromptEvent;
+}

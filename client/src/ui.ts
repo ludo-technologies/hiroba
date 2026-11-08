@@ -50,6 +50,11 @@ const LS_AUTH = "hiroba_auth_server";
 const LS_CAMERA_BACKGROUND = "hiroba_camera_background";
 /** The picked picture, as a data URL from encodeBackground. */
 const LS_CAMERA_BACKGROUND_IMAGE = "hiroba_camera_background_image";
+/** When the install offer was last put off: "Not now", or Chrome's own
+ *  install dialog dismissed. */
+const LS_INSTALL_LATER = "hiroba_install_later";
+/** How long a put-off install offer stays away. */
+const INSTALL_LATER_MS = 7 * 24 * 60 * 60 * 1000;
 
 // Default signaling / auth URLs, baked in at build time via Vite's
 // `VITE_HIROBA_SERVER` / `VITE_HIROBA_AUTH_SERVER` (set in the environment or
@@ -87,6 +92,11 @@ function isLoopbackUrl(value: string): boolean {
 function persistUrlDeviation(key: string, value: string, defaultValue: string): void {
   if (value === defaultValue) localStorage.removeItem(key);
   else localStorage.setItem(key, value);
+}
+
+/** Keep the install offer away for INSTALL_LATER_MS. */
+function putOffInstall(): void {
+  localStorage.setItem(LS_INSTALL_LATER, String(Date.now()));
 }
 
 /** Curated friendly palette offered as one-tap swatches. Each carries a
@@ -222,6 +232,9 @@ const elMChatUnread = $<HTMLSpanElement>("m-chat-unread");
 const elMFit = $<HTMLButtonElement>("m-fit");
 const elMFitWhole = $<HTMLSpanElement>("m-fit-whole");
 const elMFitZoom = $<HTMLSpanElement>("m-fit-zoom");
+const elInstallOffer = $<HTMLDivElement>("install-offer");
+const elInstallAdd = $<HTMLButtonElement>("install-add");
+const elInstallLater = $<HTMLButtonElement>("install-later");
 
 /** The phone layout (styles.css): a screen too narrow for the rail. */
 const phoneLayout = window.matchMedia("(max-width: 599px)");
@@ -604,6 +617,8 @@ export class UIManager {
   private tauri: boolean;
   /** The phone layout shows the whole room rather than filling its height. */
   private wholeRoom = false;
+  /** Chrome's install prompt, until the install offer has been answered. */
+  private installPrompt: BeforeInstallPromptEvent | null = null;
 
   // Self status flags, mirrored on the exclusive Active / Away / DND control.
   // Server effective priority is in_call > dnd > away; the UI shows one choice
@@ -775,6 +790,7 @@ export class UIManager {
     elSidebar.setAttribute("hidden", "");
     elTabs.setAttribute("hidden", "");
     delete document.body.dataset.mtab;
+    elInstallOffer.setAttribute("hidden", "");
     this.hideOrgSetup();
     this.hideInviteSetup();
     this.hideInvitePanel();
@@ -801,6 +817,7 @@ export class UIManager {
     elSidebar.removeAttribute("hidden");
     elTabs.removeAttribute("hidden");
     this._showPhoneTab(elChatPanel.hidden ? "office" : "chat");
+    this._maybeOfferInstall();
     elJoinError.setAttribute("hidden", "");
     this.setConnecting(false);
     // Join via Enter can leave focus stranded on a now-hidden input. Shortcuts
@@ -820,6 +837,7 @@ export class UIManager {
     elSidebar.setAttribute("hidden", "");
     elTabs.setAttribute("hidden", "");
     delete document.body.dataset.mtab;
+    elInstallOffer.setAttribute("hidden", "");
     elReconnect.removeAttribute("hidden");
     elReconnectMsg.textContent = reconnectCopy(this.lastReconnect);
   }
@@ -2543,6 +2561,42 @@ export class UIManager {
     });
     phoneLayout.addEventListener("change", () => this._applyFill());
     this._applyFill();
+
+    elInstallAdd.addEventListener("click", () => void this._install());
+    const later = () => {
+      this._closeInstallOffer();
+      putOffInstall();
+    };
+    elInstallLater.addEventListener("click", later);
+    bindOverlayDismiss(elInstallOffer, later);
+  }
+
+  /** Chrome found the browser build installable. The phone layout offers it
+   *  once in a space, unless it was put off lately; the desktop layout leaves
+   *  it to Chrome's own install button. */
+  offerInstall(prompt: BeforeInstallPromptEvent): void {
+    this.installPrompt = prompt;
+    this._maybeOfferInstall();
+  }
+
+  private _maybeOfferInstall(): void {
+    if (!this.installPrompt || !phoneLayout.matches || document.body.dataset.mtab === undefined) return;
+    if (Date.now() - Number(localStorage.getItem(LS_INSTALL_LATER)) < INSTALL_LATER_MS) return;
+    elInstallOffer.removeAttribute("hidden");
+  }
+
+  private async _install(): Promise<void> {
+    const prompt = this.installPrompt;
+    if (!prompt) throw new Error("install offer shown without Chrome's prompt");
+    this._closeInstallOffer();
+    await prompt.prompt();
+    if ((await prompt.userChoice).outcome === "dismissed") putOffInstall();
+  }
+
+  /** A prompt shows once, so an answered offer drops it. */
+  private _closeInstallOffer(): void {
+    this.installPrompt = null;
+    elInstallOffer.setAttribute("hidden", "");
   }
 
   private _showPhoneTab(tab: MobileTab): void {

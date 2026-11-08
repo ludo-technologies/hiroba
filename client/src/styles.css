@@ -3536,3 +3536,25 @@ a.hud-pill {
     right: 12px;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Install offer: Chrome's install prompt as Hiroba's own card (ui.offerInstall,
+ * phone layout only).
+ * --------------------------------------------------------------------------- */
+
+.install-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+}
+
+.install-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.install-actions .ghost-btn {
+  font-size: 14.5px;
+  border-radius: var(--radius-btn);
+}

@@ -601,6 +601,20 @@
       </div>
     </div>
 
+    <!-- Install offer: Chrome's install prompt, held until the phone layout is
+         in a space (ui.offerInstall) -->
+    <div id="install-offer" class="overlay" hidden>
+      <div class="card invite-card" role="dialog" aria-modal="true" aria-labelledby="install-title">
+        <img class="install-icon" src="/icons/icon-192.png" alt="" width="64" height="64" />
+        <span id="install-title" class="invite-title" data-i18n="installTitle">Add Hiroba to your home screen</span>
+        <p class="org-setup-desc" data-i18n="installBody">Open it from an icon, full screen, like any other app.</p>
+        <div class="install-actions">
+          <button id="install-later" type="button" class="ghost-btn" data-i18n="installLater">Not now</button>
+          <button id="install-add" type="button" class="setup-primary" data-i18n="installAdd">Add</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Space tabs: switch the active space (FR-05); rebuilt from the catalog -->
     <nav id="tabs" class="tabs" hidden aria-label="Spaces" data-i18n-arialabel="ariaSpaces"></nav>
 

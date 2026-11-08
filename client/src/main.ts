@@ -382,9 +382,15 @@ preconnect(ui.getAuthUrl());
 preconnect(ui.getServerUrl());
 
 // The browser build installs as an app (manifest.webmanifest). Chrome offers
-// that only under a service worker with a fetch handler (public/sw.js).
+// that only under a service worker with a fetch handler (public/sw.js), and
+// its prompt is held back here so the phone layout can offer it in its own
+// words instead of Chrome's mini-infobar.
 if (!isTauri()) {
   void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`);
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    ui.offerInstall(e);
+  });
 }
 
 if (isTauri()) {
