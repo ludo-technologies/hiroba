@@ -381,6 +381,12 @@ function preconnect(url: string): void {
 preconnect(ui.getAuthUrl());
 preconnect(ui.getServerUrl());
 
+// The browser build installs as an app (manifest.webmanifest). Chrome offers
+// that only under a service worker with a fetch handler (public/sw.js).
+if (!isTauri()) {
+  void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`);
+}
+
 if (isTauri()) {
   const appWindow = getCurrentWindow();
   void appWindow

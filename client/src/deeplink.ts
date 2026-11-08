@@ -19,13 +19,23 @@
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { extractInviteCode, isTauri, parseAuthDeepLink } from "./auth.js";
 
+const LS_WEB_INVITE = "hiroba_web_invite";
+
 /** The invite a browser tab was opened with (`?invite=<token or link>`), or
- *  `""`. Always `""` under Tauri, where invites arrive as deep links. */
+ *  `""`. Always `""` under Tauri, where invites arrive as deep links.
+ *  The installed app opens at the manifest's start_url, which carries none, so
+ *  the last invite this browser was opened with is kept for it. */
 export function inviteFromLocation(): string {
   if (isTauri()) return "";
-  const raw = new URLSearchParams(window.location.search).get("invite") ?? "";
+  const raw = new URLSearchParams(window.location.search).get("invite");
+  if (raw === null) {
+    const installed = window.matchMedia("(display-mode: standalone)").matches;
+    return installed ? (localStorage.getItem(LS_WEB_INVITE) ?? "") : "";
+  }
   const code = extractInviteCode(raw);
-  return /^[A-Za-z0-9_-]{1,128}$/.test(code) ? code : "";
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(code)) return "";
+  localStorage.setItem(LS_WEB_INVITE, code);
+  return code;
 }
 
 /** Where a browser guest goes after leaving (`?return=<path>`), or `""`.
