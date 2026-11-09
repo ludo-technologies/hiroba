@@ -109,6 +109,13 @@ const ENTER_MS = 1500;
  *  sideways (a phone held upright, where the whole room would be a strip). */
 export type Fill = "fit" | "height";
 
+/** Room edges under chrome (a docked video panel): the room is fitted into
+ *  what is left. */
+export interface RoomInset {
+  top: number;
+  right: number;
+}
+
 /** The camera plus the fit: where the floor's centre lands on the canvas,
  *  and the pixels per world unit. */
 interface View {
@@ -534,6 +541,8 @@ export class Renderer {
   private panX = 0;
   /** The camera keeps self in the middle until a drag takes it elsewhere. */
   private follow = true;
+  /** What a docked video panel covers of the room's top or right edge, CSS px. */
+  private inset: RoomInset = { top: 0, right: 0 };
 
   constructor(canvas: HTMLCanvasElement, opts: RendererOptions = {}) {
     this.canvas = canvas;
@@ -572,6 +581,13 @@ export class Renderer {
     if (fill === this.fill) return;
     this.fill = fill;
     this.follow = true;
+    this.onWake?.();
+  }
+
+  /** Make way for chrome over the room's top or right edge (CSS px). */
+  setInset(inset: RoomInset): void {
+    if (inset.top === this.inset.top && inset.right === this.inset.right) return;
+    this.inset = { ...inset };
     this.onWake?.();
   }
 
@@ -626,7 +642,9 @@ export class Renderer {
 
   /** The room in the viewport per the fill, centred: the camera before its pan. */
   private _baseView(space: SpaceDescriptor, now: number): View {
-    return fitView(this.canvas.width, this.canvas.height, space, this._camera(now), this.fill);
+    const dpr = window.devicePixelRatio || 1;
+    const inset = { top: this.inset.top * dpr, right: this.inset.right * dpr };
+    return fitView(this.canvas.width, this.canvas.height, space, this._camera(now), this.fill, inset);
   }
 
   /** The projection the last frame was drawn with, pan included, so the
@@ -1030,12 +1048,12 @@ export class Renderer {
   /**
    * The static backdrop at the current viewport — plus `V.slack` either
    * side, for the pan — repainted only when something it depends on
-   * changed: size, fill, space, board count, or the light step. Also
+   * changed: size, fill, inset, space, board count, or the light step. Also
    * refreshes the palette the standing pass draws with.
    */
   private _scene(space: SpaceDescriptor, plan: FloorPlan, V: View): HTMLCanvasElement {
     const step = this._lightStep();
-    const key = `${this.canvas.width}x${this.canvas.height}|${this.fill}|${space.id}|${this.boardNotes}|${step}|${V.cam.yaw}|${V.cam.pitch}`;
+    const key = `${this.canvas.width}x${this.canvas.height}|${this.fill}|${this.inset.top},${this.inset.right}|${space.id}|${this.boardNotes}|${step}|${V.cam.yaw}|${V.cam.pitch}`;
     if (this.scene && this.sceneKey === key) return this.scene;
 
     let scene = this.scene;
@@ -1519,9 +1537,16 @@ function localHour(): number {
   return d.getHours() + d.getMinutes() / 60;
 }
 
-/** Fit the projected room — walls, floor and slab — into a viewport,
- *  centred (see {@link Fill}). */
-function fitView(vw: number, vh: number, space: SpaceDescriptor, cam: Camera, fill: Fill = "fit"): View {
+/** Fit the projected room — walls, floor and slab — into a viewport less
+ *  `inset` (canvas px of it under chrome), centred (see {@link Fill}). */
+function fitView(
+  vw: number,
+  vh: number,
+  space: SpaceDescriptor,
+  cam: Camera,
+  fill: Fill = "fit",
+  inset: RoomInset = { top: 0, right: 0 },
+): View {
   const W = space.width;
   const H = space.height;
   const V: View = {
@@ -1549,12 +1574,14 @@ function fitView(vw: number, vh: number, space: SpaceDescriptor, cam: Camera, fi
     }
   }
   minX -= VIEW_PAD; maxX += VIEW_PAD; minY -= VIEW_PAD; maxY += VIEW_PAD;
-  const toHeight = vh / (maxY - minY);
-  const scale = fill === "height" ? toHeight : Math.min(vw / (maxX - minX), toHeight);
+  const fw = vw - inset.right;
+  const fh = vh - inset.top;
+  const toHeight = fh / (maxY - minY);
+  const scale = fill === "height" ? toHeight : Math.min(fw / (maxX - minX), toHeight);
   V.scale = scale;
-  V.ox = (vw - (maxX + minX) * scale) / 2;
-  V.oy = (vh - (maxY + minY) * scale) / 2;
-  V.slack = Math.max(0, Math.ceil(((maxX - minX) * scale - vw) / 2));
+  V.ox = (fw - (maxX + minX) * scale) / 2;
+  V.oy = inset.top + (fh - (maxY + minY) * scale) / 2;
+  V.slack = Math.max(0, Math.ceil(((maxX - minX) * scale - fw) / 2));
   return V;
 }
 

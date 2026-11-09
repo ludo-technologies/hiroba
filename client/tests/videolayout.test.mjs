@@ -58,3 +58,16 @@ test("the picked video takes the stage; a pick that is gone is ignored", () => {
 test("nothing live, nothing shown", () => {
   assert.deepEqual(layoutVideos([], null), { stage: null, pip: null, tiles: [] });
 });
+
+test("docked, every camera is a tile, even in a 1:1 call", () => {
+  const l = layoutVideos([cam("bob"), me("camera")], null, true);
+  assert.equal(l.stage, null);
+  assert.equal(l.pip, null);
+  assert.deepEqual(keys(l.tiles), ["bob", LOCAL_VIDEO]);
+});
+
+test("docked, a screen share still takes the stage", () => {
+  const l = layoutVideos([cam("bob"), screen("carol"), me("camera")], null, true);
+  assert.equal(l.stage.key, "carol");
+  assert.deepEqual(keys(l.tiles), ["bob", LOCAL_VIDEO]);
+});

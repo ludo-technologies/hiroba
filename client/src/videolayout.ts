@@ -9,6 +9,8 @@
  *    video goes into a grid.
  *  - Beside a stage, a single other video sits in the corner picture-in-picture
  *    (the 1:1 call layout), several sit in a strip under it.
+ *  - Docked (the panel along the top or down the side), every video is a
+ *    tile; only a screen share, which wants room, keeps the stage layout.
  */
 
 export interface LaidOutVideo {
@@ -21,6 +23,13 @@ export interface LaidOutVideo {
 
 export const LOCAL_VIDEO = "local";
 
+/** Where the video panel sits: in the corner, a window over the room, or
+ *  docked along the top or down the side, where the room makes way for it. */
+export type VideoDock = "corner" | "top" | "side";
+
+/** What the dock button's next click does: corner → top → side → corner. */
+export const NEXT_DOCK: Record<VideoDock, VideoDock> = { corner: "top", top: "side", side: "corner" };
+
 export interface VideoLayout<T> {
   stage: T | null;
   pip: T | null;
@@ -28,7 +37,8 @@ export interface VideoLayout<T> {
   tiles: T[];
 }
 
-export function layoutVideos<T extends LaidOutVideo>(videos: readonly T[], picked: string | null): VideoLayout<T> {
+export function layoutVideos<T extends LaidOutVideo>(videos: readonly T[], picked: string | null, docked = false): VideoLayout<T> {
+  if (docked && !videos.some((v) => v.mode === "screen")) return { stage: null, pip: null, tiles: [...videos] };
   const remote = videos.filter((v) => !v.local);
   const local = videos.find((v) => v.local) ?? null;
   const stage =
