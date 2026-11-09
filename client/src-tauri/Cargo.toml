@@ -31,7 +31,7 @@ keyring = { version = "3", features = ["apple-native", "windows-native", "sync-s
 # Auto-update: fetch latest.json from GitHub Releases, verify the minisign
 # signature against the pubkey in tauri.conf.json, install, then relaunch
 # (relaunch comes from the process plugin). Driven from updater.ts.
-tauri-plugin-updater = "2"
+tauri-plugin-updater = { version = "2", default-features = false, features = ["rustls-tls"] }
 tauri-plugin-process = "2"
 # Invite deep links (hiroba://invite/<token>): registers the scheme and emits
 # open-url events to the webview (deeplink.ts).
