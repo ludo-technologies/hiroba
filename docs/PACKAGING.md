@@ -5,16 +5,18 @@ before a `v*` tag can complete.
 
 | Channel | Artifact | Job in `.github/workflows/release-client.yml` |
 | --- | --- | --- |
-| GitHub Releases | `.dmg`, `.msi`, `-setup.exe`, `latest.json` | `publish-tauri` |
+| GitHub Releases | `.dmg`, `.msi`, `latest.json` | `publish-tauri` |
 | Homebrew cask (`ludo-technologies/homebrew-hiroba`) | both `.dmg` files | `update-homebrew-tap` |
 | winget (`LudoTechnologies.Hiroba`) | `Hiroba_<version>_x64_en-US.msi` | `publish-winget` |
 | Microsoft Store | `Hiroba_<version>_x64.msix` (run artifact, unsigned) | `publish-msstore` → `msstore-pack.yml` |
 
 Both package managers are first-install paths. Hiroba updates itself through the
 Tauri updater (`latest.json`), so a user who installed via `brew` or `winget`
-still gets new versions without touching either tool. On Windows the updater
-installs the MSI, which is why winget ships the MSI and not the NSIS setup: both
-paths then write the same per-machine install.
+still gets new versions without touching either tool. On Windows the MSI is the
+only installer built: the updater installs it and winget lists it, so both paths
+write the same per-machine install. (The NSIS `-setup.exe` is no longer made:
+unsigned, it only tripped SmartScreen, and its toolchain download from GitHub
+Releases kept failing the build.)
 
 The Microsoft Store is different: it installs and updates the app itself, from
 an MSIX it signs on upload. `msstore-pack.yml` takes the binary out of the

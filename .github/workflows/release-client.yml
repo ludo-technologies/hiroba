@@ -93,13 +93,18 @@ jobs:
       matrix:
         # Official installers: macOS + Windows only. Linux desktop is best-effort
         # (build from source); not a first-class release target.
+        # Windows ships the MSI alone: it is what the updater installs, what
+        # winget lists and what the Store package is made from, while the
+        # unsigned NSIS setup.exe only tripped SmartScreen (the site stopped
+        # linking it) and its toolchain download from GitHub Releases has been
+        # answering 504 and failing the build.
         include:
           - platform: macos-latest
             args: --target aarch64-apple-darwin
           - platform: macos-latest
             args: --target x86_64-apple-darwin
           - platform: windows-latest
-            args: ''
+            args: --bundles msi
 
     runs-on: ${{ matrix.platform }}
     steps:
