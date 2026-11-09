@@ -620,8 +620,10 @@ export class Renderer {
     this.sortedYaw = NaN;
     this.seatHover = null;
     this.boardNotes = null;
-    // Swing in from the corner view (not for those who asked for less motion).
-    this.enterStart = prefersReducedMotion() ? 0 : -1;
+    // Swing in from the corner view — not for those who asked for less motion,
+    // nor on a phone: every frame of the swing repaints the whole backdrop,
+    // and the height fill makes that several times the screen's own pixels.
+    this.enterStart = prefersReducedMotion() || this.fill === "height" ? 0 : -1;
     this.onWake?.();
   }
 
