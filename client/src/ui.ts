@@ -15,7 +15,8 @@
  */
 
 import { REACTIONS, type NoteInfo, type Reaction, type SpaceDescriptor, type TeamLayout } from "./protocol.js";
-import { paintLayoutPreview, type Fill } from "./render.js";
+import { paintLayoutPreview, type Fill, type RoomInset } from "./render.js";
+import { NEXT_DOCK, type VideoDock } from "./videolayout.js";
 import { luminance, mixHex } from "./color.js";
 import {
   applyStaticI18n,
@@ -50,6 +51,8 @@ const LS_AUTH = "hiroba_auth_server";
 const LS_CAMERA_BACKGROUND = "hiroba_camera_background";
 /** The picked picture, as a data URL from encodeBackground. */
 const LS_CAMERA_BACKGROUND_IMAGE = "hiroba_camera_background_image";
+/** Where the video panel sits ("top" or "side"); absent means the corner. */
+const LS_VIDEO_DOCK = "hiroba_video_dock";
 /** When the install offer was last put off: "Not now", or Chrome's own
  *  install dialog dismissed. */
 const LS_INSTALL_LATER = "hiroba_install_later";
@@ -239,6 +242,15 @@ const elInstallLater = $<HTMLButtonElement>("install-later");
 /** The phone layout (styles.css): a screen too narrow for the rail. */
 const phoneLayout = window.matchMedia("(max-width: 599px)");
 
+/** The room's margin from a docked video panel, CSS px. */
+const DOCK_GAP = 12;
+
+/** Where the user last put the video panel; the corner unless told otherwise. */
+function readVideoDock(): VideoDock {
+  const v = localStorage.getItem(LS_VIDEO_DOCK);
+  return v === "top" || v === "side" ? v : "corner";
+}
+
 /** What the phone layout shows: one of these takes the screen. */
 type MobileTab = "office" | "members" | "chat";
 const elInvitePanelError = $<HTMLParagraphElement>("invite-panel-error");
@@ -297,6 +309,7 @@ const elScreenPanel = $<HTMLDivElement>("screen-panel");
 const elScreenTitle = $<HTMLSpanElement>("screen-title");
 const elScreenClose = $<HTMLButtonElement>("screen-close");
 const elScreenFullscreen = $<HTMLButtonElement>("screen-fullscreen");
+const elScreenDock = $<HTMLButtonElement>("screen-dock");
 const elScreenVideo = $<HTMLVideoElement>("screen-video");
 const elVideoTiles = $<HTMLDivElement>("video-tiles");
 const elSelfView = $<HTMLButtonElement>("self-view");
@@ -467,6 +480,10 @@ export interface UICallbacks {
   /** How the room should meet the viewport: the phone layout fills its
    *  height unless the user asked for the whole room. */
   onFill(fill: Fill): void;
+  /** The user moved the video panel (corner / top / side): lay it out again. */
+  onVideoDockChange(): void;
+  /** What a docked video panel covers of the room's top or right edge, CSS px. */
+  onRoomInset(inset: RoomInset): void;
   /** Start a page (cross-space 1:1) with a roster member (FR-10). */
   onPage(memberId: string): void;
   /** Accept an incoming page offer. */
@@ -517,6 +534,9 @@ export interface VideoPanelView {
   stage: PanelVideo | null;
   pip: PanelVideo | null;
   tiles: PanelVideo[];
+  /** Where the panel sits; null while a screen share holds it (the corner,
+   *  with no dock button). */
+  dock: VideoDock | null;
 }
 
 /**
@@ -649,6 +669,9 @@ export class UIManager {
   private pipKey = "";
   private lastScreenFullscreen = false;
   private lastScreenReopenVisible = false;
+  private lastDock: VideoDock | null = null;
+  /** Where the user keeps the video panel (LS_VIDEO_DOCK). */
+  private videoDockPref: VideoDock = readVideoDock();
   private lastInvites: InviteEntry[] | null = null;
   private lastNotes: NoteInfo[] = [];
   private lastChatSpace = "";
@@ -1172,6 +1195,7 @@ export class UIManager {
     this.setCameraOn(this.lastCameraOn);
     this.setScreenFullscreen(this.lastScreenFullscreen);
     this.setScreenReopenVisible(this.lastScreenReopenVisible);
+    this._setDock(this.lastDock);
 
     // Call banner button labels (text itself is re-translated by main).
     if (this.lastCall) {
@@ -2219,7 +2243,7 @@ export class UIManager {
       this._setPip(null);
       this._setTiles([], "grid");
       elScreenPanel.setAttribute("hidden", "");
-      this.setScreenFullscreen(false);
+      this.setScreenFullscreen(false); // syncs the room inset too
       return;
     }
     elScreenTitle.textContent = view.title;
@@ -2227,8 +2251,36 @@ export class UIManager {
     elScreenVideo.toggleAttribute("hidden", !view.stage);
     this._setPip(view.pip);
     this._setTiles(view.tiles, view.stage ? "strip" : "grid");
+    this._setDock(view.dock);
     elScreenPanel.removeAttribute("hidden");
     this.setScreenReopenVisible(false);
+    this._syncRoomInset();
+  }
+
+  /** The panel's place, and the button that moves it on to the next one. */
+  private _setDock(dock: VideoDock | null): void {
+    this.lastDock = dock;
+    if (dock === null || dock === "corner") delete elScreenPanel.dataset.dock;
+    else elScreenPanel.dataset.dock = dock;
+    elScreenDock.toggleAttribute("hidden", dock === null);
+    const next = NEXT_DOCK[dock ?? "corner"];
+    for (const icon of elScreenDock.querySelectorAll("svg")) icon.toggleAttribute("hidden", icon.dataset.dock !== next);
+    const label = next === "top" ? t.dockTop : next === "side" ? t.dockSide : t.dockCorner;
+    elScreenDock.title = label;
+    elScreenDock.setAttribute("aria-label", label);
+  }
+
+  /** Hand the room what a docked panel covers of it, measured here so the
+   *  stylesheet alone says where a dock sits. Nothing while the panel is
+   *  hidden, in the corner, or fullscreen (over the room anyway). */
+  private _syncRoomInset(): void {
+    const dock = elScreenPanel.dataset.dock;
+    let inset: RoomInset = { top: 0, right: 0 };
+    if (dock && !elScreenPanel.hidden && !elScreenPanel.classList.contains("fullscreen")) {
+      const r = elScreenPanel.getBoundingClientRect();
+      inset = dock === "top" ? { top: r.bottom + DOCK_GAP, right: 0 } : { top: 0, right: window.innerWidth - r.left + DOCK_GAP };
+    }
+    this.callbacks.onRoomInset(inset);
   }
 
   /** The corner picture-in-picture over the stage. */
@@ -2273,6 +2325,7 @@ export class UIManager {
     elScreenFullscreen.textContent = fullscreen ? "⤡" : "⤢";
     elScreenFullscreen.title = fullscreen ? t.exitFullscreen : t.enterFullscreen;
     elScreenFullscreen.setAttribute("aria-label", fullscreen ? t.exitFullscreen : t.enterFullscreen);
+    this._syncRoomInset();
   }
 
   /** Offer to reopen a dismissed remote screen-share panel. */
@@ -2300,6 +2353,7 @@ export class UIManager {
    *  keys alone. */
   setChatVisible(visible: boolean, focus = false): void {
     elChatPanel.hidden = !visible;
+    this._syncRoomInset(); // a dock stops short of the chat
     elChatToggle.setAttribute("aria-pressed", visible ? "true" : "false");
     // In a space, the phone layout shows the chat as its own tab.
     if (document.body.dataset.mtab) {
@@ -2549,6 +2603,11 @@ export class UIManager {
     return phoneLayout.matches;
   }
 
+  /** Where the video panel goes. The phone layout has one place for it. */
+  videoDock(): VideoDock {
+    return phoneLayout.matches ? "corner" : this.videoDockPref;
+  }
+
   private _bindPhone(): void {
     for (const btn of elMTabButtons) {
       btn.addEventListener("click", () => {
@@ -2640,6 +2699,12 @@ export class UIManager {
     elScreenClose.addEventListener("click", () => this.callbacks.onCloseScreenShare());
     elScreenFullscreen.addEventListener("click", () => {
       this.setScreenFullscreen(!elScreenPanel.classList.contains("fullscreen"));
+    });
+    elScreenDock.addEventListener("click", () => {
+      this.videoDockPref = NEXT_DOCK[this.videoDockPref];
+      if (this.videoDockPref === "corner") localStorage.removeItem(LS_VIDEO_DOCK);
+      else localStorage.setItem(LS_VIDEO_DOCK, this.videoDockPref);
+      this.callbacks.onVideoDockChange();
     });
     elScreenVideo.addEventListener("dblclick", () => {
       this.setScreenFullscreen(!elScreenPanel.classList.contains("fullscreen"));

@@ -71,7 +71,8 @@ Voice is peer-to-peer over WebRTC. There is no always-on video, recording, or
 media server. You can share your screen or turn on your camera for everyone
 in a team space or the lobby's meeting room, or for the teammate you are
 calling. The room behind you can be blurred or replaced by a picture; that
-happens on your own device.
+happens on your own device. The camera panel sits in a corner, or lines the
+top or the side of the office, which makes way for it.
 
 ## Architecture
 

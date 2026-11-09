@@ -313,7 +313,12 @@ const ui = new UIManager(
     onRemoveNote: (id) => session?.net.send({ t: "remove_note", id }),
     onReact: (id, emoji) => session?.net.send({ t: "react", id, emoji }),
     onSetChatOpen: (open) => setChatOpen(open, false, open),
-    onFill: (fill) => renderer.setFill(fill),
+    onFill: (fill) => {
+      renderer.setFill(fill);
+      syncVideoViews(); // the phone layout keeps the video panel in one place
+    },
+    onVideoDockChange: syncVideoViews,
+    onRoomInset: (inset) => renderer.setInset(inset),
     onOpenMembersPanel: handleOpenMembersPanel,
     onRemoveMember: handleRemoveMember,
     onOpenBilling: handleOpenBilling,
@@ -2596,7 +2601,8 @@ function syncVideoViews(): void {
     stream: v.stream,
     label: v.local ? t.youName(s.self.name) : name(v),
   });
-  const { stage, pip, tiles } = layoutVideos(videos, s.pickedVideo);
+  const dock = ui.videoDock();
+  const { stage, pip, tiles } = layoutVideos(videos, s.pickedVideo, dock !== "corner");
   const title = !stage
     ? t.camerasTitle
     : stage.local
@@ -2609,6 +2615,8 @@ function syncVideoViews(): void {
     stage: stage && panelVideo(stage),
     pip: pip && panelVideo(pip),
     tiles: tiles.map(panelVideo),
+    // A screen share takes the stage, and the corner panel with it.
+    dock: videos.some((v) => v.mode === "screen") ? null : dock,
   });
 }
 

@@ -1587,6 +1587,9 @@ a.hud-pill {
 }
 
 .screen-panel {
+  /* A docked row's tile height, and a docked column's width. */
+  --dock-tile-h: 96px;
+  --dock-w: 184px;
   position: fixed;
   right: 22px;
   top: 64px;
@@ -1606,9 +1609,54 @@ a.hud-pill {
   display: none;
 }
 
+/* Docked: the cameras line the top (a row) or the right side (a column), and
+   the room is fitted into what is left — ui.ts measures the panel and hands
+   the renderer the inset — so nobody is hidden behind them. A screen share
+   keeps the corner panel: main.ts hands the dock back as "corner" while one
+   is on the stage. Never in the phone layout (ui.ts does not dock there). */
+.screen-panel[data-dock] {
+  aspect-ratio: auto;
+}
+
+.screen-panel[data-dock="top"] {
+  left: calc(var(--rail) + 22px);
+  right: 22px;
+  width: auto;
+  height: calc(36px + var(--dock-tile-h) + 12px);
+}
+
+.screen-panel[data-dock="side"] {
+  right: 22px;
+  bottom: 84px;
+  width: var(--dock-w);
+}
+
+/* With the chat open, a dock stops short of it. */
+.screen-panel[data-dock]:not(.fullscreen):has(~ .chat-panel:not([hidden])) {
+  right: calc(22px + 380px + 12px);
+}
+
+.screen-panel[data-dock="top"]:not(.fullscreen) .video-tiles[data-layout="grid"] {
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  grid-auto-columns: calc(var(--dock-tile-h) * 16 / 10);
+  justify-content: center;
+  justify-content: safe center;
+  overflow-x: auto;
+}
+
+.screen-panel[data-dock="side"]:not(.fullscreen) .video-tiles[data-layout="grid"] {
+  grid-template-columns: 1fr;
+  grid-auto-rows: calc((var(--dock-w) - 14px) * 10 / 16);
+  align-content: start;
+  overflow-y: auto;
+}
+
 .screen-panel.fullscreen {
+  left: auto;
   right: 0;
   top: 0;
+  bottom: auto;
   width: 100vw;
   height: 100vh;
   aspect-ratio: auto;
@@ -1622,19 +1670,19 @@ a.hud-pill {
    is where that room drops below 360px: rail 244 + 30 gap + 360 + 12 gap +
    380 chat + 22 margin). Narrow window: chat-width, stacked above the chat,
    which starts below it. Fullscreen is meant to cover everything, so it is
-   left alone. */
-.screen-panel:not(.fullscreen):has(~ .chat-panel:not([hidden])) {
+   left alone; a docked panel has its own rule above. */
+.screen-panel:not([data-dock]):not(.fullscreen):has(~ .chat-panel:not([hidden])) {
   right: calc(22px + 380px + 12px);
   width: min(560px, calc(100vw - var(--rail) - 444px));
 }
 
 @media (max-width: 1047px) {
-  .screen-panel:not(.fullscreen):has(~ .chat-panel:not([hidden])) {
+  .screen-panel:not([data-dock]):not(.fullscreen):has(~ .chat-panel:not([hidden])) {
     right: 22px;
     width: min(380px, calc(100vw - var(--rail) - 60px));
   }
 
-  .screen-panel:not([hidden]):not(.fullscreen) ~ .chat-panel {
+  .screen-panel:not([data-dock]):not([hidden]):not(.fullscreen) ~ .chat-panel {
     top: calc(64px + 12px + min(380px, calc(100vw - var(--rail) - 60px)) * 10 / 16);
   }
 }
@@ -1659,6 +1707,7 @@ a.hud-pill {
   gap: 6px;
 }
 
+#screen-dock,
 #screen-fullscreen,
 #screen-close {
   width: 26px;
@@ -1675,9 +1724,16 @@ a.hud-pill {
   cursor: pointer;
 }
 
+#screen-dock:hover,
 #screen-fullscreen:hover,
 #screen-close:hover {
   background: rgba(255, 255, 255, 0.2);
+}
+
+#screen-dock[hidden],
+#screen-dock svg[hidden],
+.screen-panel.fullscreen #screen-dock {
+  display: none;
 }
 
 /* No `height: 100%` here: WebKit resolves it against the panel's aspect-ratio
@@ -3503,6 +3559,11 @@ a.hud-pill {
     left: 12px;
     right: 12px;
     width: auto;
+  }
+
+  /* One place for the panel on a phone: no dock button. */
+  #screen-dock {
+    display: none;
   }
 
   /* The roster: rows and their call button sized for a thumb. */
