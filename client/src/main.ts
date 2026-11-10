@@ -224,6 +224,11 @@ let reconnectState: "idle" | "waiting" | "connecting" = "idle";
  *  (the peer is told no differently than a hang-up), so the least we can do is
  *  say so on the way back in. */
 let droppedInCall = false;
+/** Where the drop left us. The server lands every connect at the lobby's
+ *  spawn point, so the reconnect after a sleep would otherwise move us there
+ *  (see {@link resumeWelcome}). Only the auto-reconnect reads it: a fresh
+ *  join still starts in the lobby. */
+let resumeAt: { spaceId: string; x: number; y: number } | null = null;
 
 // Heartbeat: the client pings, the server echoes `pong`. A half-open socket
 // (sleep resume, network switch — routine on Windows) fires no close event
@@ -1726,6 +1731,7 @@ async function renewToken(s: Session): Promise<string | null> {
 function onSessionDropped(): void {
   if (userLeaving || !session) return;
   if (session.pages.size > 0) droppedInCall = true;
+  resumeAt = { spaceId: session.spaceId, ...session.input.position };
   teardownSession();
   offlineDeadline = Date.now() + OFFLINE_WINDOW_MS;
   scheduleReconnect();
@@ -1789,7 +1795,7 @@ function scheduleReconnect(): void {
         net.close();
         return;
       }
-      startSession(net, msg, ice, token);
+      startSession(net, resumeWelcome(net, msg), ice, token);
     } catch (err) {
       const code = err instanceof Error ? err.message : "";
       if (userLeaving || code === "cancelled" || (err instanceof DOMException && err.name === "AbortError")) return;
@@ -1803,6 +1809,31 @@ function scheduleReconnect(): void {
       if (connectAbort === controller) connectAbort = null;
     }
   }, delay);
+}
+
+/** A reconnect's `welcome`, put back where the drop left us (`resumeAt`). A
+ *  spot in the lobby is restored at once; for a team space we enter it again
+ *  and its `space_snapshot` restores the spot. A space that is gone leaves us
+ *  in the lobby, and one that is full answers with its own error. */
+function resumeWelcome(net: HirobaNet, msg: WelcomeMsg): WelcomeMsg {
+  const you = resumedSpot(net, msg.spaceId, msg.you);
+  const target = resumeAt;
+  if (target && msg.spaces.some((s) => s.id === target.spaceId)) {
+    net.send({ t: "enter_space", spaceId: target.spaceId });
+  } else {
+    resumeAt = null;
+  }
+  return { ...msg, you };
+}
+
+/** `you` (a spawn point the server picked in `spaceId`) moved to `resumeAt`
+ *  if that lies in the same space. Consumes `resumeAt` and tells the server. */
+function resumedSpot<T extends { x: number; y: number }>(net: HirobaNet, spaceId: string, you: T): T {
+  if (resumeAt?.spaceId !== spaceId) return you;
+  const { x, y } = resumeAt;
+  resumeAt = null;
+  net.send({ t: "move", x, y });
+  return { ...you, x, y };
 }
 
 /** Stop trying and put the user back on the join card. The call is gone for
@@ -2279,7 +2310,8 @@ function bindServerMessages(net: HirobaNet): void {
 
   net.on("space_snapshot", (e) => {
     if (!session) return;
-    const { spaceId, space, you, peers } = e.detail;
+    const { spaceId, space, peers } = e.detail;
+    const you = resumedSpot(session.net, spaceId, e.detail.you);
 
     // Drop the old space's spatial audio; a page link survives the move.
     session.audio.disconnectAllProximity();
@@ -2793,6 +2825,8 @@ async function handleSpeakerDeviceChange(deviceId: string): Promise<void> {
 function handleEnterSpace(spaceId: string): void {
   if (!session || spaceId === session.spaceId) return;
   markActive();
+  // A resume still waiting on a full space must not jump this walk-in.
+  resumeAt = null;
   session.net.send({ t: "enter_space", spaceId });
 }
 
