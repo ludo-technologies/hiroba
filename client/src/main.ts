@@ -1479,14 +1479,15 @@ async function effectiveToken(manual: string, serverUrl: string, signal?: AbortS
     // invite is the credential, and a revoked one must stop the next entry
     // even from a tab that already got in once.
     let session: AuthSession;
+    let joinable: boolean;
     try {
-      session = await guestLogin(
+      ({ session, joinable } = await guestLogin(
         ui.getAuthUrl(),
         webInvite,
         lastJoin?.name ?? "",
         loadGuestId(),
         signal,
-      );
+      ));
     } catch (err) {
       if (signal?.aborted) throw new Error("cancelled");
       throw new Error(err instanceof InviteRejectedError ? "guest_invite" : "connect");
@@ -1496,6 +1497,11 @@ async function effectiveToken(manual: string, serverUrl: string, signal?: AbortS
     if (signal?.aborted) throw new Error("cancelled");
     authSession = session;
     reflectAuthSession();
+    // A guest who wants the app is about to leave the one place that knows
+    // which org they are in. Where that org takes members, send them to the
+    // invite's own page — sign in there first, install second — so the app
+    // opens in this org instead of offering to found another.
+    ui.setGetAppLink(joinable ? inviteLinkUrl(ui.getAuthUrl(), webInvite) : null);
     return session.token;
   }
   // The session's tokens go only to the servers it was signed in for.

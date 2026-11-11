@@ -320,6 +320,10 @@ export function loadGuestId(): string {
  * guest id ({@link loadGuestId}) buy a session for the invite's org
  * (`POST /guest`) — no account, no refresh token. Any unexpired invite works,
  * consumed or not; a 409 means it expired or the admin revoked it.
+ *
+ * `joinable` says the invite's own page is where this guest can become a
+ * member of the org (sign in there, or ask its admins); a backend that does
+ * not say, or an org that takes guests only, has no such page to send them to.
  */
 export async function guestLogin(
   authBase: string,
@@ -327,7 +331,7 @@ export async function guestLogin(
   name: string,
   guestId: string,
   signal?: AbortSignal,
-): Promise<AuthSession> {
+): Promise<{ session: AuthSession; joinable: boolean }> {
   // Bounded like the ICE and WebSocket steps that follow it: a request left
   // hanging here would hold a reconnect in "connecting" for good.
   const controller = new AbortController();
@@ -349,10 +353,13 @@ export async function guestLogin(
   }
   if (resp.status === 409) throw new InviteRejectedError();
   if (!resp.ok) throw new Error(await resp.text());
-  const data: { token?: string } = await resp.json();
+  const data: { token?: string; joinable?: boolean } = await resp.json();
   const claims = data.token ? decodeClaims(data.token) : null;
   if (!data.token || !claims) throw new Error("auth backend returned a malformed token");
-  return { token: data.token, claims, refreshToken: "" };
+  return {
+    session: { token: data.token, claims, refreshToken: "" },
+    joinable: data.joinable === true,
+  };
 }
 
 /** Keep only the digits a code is made of, so pasted text ("code: 012 345")

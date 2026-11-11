@@ -135,6 +135,9 @@ const elJoinToken = $<HTMLInputElement>("join-token");
 const elJoinAuth = $<HTMLInputElement>("join-auth");
 const elGuestHint = $<HTMLParagraphElement>("guest-hint");
 const elHudGetApp = $<HTMLAnchorElement>("hud-get-app");
+/** Where "get the desktop app" goes when the session has nowhere better: the
+ *  site's download section. */
+const GET_APP_DEFAULT_HREF = elHudGetApp.href;
 const elAuthBlock = $<HTMLDivElement>("auth-block");
 const elAuthActions = $<HTMLDivElement>("auth-actions");
 const elAuthRestoring = $<HTMLDivElement>("auth-restoring");
@@ -779,6 +782,13 @@ export class UIManager {
       elAuthBlock.setAttribute("hidden", "");
       elHudGetApp.removeAttribute("hidden");
     }
+  }
+
+  /** Point "get the desktop app" at `url` — the invite page where a guest of
+   *  an org that takes members becomes one before installing — or, with
+   *  `null`, back at the site's download section. */
+  setGetAppLink(url: string | null): void {
+    elHudGetApp.href = url ?? GET_APP_DEFAULT_HREF;
   }
 
   /** Browser guest entry (web build opened from an invite link): a hint says

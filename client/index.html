@@ -762,7 +762,9 @@
       <div class="hud-group">
         <!-- Browser sessions only: the way from "tried it" to "installed it".
              `from=guest` lets the site tell this arrival from its own in-page
-             navigation, which the referrer alone cannot. -->
+             navigation, which the referrer alone cannot. A guest of an org
+             that takes members is sent to their invite's page instead
+             (`setGetAppLink`). -->
         <a id="hud-get-app" class="hud-pill" href="https://hirobaoffice.com/?from=guest#download" target="_blank" rel="noopener noreferrer" data-i18n="guestGetApp" hidden>Get the desktop app</a>
         <button id="leave" class="hud-btn" title="Leave the office" data-i18n="leave" data-i18n-title="leaveTitle">Leave</button>
       </div>

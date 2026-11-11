@@ -697,9 +697,19 @@ test("guestLogin trades an invite and a name for a refresh-less session", async 
   );
   assert.equal(calls[0].url, "https://auth.example.com/guest");
   assert.deepEqual(calls[0].body, { invite: "inv-1", name: "Gen", guestId: "g-1" });
-  assert.equal(result.token, token);
-  assert.equal(result.refreshToken, "");
-  assert.equal(typeof result.claims.exp, "number");
+  assert.equal(result.session.token, token);
+  assert.equal(result.session.refreshToken, "");
+  assert.equal(typeof result.session.claims.exp, "number");
+  // A backend that does not say so offers no way to become a member.
+  assert.equal(result.joinable, false);
+});
+
+test("guestLogin passes on that the invite's page takes members", async () => {
+  const { result } = await withFetch(
+    () => jsonResponse(200, { token: jwt(3600), joinable: true }),
+    () => guestLogin("https://auth.example.com", "inv-1", "Gen", "g-1"),
+  );
+  assert.equal(result.joinable, true);
 });
 
 test("guestLogin reports a dead invite as InviteRejectedError", async () => {
