@@ -1,9 +1,9 @@
 /**
- * i18n.ts — UI strings for Hiroba, in English, Japanese, Spanish and French.
+ * i18n.ts — UI strings for Hiroba, in English, Japanese, Spanish, French and Brazilian Portuguese.
  *
  * Locale resolution (first match wins):
  *   1. `localStorage` key `hiroba_locale` (user choice from the in-app switcher)
- *   2. `navigator.language`'s primary subtag (ja / es / fr → that language,
+ *   2. `navigator.language`'s primary subtag (ja / es / fr / pt → that language,
  *      anything else → English)
  *
  * The whole UI speaks ONE language. `setLocale()` updates the live catalog,
@@ -16,7 +16,7 @@
  * Parameterized messages are functions so word order can differ per language.
  */
 
-const LOCALES = ["en", "ja", "es", "fr"] as const;
+const LOCALES = ["en", "ja", "es", "fr", "pt"] as const;
 export type Locale = (typeof LOCALES)[number];
 
 export function isLocale(v: unknown): v is Locale {
@@ -1399,7 +1399,346 @@ const FR: typeof EN = {
   callDropped: "L'appel s'est terminé à cause d'une perte de connexion.",
 };
 
-const CATALOGS: Record<Locale, typeof EN> = { en: EN, ja: JA, es: ES, fr: FR };
+const PT: typeof EN = {
+  // Join card
+  signInGoogle: "Entrar com o Google",
+  signInGithub: "Entrar com o GitHub",
+  signOutAccount: "Sair do Hiroba",
+  newOrgAction: "+ Nova organização",
+  orgSetupAnotherDesc: "Dê um nome à nova organização. Você continua nas que já tem e pode alternar entre elas quando quiser.",
+  waitingBrowser: "Aguardando o navegador…",
+  restoringSession: "Restaurando sua sessão…",
+
+  // E-mail one-time code sign-in
+  authOr: "ou",
+  fieldEmail: "E-mail",
+  emailPlaceholder: "voce@exemplo.com",
+  sendCode: "Enviar um código por e-mail",
+  sendingCode: "Enviando…",
+  fieldCode: "Código de acesso",
+  codeSentTo: (email: string) => `Digite o código de 6 dígitos enviado para ${email}.`,
+  verifyCode: "Entrar",
+  verifyingCode: "Entrando…",
+  resendCode: "Enviar outro código",
+  changeEmail: "Usar outro endereço",
+  fieldName: "Nome de exibição",
+  namePlaceholder: "Seu nome",
+  fieldAvatar: "Avatar",
+  fieldColor: "Sua cor",
+  colorClay: "Argila",
+  colorAmber: "Âmbar",
+  colorCoral: "Coral",
+  colorSage: "Sálvia",
+  colorSky: "Céu",
+  colorLilac: "Lilás",
+  colorTeal: "Verde-azulado",
+  colorSlate: "Ardósia",
+  colorCustom: "Cor personalizada",
+  serverSettings: "Configurações do servidor",
+  fieldServer: "Servidor",
+  fieldToken: "Token de acesso (opcional)",
+  tokenPlaceholder: "Deixe em branco para entrar como convidado",
+  fieldAuthServer: "Servidor de autenticação",
+  enter: "Entrar no Hiroba",
+
+  // Org setup (first sign-in by someone who belongs to no org)
+  orgSetupTitle: "Dê um nome à sua organização",
+  orgSetupDesc: "Falta pouco. Dê um nome à sua organização: as pessoas que você convidar vão entrar nela.",
+  fieldOrgName: "Nome da organização",
+  orgNamePlaceholder: "ex.: Acme Ltda.",
+  createOrg: "Criar organização",
+  creatingOrg: "Criando…",
+  backToLogin: "Voltar para o login",
+  orgSetupInvitedHint:
+    "Recebeu convite para uma organização que já existe? Abra seu link de convite no navegador e entre por lá: esta tela fecha sozinha assim que você entrar.",
+
+  // Invite step (right after the org is founded) + invite-by-e-mail
+  inviteSetupTitle: "Convide sua equipe",
+  inviteSetupDesc: (org: string) =>
+    `Um escritório ganha vida com gente dentro. Adicione alguns e-mails e enviaremos um link para entrar em ${org}.`,
+  inviteSetupDescNoEmail: (org: string) =>
+    `Um escritório ganha vida com gente dentro. Copie um link de convite e compartilhe com quem vai estar com você em ${org}.`,
+  fieldInviteEmails: "E-mails",
+  inviteEmailsPlaceholder: "aoi@example.com, ren@example.com",
+  sendInvites: "Enviar convites por e-mail",
+  sendingInvites: "Enviando…",
+  invitesSentTo: (list: string) => `Convites enviados para ${list}.`,
+  invitesFailedFor: (list: string) => `Não foi possível enviar para ${list}.`,
+  copyInviteLinkInstead: "Copiar um link de convite para compartilhar você mesmo",
+  inviteLinkCopied: "Link de convite copiado. Compartilhe com sua equipe.",
+  inviteSetupEnter: "Entrar no escritório",
+  errInviteEmails: "Digite pelo menos um e-mail.",
+  errSendInvites: "Não foi possível enviar os convites. Tente novamente.",
+  errInvitesTooMany: "Muitos convites enviados há pouco. Aguarde um pouco e tente novamente.",
+  errEmailInvitesUnavailable: "Este servidor não consegue enviar e-mails. Compartilhe um link de convite.",
+
+  // Trial countdown (hosted; the org's subscription is trialing)
+  trialDaysLeft: (n: number) =>
+    n === 1 ? "Período de teste: falta 1 dia" : `Período de teste: faltam ${n} dias`,
+  trialEndsToday: "O período de teste termina hoje",
+  trialPillTitle: "Adicione uma forma de pagamento para continuar no Hiroba após o período de teste",
+
+  // Admin menu (gear in the sidebar header)
+  adminMenuTitle: "Configurações de administração",
+  inviteMembers: "Convidar membros",
+  manageBillingTitle: "Gerenciar cobrança",
+  invitePanel: "Convites",
+  closePanel: "Fechar",
+  inviteRole: "Função da pessoa convidada",
+  roleMember: "Membro",
+  roleAdmin: "Administrador",
+  inviteHow: "Como você quer avisar?",
+  inviteMethodMail: "Enviar por e-mail",
+  inviteMethodMailDesc: "O Hiroba envia por e-mail um link para entrar",
+  inviteMethodLink: "Compartilhar um link",
+  inviteMethodLinkDesc: "Você cola no Slack ou em um chat",
+  inviteMailHint: "Digite e-mails e o Hiroba envia a cada um um link para entrar. Separe vários com vírgulas.",
+  shareInviteLink: "Compartilhar um link de convite",
+  inviteLinkHint: "Cria um link para entrar e o copia. Mande para seu colega no Slack ou em um chat. Cada link admite uma pessoa.",
+  createInviteLink: "Copiar um novo link de convite",
+  creatingInviteLink: "Criando…",
+  inviteLinkReady: "Link copiado. Mande para seu colega.",
+  inviteLinkReadyNoClipboard: "Link criado. Copie e envie para seu colega.",
+  inviteLinkHowTo: "Para entrar, a pessoa abre o link e faz login por lá.",
+  createAnotherInviteLink: "Criar um link para mais uma pessoa",
+  inviteNoEmailNotice: "Este servidor não tem e-mail configurado, então os convites só saem como link.",
+  copy: "Copiar",
+  copied: "Copiado!",
+  activeInvites: "Convites pendentes",
+  noActiveInvites: "Nenhum convite pendente.",
+  inviteLinkLabel: "Link de convite",
+  revokeInvite: "Revogar",
+  inviteExpiresAt: (date: string) => `expira em ${date}`,
+  inviteSentBy: (name: string) => `enviado por ${name}`,
+  inviteCreatedBy: (name: string) => `criado por ${name}`,
+
+  // Errors
+  errName: "Digite um nome de exibição.",
+  errServer: "Digite a URL do servidor.",
+  errAuthUrl: "Defina a URL do servidor de autenticação (em Configurações do servidor).",
+  errConnect: "Não foi possível conectar ao servidor. Verifique a URL e tente novamente.",
+  errAuthFailed: "O servidor recusou o login. Entre novamente e tente de novo.",
+  errOrgSuspended: "Esta organização está suspensa. Peça a um administrador para atualizar a cobrança.",
+  errSpaceFull: "Este espaço está lotado. Tente outro espaço ou fale com um administrador.",
+  errSpaceLimit: "Esta organização atingiu o limite de espaços.",
+  errUnknownSpace: "Esse espaço não existe mais. Entre novamente e escolha outro.",
+  errForbidden: "Você não tem permissão para fazer isso.",
+  errRejoin: "A conexão com o servidor foi perdida. Entre novamente.",
+  errSessionExpired: "Sua sessão expirou. Entre novamente.",
+  errAuthOffline:
+    "Não foi possível contatar o servidor de autenticação para renovar sua sessão. Você continua conectado: verifique sua conexão e tente novamente.",
+  errKeychain:
+    "Não foi possível ler seu login salvo no chaveiro. Desbloqueie o chaveiro de login (ou permita o acesso do Hiroba) e reinicie, ou entre novamente.",
+  errSessionNotSaved:
+    "Login feito, mas este dispositivo não conseguiu salvar a sessão no chaveiro. Na próxima vez que abrir o app, ele vai pedir de novo.",
+  errMicDenied: "Acesso ao microfone negado. Verifique as permissões do navegador ou do sistema.",
+  errSignIn: "Não foi possível entrar. Tente novamente.",
+  errEmail: "Digite um e-mail válido.",
+  errSendCode: "Não foi possível enviar o código. Verifique o endereço e tente novamente.",
+  errCodeThrottled: (secs: number) => `Aguarde ${secs} s antes de pedir outro código.`,
+  errCode: "O código está errado ou expirou. Peça um novo.",
+  errOrgName: "Digite o nome da organização.",
+  errOrgCreate: "Não foi possível criar a organização. Tente novamente.",
+  errIssueInvite: "Não foi possível criar o link de convite. Tente novamente.",
+  errLoadInvites: "Não foi possível carregar os convites.",
+
+  // Member management (admin)
+  manageMembersTitle: "Gerenciar membros",
+  removeMember: "Remover",
+  confirmRemoveMember: "Confirmar?",
+  errLoadMembers: "Não foi possível carregar os membros.",
+  errRemoveMember: "Não foi possível remover esse membro. Tente novamente.",
+  openingBilling: "Abrindo a cobrança…",
+  billingNotEnabled: "A cobrança não está habilitada nesta instalação.",
+  errBillingPortal: "Não foi possível abrir o portal de cobrança. Tente novamente.",
+
+  // Billing lock (join screen; the org's subscription is paused or lapsed)
+  billingLockTrialTitle: "Seu período de teste terminou",
+  billingLockInactiveTitle: "Sua assinatura está inativa",
+  billingLockAdminTrialDesc:
+    "Para continuar usando o Hiroba, inicie sua assinatura. Você informa os dados de pagamento na página segura do Stripe e o Hiroba volta a funcionar sozinho em poucos minutos.",
+  billingLockAdminInactiveDesc:
+    "Não conseguimos cobrar o último pagamento. Atualize seus dados de pagamento na página segura do Stripe e o Hiroba volta a funcionar sozinho em poucos minutos.",
+  billingLockMemberDesc: "Peça ao administrador da sua organização para atualizar a assinatura.",
+  billingLockSubscribe: "Iniciar assinatura",
+  billingLockUpdate: "Atualizar dados de pagamento",
+  billingLockSwitchTitle: "Ou continue em outra organização da qual você faz parte:",
+
+  // Org switcher (signed-in chip; shown when the user belongs to 2+ orgs)
+  orgSwitchAria: "Trocar de organização",
+  errOrgSwitch: "Não foi possível trocar de organização. Tente novamente.",
+  errSignOut: "Não foi possível sair. Verifique sua conexão e tente novamente.",
+
+  // Join card (connecting) / reconnect overlay
+  connecting: "Conectando…",
+  reconnecting: "Reconectando…",
+  reconnectAttempt: (n: number, max: number) => `Reconectando… (tentativa ${n}/${max})`,
+  reconnectOffline: "Aguardando a rede…",
+  cancel: "Cancelar",
+
+  // Onboarding / nudge
+  onboardOr: "ou",
+  onboardWalk: "para andar",
+  onboardClick: "— ou clique no chão ou em uma cadeira",
+  onboardCallTip: "Ligue pela barra lateral · Não perturbe bloqueia ligações inesperadas",
+  nudgeText: "Tem alguém por perto: aperte M para falar",
+  roomHintText: "Na sala de reunião: ninguém de fora consegue ouvir",
+
+  // Auto-update banner
+  updateAvailable: (v: string) => `O Hiroba ${v} está disponível`,
+  updateInstall: "Reiniciar para atualizar",
+  updateDownloading: "Atualizando…",
+  updateLater: "Depois",
+  updateNotes: "Novidades",
+  updateNotesTitle: (v: string) => `Novidades do Hiroba ${v}`,
+  updateFailed: "Não foi possível atualizar. Tente novamente mais tarde.",
+
+  // Web sign-in handoff (hiroba://auth/<code>): the invite page's "open in Hiroba"
+  joinedOrg: (org: string) => `Você entrou em ${org}.`,
+  errHandoffExpired: "Este link expirou. É só entrar aqui: você já é membro.",
+
+  // Browser guest (web build opened from an invite link)
+  guestJoinHint: "Você está entrando como convidado por um link de convite. Digite um nome e pronto.",
+  guestGetApp: "Baixar o app",
+  errGuestInvite: "Este link de convite expirou ou foi revogado. Peça um novo a quem enviou.",
+
+  // HUD
+  muted: "Mudo",
+  live: "Ativo",
+  micTitleMuted: "Clique ou aperte M para falar (você está no mudo)",
+  micTitleLive: "Clique ou aperte M para silenciar",
+  chatTitle: "Chat",
+  tabOffice: "Escritório",
+  tabMembers: "Membros",
+  viewWhole: "Sala toda",
+  viewZoom: "Aproximar",
+  ariaViews: "Visualizações",
+  installTitle: "Adicione o Hiroba à tela inicial",
+  installBody: "Abra por um ícone, em tela cheia, como qualquer outro app.",
+  installAdd: "Adicionar",
+  installLater: "Agora não",
+  chatEmpty: "Nenhuma mensagem ainda. Diga oi!",
+  chatPlaceholder: "Mensagem…",
+  chatSend: "Enviar",
+  chatDelete: "Excluir",
+  chatReact: "Reagir",
+  chatToday: "Hoje",
+  chatYesterday: "Ontem",
+  chatNew: "Novas",
+  leave: "Sair",
+  leaveTitle: "Sair do escritório",
+
+  // Settings panel (gear next to the mic button)
+  settingsTitle: "Configurações",
+  fieldMicrophone: "Microfone",
+  fieldSpeaker: "Alto-falante",
+  fieldLanguage: "Idioma",
+  langAriaLabel: "Idioma",
+  micLevelAria: "Nível de entrada do microfone",
+  defaultDevice: "Padrão do sistema",
+  fieldCameraBackground: "Fundo da câmera",
+  backgroundNone: "Nenhum",
+  backgroundBlur: "Desfocar",
+  backgroundImage: "Imagem",
+  backgroundChoose: "Escolher uma imagem…",
+
+  // Sidebar / roster — status is a mutually exclusive 3-way choice
+  // The status toggle is narrow: its labels stay short, the tooltips spell them out.
+  active: "Ativo",
+  activeTitle: "Disponível. Muda para Ausente após 5 minutos de inatividade.",
+  away: "Ausente",
+  awayTitle:
+    "Ausente: um sinal discreto de que você não está. Também é definido sozinho após 5 minutos de inatividade; qualquer atividade te devolve para Ativo.",
+  dnd: "Ocupado",
+  dndTitle:
+    "Não perturbe: bloqueia ligações recebidas e a voz por proximidade; quem se aproximar de você não conecta (tem prioridade sobre Ausente)",
+  dndEnabled: "Não perturbe ativado: ligações e voz por proximidade bloqueadas",
+  dndDisabled: "Não perturbe desativado: ligações e voz por proximidade voltaram a funcionar",
+  idleAwayToast: (min: number) =>
+    `Ausente após ${min} min de inatividade. Mova-se ou clique para voltar a Ativo`,
+  youName: (name: string) => `${name} (você)`,
+  callBtn: "Ligar",
+  callTitle: (name: string) => `Ligar para ${name}`,
+  rosterEmpty: "Por enquanto só você. Sua equipe aparece aqui quando entrar.",
+  statusInCall: "Em uma ligação",
+  statusDnd: "Não perturbe",
+  statusAway: "Ausente",
+  statusOffline: "Offline",
+  ariaMembers: "Membros",
+  ariaStatus: "Seu status",
+  ariaColor: "Cor do avatar",
+  ariaAvatarPresets: "Avatares prontos",
+  avatarPreset: (n: number) => `Avatar ${n}`,
+  avatarUpload: "Enviar uma foto de perfil",
+  avatarRemove: "Remover foto",
+  errAvatar: "Não foi possível usar essa imagem. Tente outro arquivo.",
+
+  // Space tabs
+  ariaSpaces: "Espaços",
+  createTeam: "Criar um espaço da equipe",
+  teamName: "Nome da equipe",
+  layoutLabel: "Layout",
+  layoutHint: "↑↓ para escolher · Enter para criar",
+  layoutNames: { meeting: "Reunião", desks: "Mesas", lounge: "Lounge", cafe: "Café" },
+  teamTitle: (name: string) => `${name} (equipe)`,
+  // Built-in space display names (keyed by the server's stable space id).
+  spaceLobby: "Saguão",
+  spaceDev: "Dev",
+
+  // Paging / call banner
+  inCallWith: (name: string) => `Em ligação com ${name}`,
+  inCallN: (n: number) => `Em ligação com ${n} pessoas`,
+  shareScreen: "Compartilhar tela",
+  shareScreenTitle: "Compartilhe sua tela nesta ligação",
+  shareScreenRoomTitle: "Compartilhe sua tela com todos nesta sala",
+  stopSharing: "Parar de compartilhar",
+  stopSharingTitle: "Parar de compartilhar a tela",
+  closeScreen: "Fechar o compartilhamento de tela",
+  enterFullscreen: "Tela cheia",
+  exitFullscreen: "Sair da tela cheia",
+  yourScreen: "Sua tela",
+  sharedScreen: (name: string) => `Tela de ${name}`,
+  errScreenShare: "Não foi possível compartilhar a tela. Verifique as permissões do navegador ou do sistema.",
+  screenPermTitle: "Permitir a gravação de tela",
+  screenPermBody:
+    "O macOS bloqueia o compartilhamento da tela inteira até você permitir: abra Ajustes do Sistema → Privacidade e Segurança → Gravação de Tela e Áudio do Sistema, ative o Hiroba e reabra o app. O macOS só aplica a mudança depois de reiniciar.",
+  screenPermOpen: "Abrir Ajustes do Sistema",
+  screenPermRelaunch: "Reiniciar o Hiroba",
+  viewScreen: "Mostrar vídeo",
+  viewScreenTitle: "Mostrar o painel de vídeo de novo",
+  cameraOn: "Ligar câmera",
+  cameraOnTitle: "Ligue sua câmera nesta ligação",
+  cameraOnRoomTitle: "Mostre sua câmera para todos nesta sala",
+  camerasTitle: "Câmeras",
+  cameraOff: "Desligar câmera",
+  cameraOffTitle: "Desligue sua câmera",
+  yourCamera: "Sua câmera",
+  peerCamera: (name: string) => `Câmera de ${name}`,
+  peerVideo: (name: string) => `Vídeo de ${name}`,
+  selfViewTitle: "Trocar com a visualização principal",
+  dockTop: "Mover as câmeras para cima",
+  dockSide: "Mover as câmeras para o lado",
+  dockCorner: "Devolver as câmeras ao canto",
+  errCameraDenied: "Acesso à câmera negado. Verifique as permissões do navegador ou do sistema.",
+  errBackground: "Não foi possível aplicar o fundo da câmera.",
+  errBackgroundImage: "Não foi possível usar essa imagem.",
+  hangUp: "Desligar",
+  pageCancel: "Cancelar",
+  pageDecline: "Recusar",
+  pageAccept: "Atender",
+  someone: "A outra pessoa",
+  pageCalling: (name: string) => `Ligando para ${name}…`,
+  pageIncoming: (name: string) => `Ligação de ${name}`,
+  pageDnd: (name: string) => `${name} está em Não perturbe.`,
+  pageBusy: (name: string) => `${name} já está em uma ligação.`,
+  pageOffline: (name: string) => `${name} está offline.`,
+  pageDeclined: (name: string) => `${name} recusou a ligação.`,
+  pageTimeout: (name: string) => `${name} não atendeu.`,
+  pageMissed: (name: string) => `Você perdeu uma ligação de ${name}.`,
+  callDropped: "A ligação terminou porque a conexão caiu.",
+};
+
+const CATALOGS: Record<Locale, typeof EN> = { en: EN, ja: JA, es: ES, fr: FR, pt: PT };
 
 /** The active message catalog. Reassigned by {@link setLocale}. */
 export let t: typeof EN = CATALOGS[locale];

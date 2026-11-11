@@ -30,6 +30,7 @@ const HEADINGS: Record<Locale, string> = {
   ja: "日本語",
   es: "Español",
   fr: "Français",
+  pt: "Português",
 };
 
 const REQUIRED: readonly Locale[] = ["en", "ja"];

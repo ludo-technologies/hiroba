@@ -65,15 +65,17 @@ test("setLocale persists the choice under hiroba_locale", () => {
   });
 });
 
-test("setLocale reaches Spanish and French and rejects unknown locales", () => {
+test("setLocale reaches Spanish, French and Portuguese and rejects unknown locales", () => {
   withLocalStorage({}, () => {
     const start = locale;
     setLocale("es");
     assert.equal(t.fieldLanguage, "Idioma");
     assert.equal(setLocale("fr"), true);
     assert.equal(t.fieldLanguage, "Langue");
+    assert.equal(setLocale("pt"), true);
+    assert.equal(t.spaceLobby, "Saguão");
     assert.equal(setLocale("de"), false);
-    assert.equal(locale, "fr");
+    assert.equal(locale, "pt");
     setLocale(start);
   });
 });
@@ -84,6 +86,8 @@ test("a fresh boot picks the locale from navigator.language's primary subtag", a
     for (const [language, expected] of [
       ["es-419", "es"],
       ["fr-CA", "fr"],
+      ["pt-BR", "pt"],
+      ["pt-PT", "pt"],
       ["ja-JP", "ja"],
       ["de-DE", "en"],
     ]) {
