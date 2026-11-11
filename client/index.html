@@ -221,6 +221,14 @@
              to no org, in place of the form body (the user must name their org
              before a full session is minted; AUTH_PLAN org-setup flow). -->
         <div id="org-setup" class="org-setup" hidden>
+          <!-- Someone at the same mail domain already has an org: asking to
+               join it comes before founding a second one for the same
+               company. Filled in by `setColleagueOrgs`. -->
+          <div id="org-setup-colleagues" class="org-setup-colleagues" hidden>
+            <h2 class="org-setup-title" data-i18n="orgSetupColleaguesTitle">Join your colleagues</h2>
+            <p class="org-setup-desc" data-i18n="orgSetupColleaguesDesc">People with an address at your domain already have an organization. Ask its admin to add you.</p>
+            <ul id="org-setup-colleague-list" class="colleague-list"></ul>
+          </div>
           <h2 class="org-setup-title" data-i18n="orgSetupTitle">Name your organization</h2>
           <p id="org-setup-desc" class="org-setup-desc" data-i18n="orgSetupDesc">
             You're almost in. Give your organization a name — teammates you invite will join it.

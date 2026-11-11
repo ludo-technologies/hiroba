@@ -178,6 +178,8 @@ const elOrgSetupBtn = $<HTMLButtonElement>("org-setup-btn");
 const elOrgSetupBack = $<HTMLButtonElement>("org-setup-back");
 const elOrgSetupInvitedHint = $<HTMLParagraphElement>("org-setup-invited-hint");
 const elOrgSetupDesc = $<HTMLParagraphElement>("org-setup-desc");
+const elOrgSetupColleagues = $<HTMLDivElement>("org-setup-colleagues");
+const elOrgSetupColleagueList = $<HTMLUListElement>("org-setup-colleague-list");
 const elAuthTrial = $<HTMLParagraphElement>("auth-trial");
 
 const elInviteSetup = $<HTMLDivElement>("invite-setup");
@@ -413,6 +415,15 @@ export interface MemberEntry {
   isSelf: boolean;
 }
 
+/** An org this account could ask to join, as the org-setup step lists it. */
+export interface ColleagueOrgView {
+  slug: string;
+  name: string;
+  members: number;
+  /** Already asked; an admin has not answered yet. */
+  requested: boolean;
+}
+
 export interface UICallbacks {
   onJoin(values: JoinFormValues): void;
   /** Cancel the current connection attempt. */
@@ -435,6 +446,8 @@ export interface UICallbacks {
   onCreateOrg(name: string): void;
   /** Abandon the org-setup step and return to the sign-in form. */
   onCancelOrgSetup(): void;
+  /** Ask a colleague org's admins to let this account in (org-setup step). */
+  onAskToJoin(orgSlug: string): void;
   /** Mail an invite to each address (invite step, or the admin panel). */
   onSendInviteEmails(emails: string[], role: "member" | "admin", source: InviteSource): void;
   /** Mint a member invite and put its link on the clipboard (invite step). */
@@ -1337,8 +1350,48 @@ export class UIManager {
     elOrgSetupDesc.textContent = another ? t.orgSetupAnotherDesc : t.orgSetupDesc;
     elOrgSetupBack.textContent = another ? t.cancel : t.backToLogin;
     elOrgSetupInvitedHint.toggleAttribute("hidden", another);
+    this.setColleagueOrgs([]);
     elOrgSetupName.value = "";
     elOrgSetupName.focus();
+  }
+
+  /** Orgs this account could ask to join, above the "name your own" form;
+   *  none hides the block. A row already asked says so in place of its
+   *  button. */
+  setColleagueOrgs(orgs: ColleagueOrgView[]): void {
+    elOrgSetupColleagues.toggleAttribute("hidden", orgs.length === 0);
+    elOrgSetupColleagueList.replaceChildren(
+      ...orgs.map((org) => {
+        const li = document.createElement("li");
+        const label = document.createElement("div");
+        label.className = "colleague-org";
+        const name = document.createElement("span");
+        name.className = "colleague-org-name";
+        name.textContent = org.name;
+        const members = document.createElement("span");
+        members.className = "colleague-org-members";
+        members.textContent = t.colleagueOrgMembers(org.members);
+        label.append(name, members);
+        li.append(label);
+        if (org.requested) {
+          const asked = document.createElement("span");
+          asked.className = "colleague-org-asked";
+          asked.textContent = t.askedToJoin;
+          li.append(asked);
+        } else {
+          const ask = document.createElement("button");
+          ask.type = "button";
+          ask.className = "ghost-btn";
+          ask.textContent = t.askToJoin;
+          ask.addEventListener("click", () => {
+            ask.disabled = true;
+            this.callbacks.onAskToJoin(org.slug);
+          });
+          li.append(ask);
+        }
+        return li;
+      }),
+    );
   }
 
   /** Return the join form to its normal sign-in state. */

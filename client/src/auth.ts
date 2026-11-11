@@ -423,6 +423,46 @@ export async function listOrgs(authBase: string, token: string): Promise<OrgSumm
   return data.orgs;
 }
 
+/** An org whose members share the caller's mail domain (GET /orgs/colleagues). */
+export interface ColleagueOrg {
+  slug: string;
+  name: string;
+  members: number;
+  /** Already asked; an admin has not answered yet. */
+  requested: boolean;
+}
+
+/**
+ * Orgs the account behind `token` could ask to join instead of founding its
+ * own: those with a member at the same verified mail domain. A backend
+ * without the route (404) has none to offer.
+ */
+export async function colleagueOrgs(authBase: string, token: string): Promise<ColleagueOrg[]> {
+  const resp = await fetch(authEndpoint(authBase, "/orgs/colleagues"), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (resp.status === 404) return [];
+  if (!resp.ok) throw new Error(`colleague orgs refused with HTTP ${resp.status}`);
+  const data: { orgs?: ColleagueOrg[] } = await resp.json();
+  if (!Array.isArray(data.orgs)) throw new Error("colleague orgs response malformed");
+  return data.orgs;
+}
+
+/** Ask the admins of a colleague org, by mail, to let this account in. */
+export async function askToJoin(
+  authBase: string,
+  token: string,
+  org: string,
+  locale: string,
+): Promise<void> {
+  const resp = await fetch(authEndpoint(authBase, "/orgs/colleagues/ask"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ org, locale }),
+  });
+  if (!resp.ok) throw new Error(`ask to join refused with HTTP ${resp.status}`);
+}
+
 /**
  * Re-anchor the session in another org the user belongs to. The refresh token
  * is the thing that actually moves — the backend rotates it under the new org

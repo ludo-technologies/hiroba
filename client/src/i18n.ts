@@ -93,6 +93,13 @@ const EN = {
   backToLogin: "Back to sign-in",
   orgSetupInvitedHint:
     "Invited to an existing organization? Open your invite link in the browser and sign in there — this screen closes by itself once you've joined.",
+  orgSetupColleaguesTitle: "Join your colleagues",
+  orgSetupColleaguesDesc:
+    "People with an address at your domain already have an organization. Ask its admin to add you.",
+  colleagueOrgMembers: (n: number) => (n === 1 ? "1 member" : `${n} members`),
+  askToJoin: "Ask to join",
+  askedToJoin: "Asked. The invite will arrive by e-mail.",
+  errAskToJoin: "Couldn't send the request. Please try again.",
 
   // Invite step (right after the org is founded) + invite-by-e-mail
   inviteSetupTitle: "Invite your teammates",
@@ -433,6 +440,13 @@ const JA: typeof EN = {
   backToLogin: "サインインに戻る",
   orgSetupInvitedHint:
     "招待されている方は、届いた招待リンクをブラウザで開いてサインインしてください。参加が終わるとこの画面は自動で閉じます。",
+  orgSetupColleaguesTitle: "同僚のいる組織に参加する",
+  orgSetupColleaguesDesc:
+    "あなたと同じドメインのアドレスの人が、すでに組織を作っています。管理者に追加を依頼できます。",
+  colleagueOrgMembers: (n: number) => `メンバー${n}人`,
+  askToJoin: "参加を依頼",
+  askedToJoin: "依頼しました。招待がメールで届きます。",
+  errAskToJoin: "依頼を送信できませんでした。もう一度お試しください。",
 
   // 招待ステップ(組織作成直後)+ メール招待
   inviteSetupTitle: "仲間を招待しましょう",
@@ -771,6 +785,13 @@ const ES: typeof EN = {
   backToLogin: "Volver al inicio de sesión",
   orgSetupInvitedHint:
     "¿Te invitaron a una organización que ya existe? Abre tu enlace de invitación en el navegador e inicia sesión ahí: esta pantalla se cierra sola en cuanto te hayas unido.",
+  orgSetupColleaguesTitle: "Únete a tus colegas",
+  orgSetupColleaguesDesc:
+    "Personas con una dirección de tu dominio ya tienen una organización. Pide a su administrador que te añada.",
+  colleagueOrgMembers: (n: number) => (n === 1 ? "1 miembro" : `${n} miembros`),
+  askToJoin: "Pedir acceso",
+  askedToJoin: "Solicitud enviada. La invitación llegará por correo.",
+  errAskToJoin: "No se pudo enviar la solicitud. Inténtalo de nuevo.",
 
   // Invite step (right after the org is founded) + invite-by-e-mail
   inviteSetupTitle: "Invita a tu equipo",
@@ -1111,6 +1132,13 @@ const FR: typeof EN = {
   backToLogin: "Retour à la connexion",
   orgSetupInvitedHint:
     "Vous avez reçu une invitation pour une organisation existante ? Ouvrez votre lien d'invitation dans le navigateur et connectez-vous là-bas : cet écran se fermera de lui-même une fois que vous l'aurez rejointe.",
+  orgSetupColleaguesTitle: "Rejoignez vos collègues",
+  orgSetupColleaguesDesc:
+    "Des personnes ayant une adresse de votre domaine ont déjà une organisation. Demandez à son administrateur de vous ajouter.",
+  colleagueOrgMembers: (n: number) => (n === 1 ? "1 membre" : `${n} membres`),
+  askToJoin: "Demander à rejoindre",
+  askedToJoin: "Demande envoyée. L'invitation arrivera par e-mail.",
+  errAskToJoin: "Impossible d'envoyer la demande. Veuillez réessayer.",
 
   // Invite step (right after the org is founded) + invite-by-e-mail
   inviteSetupTitle: "Invitez vos collègues",
@@ -1451,6 +1479,13 @@ const PT: typeof EN = {
   backToLogin: "Voltar para o login",
   orgSetupInvitedHint:
     "Recebeu convite para uma organização que já existe? Abra seu link de convite no navegador e entre por lá: esta tela fecha sozinha assim que você entrar.",
+  orgSetupColleaguesTitle: "Entre com seus colegas",
+  orgSetupColleaguesDesc:
+    "Pessoas com um endereço do seu domínio já têm uma organização. Peça ao administrador para adicionar você.",
+  colleagueOrgMembers: (n: number) => (n === 1 ? "1 membro" : `${n} membros`),
+  askToJoin: "Pedir para entrar",
+  askedToJoin: "Pedido enviado. O convite chega por e-mail.",
+  errAskToJoin: "Não foi possível enviar o pedido. Tente novamente.",
 
   // Invite step (right after the org is founded) + invite-by-e-mail
   inviteSetupTitle: "Convide sua equipe",

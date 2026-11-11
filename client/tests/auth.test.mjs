@@ -13,6 +13,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  askToJoin,
+  colleagueOrgs,
   CODE_LENGTH,
   CodeRejectedError,
   CodeThrottledError,
@@ -278,6 +280,45 @@ test("listOrgs throws on a refusal or a malformed answer", async () => {
     );
     assert.ok(result instanceof Error);
   }
+});
+
+test("colleagueOrgs lists the orgs on offer, and none where the backend has no such route", async () => {
+  const orgs = [{ slug: "acme", name: "Acme", members: 3, requested: false }];
+  const { result, calls } = await withFetch(
+    () => jsonResponse(200, { orgs }),
+    () => colleagueOrgs("https://auth.example.com/", "tok"),
+  );
+  assert.equal(calls[0].url, "https://auth.example.com/orgs/colleagues");
+  assert.equal(calls[0].init.headers.Authorization, "Bearer tok");
+  assert.deepEqual(result, orgs);
+
+  const older = await withFetch(
+    () => new Response("not found", { status: 404 }),
+    () => colleagueOrgs("https://auth.example.com", "tok"),
+  );
+  assert.deepEqual(older.result, []);
+
+  const refused = await withFetch(
+    () => new Response("invalid token", { status: 401 }),
+    () => colleagueOrgs("https://auth.example.com", "tok").catch((e) => e),
+  );
+  assert.ok(refused.result instanceof Error);
+});
+
+test("askToJoin names the org and the locale, and throws on a refusal", async () => {
+  const { calls } = await withFetch(
+    () => new Response(null, { status: 204 }),
+    () => askToJoin("https://auth.example.com", "tok", "acme", "ja"),
+  );
+  assert.equal(calls[0].url, "https://auth.example.com/orgs/colleagues/ask");
+  assert.equal(calls[0].init.headers.Authorization, "Bearer tok");
+  assert.deepEqual(calls[0].body, { org: "acme", locale: "ja" });
+
+  const { result } = await withFetch(
+    () => new Response("not an organization you can ask", { status: 403 }),
+    () => askToJoin("https://auth.example.com", "tok", "acme", "ja").catch((e) => e),
+  );
+  assert.ok(result instanceof Error);
 });
 
 /** A session as the app holds one (`refresh`) or the browser does (`null`). */

@@ -54,8 +54,11 @@ import {
 import { resolveIceServers, type IceResolution } from "./config.js";
 import { locale, spaceLabel, t } from "./i18n.js";
 import {
+  askToJoin,
   clearSession,
   CodeRejectedError,
+  type ColleagueOrg,
+  colleagueOrgs,
   createOrg,
   CodeThrottledError,
   decodeClaims,
@@ -309,6 +312,7 @@ const ui = new UIManager(
     onSwitchOrg: (orgSlug) => void handleSwitchOrg(orgSlug),
     onCreateOrg: handleCreateOrg,
     onCancelOrgSetup: handleCancelOrgSetup,
+    onAskToJoin: (orgSlug) => void handleAskToJoin(orgSlug),
     onSendInviteEmails: handleSendInviteEmails,
     onCopyInviteLink: handleCopyInviteLink,
     onOpenInvitePanel: handleOpenInvitePanel,
@@ -985,6 +989,7 @@ async function adoptLogin(result: OAuthResult): Promise<void> {
     // exists. The provisional token only authorizes POST /orgs.
     pendingProvisionalToken = result.provisionalToken;
     ui.showOrgSetup();
+    void syncColleagueOrgs();
     return;
   }
   await adoptSession(result.session);
@@ -1083,6 +1088,35 @@ async function foundOrg(token: string, body: Record<string, string>): Promise<Se
   }
   await adoptSession(session);
   return session.claims;
+}
+
+/** Offer the pending sign-in the orgs its colleagues are already in, above
+ *  the form that would found one more for the same company. A backend that
+ *  can't say offers none. */
+async function syncColleagueOrgs(): Promise<void> {
+  const token = pendingProvisionalToken;
+  if (!token) return;
+  let orgs: ColleagueOrg[];
+  try {
+    orgs = await colleagueOrgs(ui.getAuthUrl(), token);
+  } catch {
+    orgs = [];
+  }
+  // The step may have been left, or passed, while the list was in flight.
+  if (pendingProvisionalToken !== token) return;
+  ui.setColleagueOrgs(orgs);
+}
+
+async function handleAskToJoin(orgSlug: string): Promise<void> {
+  const token = pendingProvisionalToken;
+  if (!token) return;
+  try {
+    await askToJoin(ui.getAuthUrl(), token, orgSlug, locale);
+  } catch {
+    ui.showError(t.errAskToJoin);
+  }
+  // Either way the list is the truth: asked, or its button back.
+  await syncColleagueOrgs();
 }
 
 async function handleCreateOrg(name: string): Promise<void> {

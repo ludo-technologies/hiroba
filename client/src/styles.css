@@ -2829,6 +2829,63 @@ a.hud-pill {
   align-self: center;
 }
 
+/* Orgs a colleague already founded, offered before the "name your own" form. */
+.org-setup-colleagues {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--edge);
+}
+
+.org-setup-colleagues[hidden] {
+  display: none;
+}
+
+.colleague-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.colleague-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.colleague-org {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.colleague-org-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.colleague-org-members,
+.colleague-org-asked {
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+
+.colleague-list button {
+  flex-shrink: 0;
+}
+
+.colleague-org-asked {
+  flex: 0 1 50%;
+  text-align: right;
+}
+
 /* Where an invitee who signed in first is sent, on the org-setup step. */
 .org-setup-invited {
   padding-top: 14px;
