@@ -57,6 +57,7 @@
     <Resource Language="ja-JP" />
     <Resource Language="es" />
     <Resource Language="fr" />
+    <Resource Language="pt-BR" />
   </Resources>
 
   <Applications>
