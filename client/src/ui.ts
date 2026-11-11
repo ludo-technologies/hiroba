@@ -707,6 +707,9 @@ export class UIManager {
   /** Address a code was mailed to, while the code step is on screen. */
   private codeSentTo: string | null = null;
   private lastOrgSetupBusy = false;
+  /** Where "get the desktop app" points for a guest who can become a member
+   *  (see `setGetAppLink`), or `null`. */
+  private memberPath: string | null = null;
   private lastInviteIssueBusy = false;
   private lastInviteSendBusy = false;
   /** Org named on the invite step while it is on screen. */
@@ -788,7 +791,10 @@ export class UIManager {
    *  an org that takes members becomes one before installing — or, with
    *  `null`, back at the site's download section. */
   setGetAppLink(url: string | null): void {
+    this.memberPath = url;
     elHudGetApp.href = url ?? GET_APP_DEFAULT_HREF;
+    // The invite page opens on a sign-in, not a download: say so up front.
+    elHudGetApp.textContent = url ? t.guestBecomeMember : t.guestGetApp;
   }
 
   /** Browser guest entry (web build opened from an invite link): a hint says
@@ -1210,6 +1216,7 @@ export class UIManager {
     this.setBillingLock(this.lastBillingLock);
     this._renderTrial();
     this._renderAuthChip();
+    this.setGetAppLink(this.memberPath);
 
     // HUD chrome that UI owns directly.
     this.setMuted(this.lastMuted);
