@@ -43,6 +43,7 @@ export let locale: Locale = detectLocale();
 const EN = {
   // Join card
   signInGoogle: "Sign in with Google",
+  signInMicrosoft: "Sign in with Microsoft",
   signInGithub: "Sign in with GitHub",
   signOutAccount: "Sign out of Hiroba",
   newOrgAction: "+ New organization",
@@ -391,6 +392,7 @@ const EN = {
 const JA: typeof EN = {
   // Join card
   signInGoogle: "Google でサインイン",
+  signInMicrosoft: "Microsoft でサインイン",
   signInGithub: "GitHub でサインイン",
   signOutAccount: "Hiroba からサインアウト",
   newOrgAction: "+ 新しい組織を作成",
@@ -738,6 +740,7 @@ const JA: typeof EN = {
 const ES: typeof EN = {
   // Join card
   signInGoogle: "Iniciar sesión con Google",
+  signInMicrosoft: "Iniciar sesión con Microsoft",
   signInGithub: "Iniciar sesión con GitHub",
   signOutAccount: "Cerrar sesión en Hiroba",
   newOrgAction: "+ Nueva organización",
@@ -1086,6 +1089,7 @@ const ES: typeof EN = {
 const FR: typeof EN = {
   // Join card
   signInGoogle: "Se connecter avec Google",
+  signInMicrosoft: "Se connecter avec Microsoft",
   signInGithub: "Se connecter avec GitHub",
   signOutAccount: "Se déconnecter de Hiroba",
   newOrgAction: "+ Nouvelle organisation",
@@ -1434,6 +1438,7 @@ const FR: typeof EN = {
 const PT: typeof EN = {
   // Join card
   signInGoogle: "Entrar com o Google",
+  signInMicrosoft: "Entrar com a Microsoft",
   signInGithub: "Entrar com o GitHub",
   signOutAccount: "Sair do Hiroba",
   newOrgAction: "+ Nova organização",

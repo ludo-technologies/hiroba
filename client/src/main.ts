@@ -82,6 +82,7 @@ import {
   supersedeRestore,
   switchOrg,
   type AuthSession,
+  type OAuthProvider,
   type SessionClaims,
   type OAuthResult,
   type OrgSummary,
@@ -929,7 +930,7 @@ async function handleSwitchOrg(orgSlug: string): Promise<void> {
   }
 }
 
-async function handleLogin(provider: "google" | "github", authUrl: string): Promise<void> {
+async function handleLogin(provider: OAuthProvider, authUrl: string): Promise<void> {
   // The browser build signs in by leaving for the provider; the page comes
   // back with the outcome (`webSignIn` above).
   if (!isTauri()) return startWebLogin(authUrl, provider);

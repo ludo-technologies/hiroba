@@ -3,7 +3,7 @@
  *
  * Two ways in, both ending at the same Hiroba JWT:
  *
- *   - **OAuth** (Google / GitHub): the heavy lifting — PKCE, loopback listener,
+ *   - **OAuth** (Google / Microsoft / GitHub): the heavy lifting — PKCE, loopback listener,
  *     system browser, code→JWT exchange — happens in the Tauri shell
  *     (`src-tauri/src/oauth.rs`); this module is the thin webview-side wrapper.
  *   - **E-mail code**: two plain fetches ({@link emailStart}, {@link emailVerify}).
@@ -95,7 +95,9 @@ export function isLive(claims: SessionClaims): boolean {
 // Interactive login
 // ---------------------------------------------------------------------------
 
-export type Provider = "google" | "github" | "dev";
+/** The providers behind the sign-in buttons. */
+export type OAuthProvider = "google" | "microsoft" | "github";
+export type Provider = OAuthProvider | "dev";
 
 /** A login either yields a full session, or (for a first-time user who
  *  belongs to no org yet) a short-lived provisional token that `POST /orgs`

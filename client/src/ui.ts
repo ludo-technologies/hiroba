@@ -26,7 +26,7 @@ import {
   spaceLabel,
   t,
 } from "./i18n.js";
-import { CODE_LENGTH, inviteLinkUrl, sanitizeCode, type OrgSummary } from "./auth.js";
+import { CODE_LENGTH, inviteLinkUrl, sanitizeCode, type OAuthProvider, type OrgSummary } from "./auth.js";
 import { CustomSelect, type SelectOption } from "./select.js";
 import { bindOverlayDismiss } from "./overlay.js";
 import { AVATAR_MAX_CHARS, AVATAR_PRESETS, encodeAvatar, encodePreset, isPresetId, loadImage, presetSvg } from "./avatars.js";
@@ -141,12 +141,19 @@ const GET_APP_DEFAULT_HREF = elHudGetApp.href;
 const elAuthBlock = $<HTMLDivElement>("auth-block");
 const elAuthActions = $<HTMLDivElement>("auth-actions");
 const elAuthRestoring = $<HTMLDivElement>("auth-restoring");
-const elLoginGoogle = $<HTMLButtonElement>("login-google");
-const elLoginGithub = $<HTMLButtonElement>("login-github");
-// Label spans inside the buttons — busy text swaps these, not textContent,
-// so the inline provider logos survive.
-const elLoginGoogleLabel = elLoginGoogle.querySelector<HTMLSpanElement>(".oauth-label")!;
-const elLoginGithubLabel = elLoginGithub.querySelector<HTMLSpanElement>(".oauth-label")!;
+/** The OAuth sign-in buttons (`login-<provider>`) and the string each shows
+ *  when idle. Busy text swaps the label span, not textContent, so the inline
+ *  provider logos survive. */
+const OAUTH_LOGINS = (
+  [
+    ["google", "signInGoogle"],
+    ["microsoft", "signInMicrosoft"],
+    ["github", "signInGithub"],
+  ] as const
+).map(([provider, idleText]) => {
+  const button = $<HTMLButtonElement>(`login-${provider}`);
+  return { provider, idleText, button, label: button.querySelector<HTMLSpanElement>(".oauth-label")! };
+});
 const elEmailStep = $<HTMLDivElement>("email-step");
 const elLoginEmail = $<HTMLInputElement>("login-email");
 const elLoginEmailSend = $<HTMLButtonElement>("login-email-send");
@@ -432,7 +439,7 @@ export interface UICallbacks {
   /** Cancel the current connection attempt. */
   onCancelConnect(): void;
   /** Start an interactive OAuth login via the Tauri shell (FR-13). */
-  onLogin(provider: "google" | "github", authUrl: string): void;
+  onLogin(provider: OAuthProvider, authUrl: string): void;
   /** Ask the auth backend to mail a one-time login code. */
   onEmailStart(email: string, authUrl: string): void;
   /** Trade a mailed code for a session. */
@@ -1094,10 +1101,10 @@ export class UIManager {
   /** Disable the login buttons while the browser dance is in flight. */
   setLoginBusy(busy: boolean): void {
     this.lastLoginBusy = busy;
-    elLoginGoogle.disabled = busy;
-    elLoginGithub.disabled = busy;
-    elLoginGoogleLabel.textContent = busy ? t.waitingBrowser : t.signInGoogle;
-    elLoginGithubLabel.textContent = busy ? t.waitingBrowser : t.signInGithub;
+    for (const { button, label, idleText } of OAUTH_LOGINS) {
+      button.disabled = busy;
+      label.textContent = busy ? t.waitingBrowser : t[idleText];
+    }
   }
 
   /** Disable the address step while a code is being mailed. */
@@ -1279,13 +1286,12 @@ export class UIManager {
       return url;
     };
 
-    const start = (provider: "google" | "github") => {
-      const url = authUrl();
-      if (!url) return;
-      this.callbacks.onLogin(provider, url);
-    };
-    elLoginGoogle.addEventListener("click", () => start("google"));
-    elLoginGithub.addEventListener("click", () => start("github"));
+    for (const { provider, button } of OAUTH_LOGINS) {
+      button.addEventListener("click", () => {
+        const url = authUrl();
+        if (url) this.callbacks.onLogin(provider, url);
+      });
+    }
 
     // ── E-mail one-time code ───────────────────────────────────────────────
     const sendCode = (email: string) => {

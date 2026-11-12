@@ -408,7 +408,7 @@ HIROBA_JWT_ISSUER=https://your-provider HIROBA_JWT_AUDIENCE=hiroba \
 make server
 ```
 
-A turnkey login backend — Google / GitHub sign-in with invites, orgs, and admin
+A turnkey login backend — Google / Microsoft / GitHub sign-in with invites, orgs, and admin
 roles, so there's no provider to wire up yourself — is part of Hiroba's hosted
 edition and is not included in this repository.
 
