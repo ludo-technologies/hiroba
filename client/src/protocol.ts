@@ -171,6 +171,12 @@ export interface CreateSpaceMsg {
   layout: TeamLayout;
 }
 
+/** Rename the org (admin only). The server answers with `org` to everyone. */
+export interface RenameOrgMsg {
+  t: "rename_org";
+  name: string;
+}
+
 /** Post a message to the current space's chat. */
 export interface PostNoteMsg {
   t: "post_note";
@@ -263,6 +269,7 @@ export type ClientMsg =
   | HelloMsg
   | EnterSpaceMsg
   | CreateSpaceMsg
+  | RenameOrgMsg
   | PostNoteMsg
   | RemoveNoteMsg
   | ReactMsg
@@ -311,6 +318,12 @@ export interface SpaceSnapshotMsg {
   /** Spawn position in the new space. */
   you: { id: string; x: number; y: number };
   peers: Peer[];
+}
+
+/** The org was renamed (`rename_org`). */
+export interface OrgMsg {
+  t: "org";
+  org: Org;
 }
 
 /** Space catalog changed (e.g. after `create_space`). Replace the catalog. */
@@ -441,6 +454,7 @@ export interface ErrorMsg {
     | "space_exists"
     | "unknown_space"
     | "forbidden"
+    | "org_name"
     | "note_empty"
     | "note_rate"
     | "reaction_rate";
@@ -452,6 +466,7 @@ export type ServerMsg =
   | WelcomeMsg
   | SpaceSnapshotMsg
   | SpacesMsg
+  | OrgMsg
   | NotesMsg
   | PresenceMsg
   | PresenceLeftMsg

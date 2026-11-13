@@ -72,6 +72,7 @@ import {
   isLive,
   isTauri,
   listOrgs,
+  renameOrg,
   loadSession,
   oauthLogin,
   openExternal,
@@ -331,6 +332,7 @@ const ui = new UIManager(
     onRoomInset: (inset) => renderer.setInset(inset),
     onOpenMembersPanel: handleOpenMembersPanel,
     onRemoveMember: handleRemoveMember,
+    onRenameOrg: handleRenameOrg,
     onOpenBilling: handleOpenBilling,
     onMicToggle: handleMicToggle,
     onOpenAudioSettings: handleOpenAudioSettings,
@@ -1356,6 +1358,25 @@ async function handleRemoveMember(subject: string): Promise<void> {
     ui.showMembersPanelError(t.errRemoveMember);
   }
   await refreshMemberList(); // authoritative state either way
+}
+
+// ---------------------------------------------------------------------------
+// Rename the organization (admin)
+// ---------------------------------------------------------------------------
+
+/** The auth backend holds the name the switcher, invites and future sessions
+ *  use; the office is renamed over the socket, which tells everyone in it. */
+async function handleRenameOrg(name: string): Promise<void> {
+  if (!authSession || !session) return;
+  try {
+    await renameOrg(ui.getAuthUrl(), authSession.token, name);
+  } catch {
+    ui.showRenameOrgError(t.errRenameOrg);
+    return;
+  }
+  session.net.send({ t: "rename_org", name });
+  ui.hideRenameOrg();
+  await syncOrgList();
 }
 
 // ---------------------------------------------------------------------------
@@ -2407,6 +2428,11 @@ function bindServerMessages(net: HirobaNet): void {
   });
 
   // --- Org scope (sidebar) ---
+
+  net.on("org", (e) => {
+    ui.setOrgName(e.detail.org.name);
+    document.title = `Hiroba — ${e.detail.org.name}`;
+  });
 
   net.on("spaces", (e) => {
     if (!session) return;

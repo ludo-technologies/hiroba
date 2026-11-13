@@ -271,6 +271,12 @@ const elScreenPerm = $<HTMLDivElement>("screen-perm");
 const elScreenPermClose = $<HTMLButtonElement>("screen-perm-close");
 const elScreenPermOpen = $<HTMLButtonElement>("screen-perm-open");
 const elScreenPermRelaunch = $<HTMLButtonElement>("screen-perm-relaunch");
+const elRenameOrgBtn = $<HTMLButtonElement>("rename-org-btn");
+const elRenameOrgPanel = $<HTMLDivElement>("rename-org-panel");
+const elRenameOrgClose = $<HTMLButtonElement>("rename-org-close");
+const elRenameOrgName = $<HTMLInputElement>("rename-org-name");
+const elRenameOrgSave = $<HTMLButtonElement>("rename-org-save");
+const elRenameOrgError = $<HTMLParagraphElement>("rename-org-error");
 const elMembersPanel = $<HTMLDivElement>("members-panel");
 const elMembersPanelBtn = $<HTMLButtonElement>("members-panel-btn");
 const elMembersPanelClose = $<HTMLButtonElement>("members-panel-close");
@@ -472,6 +478,8 @@ export interface UICallbacks {
   onOpenMembersPanel(): void;
   /** Admin removes a member from the org (frees their seat). */
   onRemoveMember(subject: string): void;
+  /** Admin renames the org (already trimmed and non-empty). */
+  onRenameOrg(name: string): void;
   /** Admin opens the Stripe Customer Portal (add card / change plan / cancel). */
   onOpenBilling(): void;
   onMicToggle(): void;
@@ -776,6 +784,7 @@ export class UIManager {
     this._bindBillingLock();
     this._bindInvitePanel();
     this._bindMembersPanel();
+    this._bindRenameOrg();
     this._bindHud();
     this._bindScreenPerm();
     this._bindAudioSettings();
@@ -1089,7 +1098,7 @@ export class UIManager {
     this.orgSelect.setOptions(
       this.lastOrgs.length >= 2
         ? this.lastOrgs.map((o) => ({ value: o.slug, label: orgLabel(o.name, o.role) }))
-        : [{ value: "", label: orgLabel(session.org, session.role) }],
+        : [{ value: "", label: orgLabel(this.lastOrgs.find((o) => o.slug === this.lastOrgSlug)?.name ?? session.org, session.role) }],
       this.lastOrgs.length >= 2 ? this.lastOrgSlug : "",
       [
         { label: t.newOrgAction, onSelect: () => this.showOrgSetup("another") },
@@ -1884,6 +1893,58 @@ export class UIManager {
     });
     elMembersPanelClose.addEventListener("click", () => this.hideMembersPanel());
     bindOverlayDismiss(elMembersPanel, () => this.hideMembersPanel());
+  }
+
+  // -------------------------------------------------------------------------
+  // Rename the organization (admin)
+  // -------------------------------------------------------------------------
+
+  hideRenameOrg(): void {
+    elRenameOrgPanel.setAttribute("hidden", "");
+  }
+
+  /** The rename was refused or didn't get through: let the admin try again. */
+  showRenameOrgError(msg: string): void {
+    elRenameOrgSave.disabled = false;
+    elRenameOrgError.textContent = msg;
+    elRenameOrgError.removeAttribute("hidden");
+  }
+
+  private _bindRenameOrg(): void {
+    elRenameOrgBtn.addEventListener("click", () => {
+      this._setAdminMenuOpen(false);
+      elRenameOrgName.value = elOrgName.textContent ?? "";
+      elRenameOrgSave.disabled = false;
+      elRenameOrgError.setAttribute("hidden", "");
+      elRenameOrgPanel.removeAttribute("hidden");
+      elRenameOrgName.focus();
+      elRenameOrgName.select();
+    });
+    const submit = () => {
+      const name = elRenameOrgName.value.trim();
+      if (!name) {
+        this.showRenameOrgError(t.errOrgName);
+        elRenameOrgName.focus();
+        return;
+      }
+      if (name === elOrgName.textContent) {
+        this.hideRenameOrg();
+        return;
+      }
+      elRenameOrgSave.disabled = true;
+      elRenameOrgError.setAttribute("hidden", "");
+      this.callbacks.onRenameOrg(name);
+    };
+    elRenameOrgSave.addEventListener("click", submit);
+    elRenameOrgName.addEventListener("keydown", (e) => {
+      // Enter that confirms an IME conversion is not a submit.
+      if (e.key === "Enter" && !e.isComposing) {
+        e.preventDefault();
+        if (!elRenameOrgSave.disabled) submit();
+      }
+    });
+    elRenameOrgClose.addEventListener("click", () => this.hideRenameOrg());
+    bindOverlayDismiss(elRenameOrgPanel, () => this.hideRenameOrg());
   }
 
   private _bindInvitePanel(): void {

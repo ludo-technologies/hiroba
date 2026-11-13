@@ -421,6 +421,15 @@
             >
               Manage members
             </button>
+            <button
+              id="rename-org-btn"
+              class="admin-menu-item"
+              type="button"
+              role="menuitem"
+              data-i18n="renameOrgTitle"
+            >
+              Rename organization
+            </button>
             <!-- Only does anything when the auth backend has billing on. -->
             <button
               id="billing-panel-btn"
@@ -595,6 +604,25 @@
         <ul id="member-list" class="invite-list" aria-label="Members" data-i18n-arialabel="ariaMembers"></ul>
 
         <p id="members-panel-error" class="error" role="alert" hidden></p>
+      </div>
+    </div>
+
+    <!-- Rename the organization (admin). -->
+    <div id="rename-org-panel" class="overlay" hidden>
+      <div class="card invite-card" role="dialog" aria-modal="true" aria-labelledby="rename-org-title">
+        <header class="invite-head">
+          <span id="rename-org-title" class="invite-title" data-i18n="renameOrgTitle">Rename organization</span>
+          <button id="rename-org-close" type="button" class="ghost-btn" data-i18n="closePanel">Close</button>
+        </header>
+
+        <label class="field">
+          <span class="field-label" data-i18n="fieldOrgName">Organization name</span>
+          <input id="rename-org-name" type="text" maxlength="64" autocomplete="organization" />
+        </label>
+
+        <button id="rename-org-save" type="button" class="setup-primary" data-i18n="renameOrgSave">Save</button>
+
+        <p id="rename-org-error" class="error" role="alert" hidden></p>
       </div>
     </div>
 

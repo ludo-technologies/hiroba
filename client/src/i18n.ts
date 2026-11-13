@@ -197,6 +197,11 @@ const EN = {
   confirmRemoveMember: "Confirm?",
   errLoadMembers: "Couldn't load members.",
   errRemoveMember: "Couldn't remove that member. Please try again.",
+
+  // Rename the organization (admin)
+  renameOrgTitle: "Rename organization",
+  renameOrgSave: "Save",
+  errRenameOrg: "Couldn't rename the organization. Please try again.",
   openingBilling: "Opening billing…",
   billingNotEnabled: "Billing isn't enabled for this deployment.",
   errBillingPortal: "Couldn't open the billing portal. Please try again.",
@@ -546,6 +551,11 @@ const JA: typeof EN = {
   confirmRemoveMember: "本当に削除？",
   errLoadMembers: "メンバーの一覧を取得できませんでした。",
   errRemoveMember: "メンバーを削除できませんでした。もう一度お試しください。",
+
+  // Rename the organization (admin)
+  renameOrgTitle: "組織名を変更",
+  renameOrgSave: "保存",
+  errRenameOrg: "組織名を変更できませんでした。もう一度お試しください。",
   openingBilling: "お支払い管理を開いています…",
   billingNotEnabled: "この環境では課金は有効化されていません。",
   errBillingPortal: "お支払い管理を開けませんでした。もう一度お試しください。",
@@ -894,6 +904,11 @@ const ES: typeof EN = {
   confirmRemoveMember: "¿Confirmar?",
   errLoadMembers: "No se pudieron cargar los miembros.",
   errRemoveMember: "No se pudo quitar a ese miembro. Inténtalo de nuevo.",
+
+  // Rename the organization (admin)
+  renameOrgTitle: "Cambiar el nombre de la organización",
+  renameOrgSave: "Guardar",
+  errRenameOrg: "No se pudo cambiar el nombre de la organización. Inténtalo de nuevo.",
   openingBilling: "Abriendo la facturación…",
   billingNotEnabled: "La facturación no está habilitada en esta instalación.",
   errBillingPortal: "No se pudo abrir el portal de facturación. Inténtalo de nuevo.",
@@ -1243,6 +1258,11 @@ const FR: typeof EN = {
   confirmRemoveMember: "Confirmer ?",
   errLoadMembers: "Impossible de charger les membres.",
   errRemoveMember: "Impossible de retirer ce membre. Veuillez réessayer.",
+
+  // Rename the organization (admin)
+  renameOrgTitle: "Renommer l'organisation",
+  renameOrgSave: "Enregistrer",
+  errRenameOrg: "Impossible de renommer l'organisation. Veuillez réessayer.",
   openingBilling: "Ouverture de la facturation…",
   billingNotEnabled: "La facturation n'est pas activée sur ce déploiement.",
   errBillingPortal: "Impossible d'ouvrir le portail de facturation. Veuillez réessayer.",
@@ -1592,6 +1612,11 @@ const PT: typeof EN = {
   confirmRemoveMember: "Confirmar?",
   errLoadMembers: "Não foi possível carregar os membros.",
   errRemoveMember: "Não foi possível remover esse membro. Tente novamente.",
+
+  // Rename the organization (admin)
+  renameOrgTitle: "Renomear organização",
+  renameOrgSave: "Salvar",
+  errRenameOrg: "Não foi possível renomear a organização. Tente novamente.",
   openingBilling: "Abrindo a cobrança…",
   billingNotEnabled: "A cobrança não está habilitada nesta instalação.",
   errBillingPortal: "Não foi possível abrir o portal de cobrança. Tente novamente.",

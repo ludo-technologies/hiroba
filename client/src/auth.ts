@@ -432,6 +432,16 @@ export async function listOrgs(authBase: string, token: string): Promise<OrgSumm
   return data.orgs;
 }
 
+/** Rename the session's org (admin only; PATCH /orgs). Throws if refused. */
+export async function renameOrg(authBase: string, token: string, name: string): Promise<void> {
+  const resp = await fetch(authEndpoint(authBase, "/orgs"), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ name }),
+  });
+  if (!resp.ok) throw new Error(`rename failed (${resp.status})`);
+}
+
 /** An org whose members share the caller's mail domain (GET /orgs/colleagues). */
 export interface ColleagueOrg {
   slug: string;
