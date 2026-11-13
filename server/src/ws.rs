@@ -34,7 +34,8 @@ use crate::protocol::{ClientMsg, PeerPos, ServerMsg};
 use crate::proximity;
 use crate::registry::OrgRegistry;
 use crate::state::{
-    CreateSpaceOutcome, EnterOutcome, NoteError, PageOutcome, MAX_SPACES_PER_ORG, NOTE_COOLDOWN,
+    CreateSpaceOutcome, EnterOutcome, NoteError, PageOutcome, RenameOrgError, MAX_ORG_NAME_CHARS,
+    MAX_SPACES_PER_ORG, NOTE_COOLDOWN,
 };
 
 /// Capacity of the per-peer outbound channel. Most of it is kept for control
@@ -251,93 +252,114 @@ pub async fn handle_ws(
             break 'read;
         }
         match frame {
-            Ok(Message::Text(text)) => match serde_json::from_str::<ClientMsg>(&text) {
-                Ok(ClientMsg::Move { x, y }) => org.set_pos(&pid, x, y).await,
-                Ok(ClientMsg::Mute { muted }) => org.set_mute(&pid, muted).await,
-                Ok(ClientMsg::SetStatus { away, dnd }) => org.set_status(&pid, away, dnd).await,
-                Ok(ClientMsg::Signal { to, data }) => org.route_signal(&pid, &to, data).await,
-                Ok(ClientMsg::EnterSpace { space_id }) => {
-                    let outcome = org.enter_space(&pid, &space_id).await;
-                    let entered = matches!(outcome, EnterOutcome::Snapshot(_));
-                    let msg = match outcome {
-                        EnterOutcome::Snapshot(m) => m,
-                        EnterOutcome::Error(m) => m,
-                    };
-                    // Deliver to the requester via their own channel.
-                    let _ = tx.send(msg).await;
-                    if entered {
-                        org.send_notes(&pid).await;
-                    }
-                }
-                Ok(ClientMsg::CreateSpace { name, layout }) => {
-                    let err = match org.create_space(name, layout).await {
-                        CreateSpaceOutcome::Created => None,
-                        CreateSpaceOutcome::LimitReached => Some(ServerMsg::Error {
-                            code: "space_limit".to_string(),
-                            message: format!("Space limit reached ({MAX_SPACES_PER_ORG})."),
-                        }),
-                        CreateSpaceOutcome::Duplicate(name) => Some(ServerMsg::Error {
-                            code: "space_exists".to_string(),
-                            message: format!("A space named \"{name}\" already exists."),
-                        }),
-                    };
-                    if let Some(msg) = err {
+            Ok(Message::Text(text)) => {
+                match serde_json::from_str::<ClientMsg>(&text) {
+                    Ok(ClientMsg::Move { x, y }) => org.set_pos(&pid, x, y).await,
+                    Ok(ClientMsg::Mute { muted }) => org.set_mute(&pid, muted).await,
+                    Ok(ClientMsg::SetStatus { away, dnd }) => org.set_status(&pid, away, dnd).await,
+                    Ok(ClientMsg::Signal { to, data }) => org.route_signal(&pid, &to, data).await,
+                    Ok(ClientMsg::EnterSpace { space_id }) => {
+                        let outcome = org.enter_space(&pid, &space_id).await;
+                        let entered = matches!(outcome, EnterOutcome::Snapshot(_));
+                        let msg = match outcome {
+                            EnterOutcome::Snapshot(m) => m,
+                            EnterOutcome::Error(m) => m,
+                        };
+                        // Deliver to the requester via their own channel.
                         let _ = tx.send(msg).await;
+                        if entered {
+                            org.send_notes(&pid).await;
+                        }
+                    }
+                    Ok(ClientMsg::CreateSpace { name, layout }) => {
+                        let err = match org.create_space(name, layout).await {
+                            CreateSpaceOutcome::Created => None,
+                            CreateSpaceOutcome::LimitReached => Some(ServerMsg::Error {
+                                code: "space_limit".to_string(),
+                                message: format!("Space limit reached ({MAX_SPACES_PER_ORG})."),
+                            }),
+                            CreateSpaceOutcome::Duplicate(name) => Some(ServerMsg::Error {
+                                code: "space_exists".to_string(),
+                                message: format!("A space named \"{name}\" already exists."),
+                            }),
+                        };
+                        if let Some(msg) = err {
+                            let _ = tx.send(msg).await;
+                        }
+                    }
+                    Ok(ClientMsg::RenameOrg { name }) => {
+                        if let Err(e) = org.rename(&pid, &name).await {
+                            let (code, message) = match e {
+                            RenameOrgError::Forbidden => {
+                                ("forbidden", "Only an admin can rename the organization.".to_string())
+                            }
+                            RenameOrgError::InvalidName => (
+                                "org_name",
+                                format!("An organization name is 1-{MAX_ORG_NAME_CHARS} characters."),
+                            ),
+                        };
+                            let _ = tx
+                                .send(ServerMsg::Error {
+                                    code: code.to_string(),
+                                    message,
+                                })
+                                .await;
+                        }
+                    }
+                    Ok(ClientMsg::PostNote { text }) => {
+                        if let Err(e) = org.post_note(&pid, &text).await {
+                            let _ = tx.send(note_error(e)).await;
+                        }
+                    }
+                    Ok(ClientMsg::RemoveNote { id }) => {
+                        if let Err(e) = org.remove_note(&pid, id).await {
+                            let _ = tx.send(note_error(e)).await;
+                        }
+                    }
+                    Ok(ClientMsg::React { id, emoji }) => {
+                        if let Err(e) = org.react(&pid, id, emoji).await {
+                            let _ = tx.send(note_error(e)).await;
+                        }
+                    }
+                    Ok(ClientMsg::Page { to }) => {
+                        if let PageOutcome::Rejected(reason) = org.page(&pid, &to).await {
+                            let _ = tx
+                                .send(ServerMsg::PageRejected {
+                                    to: to.clone(),
+                                    reason,
+                                })
+                                .await;
+                        }
+                    }
+                    Ok(ClientMsg::PageAccept { to }) => org.page_accept(&pid, &to).await,
+                    Ok(ClientMsg::PageEnd { to }) => org.page_end(&pid, &to).await,
+                    Ok(ClientMsg::Ping) => {
+                        let _ = tx.send(ServerMsg::Pong).await;
+                    }
+                    Ok(ClientMsg::Reauth { token }) => match auth.resolve(Some(&token)).await {
+                        // Renews this seat only: a token for another org, person or
+                        // role is a different connection's to open.
+                        Ok(renewed)
+                            if renewed.org_id == identity.org_id
+                                && renewed.sub == identity.sub
+                                && renewed.role == identity.role =>
+                        {
+                            expiry = renewed.expires_at;
+                        }
+                        _ => {
+                            info!(peer_id = %pid, "reauth refused");
+                            break 'read;
+                        }
+                    },
+                    Ok(ClientMsg::Bye) => break 'read,
+                    Ok(ClientMsg::Hello { .. }) => {
+                        debug!(peer_id = %pid, "ignoring duplicate hello");
+                    }
+                    Err(_) => {
+                        // Unknown message types MUST be ignored (PROTOCOL.md).
                     }
                 }
-                Ok(ClientMsg::PostNote { text }) => {
-                    if let Err(e) = org.post_note(&pid, &text).await {
-                        let _ = tx.send(note_error(e)).await;
-                    }
-                }
-                Ok(ClientMsg::RemoveNote { id }) => {
-                    if let Err(e) = org.remove_note(&pid, id).await {
-                        let _ = tx.send(note_error(e)).await;
-                    }
-                }
-                Ok(ClientMsg::React { id, emoji }) => {
-                    if let Err(e) = org.react(&pid, id, emoji).await {
-                        let _ = tx.send(note_error(e)).await;
-                    }
-                }
-                Ok(ClientMsg::Page { to }) => {
-                    if let PageOutcome::Rejected(reason) = org.page(&pid, &to).await {
-                        let _ = tx
-                            .send(ServerMsg::PageRejected {
-                                to: to.clone(),
-                                reason,
-                            })
-                            .await;
-                    }
-                }
-                Ok(ClientMsg::PageAccept { to }) => org.page_accept(&pid, &to).await,
-                Ok(ClientMsg::PageEnd { to }) => org.page_end(&pid, &to).await,
-                Ok(ClientMsg::Ping) => {
-                    let _ = tx.send(ServerMsg::Pong).await;
-                }
-                Ok(ClientMsg::Reauth { token }) => match auth.resolve(Some(&token)).await {
-                    // Renews this seat only: a token for another org, person or
-                    // role is a different connection's to open.
-                    Ok(renewed)
-                        if renewed.org_id == identity.org_id
-                            && renewed.sub == identity.sub
-                            && renewed.role == identity.role =>
-                    {
-                        expiry = renewed.expires_at;
-                    }
-                    _ => {
-                        info!(peer_id = %pid, "reauth refused");
-                        break 'read;
-                    }
-                },
-                Ok(ClientMsg::Bye) => break 'read,
-                Ok(ClientMsg::Hello { .. }) => {
-                    debug!(peer_id = %pid, "ignoring duplicate hello");
-                }
-                Err(_) => {
-                    // Unknown message types MUST be ignored (PROTOCOL.md).
-                }
-            },
+            }
             Ok(Message::Close(_)) => break 'read,
             Ok(_) => {} // ping/pong/binary — ignored
             Err(e) => {

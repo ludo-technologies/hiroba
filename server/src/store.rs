@@ -284,6 +284,15 @@ impl Store {
             .expect("upsert org");
     }
 
+    /// Persist an org's new display name (`rename_org`).
+    pub fn rename_org(&self, id: &str, name: &str) {
+        self.conn
+            .lock()
+            .expect("db lock")
+            .execute("UPDATE orgs SET name = ?2 WHERE id = ?1", params![id, name])
+            .expect("rename org");
+    }
+
     /// Record a space added to `org_id`'s catalog at position `ord`, and
     /// persist the org's `team{seq}` counter in the same statement batch so a
     /// restart never reissues an id.
@@ -464,6 +473,14 @@ mod tests {
         store.upsert_org("acme", "Renamed");
         let catalogs = store.load_all();
         assert_eq!(catalogs[0].org_name, "Acme");
+    }
+
+    #[test]
+    fn rename_org_replaces_the_persisted_name() {
+        let store = Store::open_in_memory();
+        store.upsert_org("acme", "Acme");
+        store.rename_org("acme", "Acme Corp");
+        assert_eq!(store.load_all()[0].org_name, "Acme Corp");
     }
 
     #[test]

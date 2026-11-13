@@ -185,6 +185,14 @@ catalog via `spaces` to the org. A name already in use is rejected with
 `error` code `space_exists`. (Permission to create may be restricted; see
 requirements §9.)
 
+### `rename_org` — rename the org (admin only)
+```json
+{ "t": "rename_org", "name": "Acme Corp" }
+```
+The trimmed name must be 1–64 characters (else `error` code `org_name`). The
+server broadcasts the new name via `org` to the org; anyone but an admin gets
+`error` code `forbidden`. The org's `id` never changes.
+
 ### `post_note` — post a message to the current space's chat
 ```json
 { "t": "post_note", "text": "Back at 15:00" }
@@ -372,6 +380,12 @@ Servers that predate this message ignore it, and do not expire connections.
 Sent to the switching client only. `you.x/you.y` is the spawn position in the
 new space. `peers` is that space's current roster (excluding self).
 
+### `org` — the org was renamed (`rename_org`)
+```json
+{ "t": "org", "org": { "id": "acme", "name": "Acme Corp" } }
+```
+Broadcast to the whole org.
+
 ### `spaces` — space catalog changed (e.g. after `create_space`)
 ```json
 { "t": "spaces", "spaces": [ { "id": "lobby", "...": "…" }, { "id": "design", "...": "…" } ] }
@@ -529,7 +543,7 @@ Tear down the page link to `from`, or dismiss a pending `page_offer` from
 { "t": "error", "code": "space_full", "message": "Team is full (5/5)." }
 ```
 Codes: `auth_failed`, `org_suspended`, `space_full`, `space_limit`,
-`space_exists`, `unknown_space`, `forbidden`, `note_empty`, `note_rate`,
+`space_exists`, `unknown_space`, `forbidden`, `org_name`, `note_empty`, `note_rate`,
 `reaction_rate`. On
 `auth_failed` or `org_suspended`, the server
 closes the socket after sending this frame.

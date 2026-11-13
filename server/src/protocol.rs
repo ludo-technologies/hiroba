@@ -341,6 +341,9 @@ pub enum ClientMsg {
         layout: TeamLayout,
     },
 
+    /// Rename the org (admin only).
+    RenameOrg { name: String },
+
     /// Position update — sent at ~tickHz only when moving (current space).
     Move { x: f64, y: f64 },
 
@@ -436,6 +439,9 @@ pub enum ServerMsg {
 
     /// Space catalog changed (e.g. after `create_space`). Broadcast to the org.
     Spaces { spaces: Vec<SpaceDescriptor> },
+
+    /// The org was renamed (`rename_org`). Broadcast to the org.
+    Org { org: OrgInfo },
 
     /// Org roster upsert (a member joined or changed). Broadcast to the org.
     Presence { member: RosterMember },

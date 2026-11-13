@@ -27,6 +27,9 @@ use crate::protocol::{
 use crate::proximity;
 use crate::store::{Note, OrgCatalog, Store};
 
+/// Longest org name `rename_org` accepts, in characters.
+pub const MAX_ORG_NAME_CHARS: usize = 64;
+
 /// Upper bound on spaces per org (lobby + team spaces). Caps unbounded
 /// `create_space` from guests; generous enough for legitimate team use.
 pub const MAX_SPACES_PER_ORG: usize = 64;
@@ -500,6 +503,15 @@ pub enum EnterOutcome {
     Snapshot(ServerMsg),
     /// Failure: the error to send to the requester.
     Error(ServerMsg),
+}
+
+/// Why a `rename_org` request was refused.
+#[derive(Debug, PartialEq, Eq)]
+pub enum RenameOrgError {
+    /// The requester is not an admin.
+    Forbidden,
+    /// The trimmed name is empty or longer than [`MAX_ORG_NAME_CHARS`].
+    InvalidName,
 }
 
 /// Outcome of a `create_space` request.
@@ -1035,6 +1047,29 @@ impl Org {
             },
             peers,
         })
+    }
+
+    /// Rename the org (admin only) and broadcast the new name to everyone in
+    /// it. The id — what tokens, the store and the registry key on — stays.
+    pub async fn rename(&self, member_id: &str, name: &str) -> Result<(), RenameOrgError> {
+        let mut guard = self.inner.lock().await;
+        if guard.members.get(member_id).map(|m| m.role) != Some(Role::Admin) {
+            return Err(RenameOrgError::Forbidden);
+        }
+        let name = name.trim();
+        if name.is_empty() || name.chars().count() > MAX_ORG_NAME_CHARS {
+            return Err(RenameOrgError::InvalidName);
+        }
+        // Write-through first, as in `create_space`.
+        if let Some(s) = &self.store {
+            s.rename_org(&self.id, name);
+        }
+        guard.name = name.to_string();
+        let org = guard.org_info();
+        for m in guard.members.values() {
+            m.tx.send(ServerMsg::Org { org: org.clone() });
+        }
+        Ok(())
     }
 
     /// Create a new team space (FR-14) and broadcast the updated catalog.
@@ -1881,6 +1916,46 @@ mod tests {
             board.last().unwrap().text,
             format!("n{MAX_NOTES_PER_BOARD}")
         );
+    }
+
+    #[tokio::test]
+    async fn only_an_admin_renames_the_org() {
+        let org = Org::new("o", "O", None);
+        let mut member = connect(&org, "A", Some("a"), Role::Member).await;
+        let admin = connect(&org, "B", Some("b"), Role::Admin).await;
+
+        assert_eq!(
+            org.rename(&member.id, "Mine").await,
+            Err(RenameOrgError::Forbidden)
+        );
+        assert_eq!(
+            org.rename(&admin.id, "  ").await,
+            Err(RenameOrgError::InvalidName)
+        );
+        assert_eq!(
+            org.rename(&admin.id, &"x".repeat(MAX_ORG_NAME_CHARS + 1))
+                .await,
+            Err(RenameOrgError::InvalidName)
+        );
+        assert_eq!(org.rename(&admin.id, " Acme Corp ").await, Ok(()));
+
+        let mut renamed = Vec::new();
+        while let Ok(msg) = member.rx.try_recv() {
+            if let ServerMsg::Org { org } = msg {
+                renamed.push(org.name);
+            }
+        }
+        assert_eq!(renamed, vec!["Acme Corp".to_string()]);
+
+        // Whoever joins next is welcomed into the renamed org.
+        let (tx, _rx) = mpsc::channel(8);
+        let welcome = org
+            .join("C".into(), String::new(), None, None, Role::Member, tx)
+            .await;
+        let ServerMsg::Welcome { org: info, .. } = welcome else {
+            unreachable!()
+        };
+        assert_eq!(info.name, "Acme Corp");
     }
 
     #[tokio::test]
