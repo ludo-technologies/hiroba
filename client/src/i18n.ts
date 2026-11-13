@@ -203,10 +203,10 @@ const EN = {
   renameOrgSave: "Save",
   errRenameOrg: "Couldn't rename the organization. Please try again.",
 
-  // Contact support (settings panel): a member's message to the Hiroba team
-  supportTitle: "Contact support",
-  supportDesc: "Stuck, or something not working? This reaches the Hiroba team, and we reply by e-mail.",
-  supportPlaceholder: "What happened?",
+  // Help & feedback (settings panel): a member's message to the Hiroba team
+  supportTitle: "Help & feedback",
+  supportDesc: "A question, a problem or a request: one line is enough. This reaches the Hiroba team, and we reply by e-mail.",
+  supportPlaceholder: "Write your message",
   supportSend: "Send",
   supportSent: "Sent. We'll reply by e-mail.",
   errSupportSend: "Couldn't send your message. Please try again.",
@@ -566,10 +566,10 @@ const JA: typeof EN = {
   renameOrgSave: "保存",
   errRenameOrg: "組織名を変更できませんでした。もう一度お試しください。",
 
-  // Contact support (settings panel): a member's message to the Hiroba team
-  supportTitle: "サポートに連絡",
-  supportDesc: "困ったことや、うまく動かないことはありませんか？ Hiroba の開発チームに届き、メールで返信します。",
-  supportPlaceholder: "どんなことでお困りですか？",
+  // Help & feedback (settings panel): a member's message to the Hiroba team
+  supportTitle: "お問い合わせ・ご要望",
+  supportDesc: "質問でも要望でも、一行でどうぞ。Hiroba の開発チームに届き、メールで返信します。",
+  supportPlaceholder: "内容を入力",
   supportSend: "送信",
   supportSent: "送信しました。メールで返信します。",
   errSupportSend: "メッセージを送信できませんでした。もう一度お試しください。",
@@ -928,10 +928,10 @@ const ES: typeof EN = {
   renameOrgSave: "Guardar",
   errRenameOrg: "No se pudo cambiar el nombre de la organización. Inténtalo de nuevo.",
 
-  // Contact support (settings panel): a member's message to the Hiroba team
-  supportTitle: "Contactar con soporte",
-  supportDesc: "¿Algo no funciona o no sabes cómo seguir? Esto llega al equipo de Hiroba y respondemos por correo.",
-  supportPlaceholder: "¿Qué ha pasado?",
+  // Help & feedback (settings panel): a member's message to the Hiroba team
+  supportTitle: "Ayuda y sugerencias",
+  supportDesc: "Una pregunta, un problema o una sugerencia: basta con una línea. Esto llega al equipo de Hiroba y respondemos por correo.",
+  supportPlaceholder: "Escribe tu mensaje",
   supportSend: "Enviar",
   supportSent: "Enviado. Te responderemos por correo.",
   errSupportSend: "No se pudo enviar tu mensaje. Inténtalo de nuevo.",
@@ -1291,10 +1291,10 @@ const FR: typeof EN = {
   renameOrgSave: "Enregistrer",
   errRenameOrg: "Impossible de renommer l'organisation. Veuillez réessayer.",
 
-  // Contact support (settings panel): a member's message to the Hiroba team
-  supportTitle: "Contacter le support",
-  supportDesc: "Un blocage, quelque chose qui ne fonctionne pas ? Ce message arrive à l'équipe Hiroba, et nous répondons par e-mail.",
-  supportPlaceholder: "Que s'est-il passé ?",
+  // Help & feedback (settings panel): a member's message to the Hiroba team
+  supportTitle: "Aide et suggestions",
+  supportDesc: "Une question, un problème ou une suggestion : une ligne suffit. Ce message arrive à l'équipe Hiroba, et nous répondons par e-mail.",
+  supportPlaceholder: "Écrivez votre message",
   supportSend: "Envoyer",
   supportSent: "Envoyé. Nous vous répondrons par e-mail.",
   errSupportSend: "Impossible d'envoyer votre message. Veuillez réessayer.",
@@ -1654,10 +1654,10 @@ const PT: typeof EN = {
   renameOrgSave: "Salvar",
   errRenameOrg: "Não foi possível renomear a organização. Tente novamente.",
 
-  // Contact support (settings panel): a member's message to the Hiroba team
-  supportTitle: "Falar com o suporte",
-  supportDesc: "Travou em algo ou alguma coisa não funciona? Isto chega à equipe do Hiroba, e respondemos por e-mail.",
-  supportPlaceholder: "O que aconteceu?",
+  // Help & feedback (settings panel): a member's message to the Hiroba team
+  supportTitle: "Ajuda e sugestões",
+  supportDesc: "Uma pergunta, um problema ou uma sugestão: uma linha já basta. Isto chega à equipe do Hiroba, e respondemos por e-mail.",
+  supportPlaceholder: "Escreva sua mensagem",
   supportSend: "Enviar",
   supportSent: "Enviado. Responderemos por e-mail.",
   errSupportSend: "Não foi possível enviar sua mensagem. Tente novamente.",
