@@ -17,6 +17,7 @@
  * Invariant: while in the "space" state, `session` is non-null.
  */
 
+import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, UserAttentionType } from "@tauri-apps/api/window";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -73,6 +74,7 @@ import {
   isTauri,
   listOrgs,
   renameOrg,
+  sendSupport,
   loadSession,
   oauthLogin,
   openExternal,
@@ -333,6 +335,7 @@ const ui = new UIManager(
     onOpenMembersPanel: handleOpenMembersPanel,
     onRemoveMember: handleRemoveMember,
     onRenameOrg: handleRenameOrg,
+    onSendSupport: handleSendSupport,
     onOpenBilling: handleOpenBilling,
     onMicToggle: handleMicToggle,
     onOpenAudioSettings: handleOpenAudioSettings,
@@ -835,28 +838,43 @@ function reflectAuthSession(): void {
   // lock screen carries the fix — the admin's subscribe CTA).
   void syncBillingLock();
   void syncOrgList();
-  if (authSession) void syncEmailInviteAvailability();
+  reflectSupport();
+  if (authSession) void syncMailFeatures();
 }
 
 /** Auth URL the last `GET /providers` answered for; the answer is static per
  *  backend, so one probe per URL is enough. */
-let emailInviteProbedFor: string | null = null;
+let mailFeaturesProbedFor: string | null = null;
 
-/** Can this backend mail invites? It can when it offers e-mail login — both
- *  ride the same mailer. Unreachable → keep the optimistic default; the
- *  send itself reports a real failure. */
-async function syncEmailInviteAvailability(): Promise<void> {
+/** Does the probed backend take support messages (`support` in GET /providers)? */
+let supportOffered = false;
+
+/** What can this backend mail? Invites when it offers e-mail login — both
+ *  ride the same mailer — and support messages when it has an address for
+ *  them. Unreachable → keep the invite default (the send itself reports a
+ *  real failure) and leave support unoffered. */
+async function syncMailFeatures(): Promise<void> {
   const authUrl = ui.getAuthUrl();
-  if (!authUrl || emailInviteProbedFor === authUrl) return;
+  if (!authUrl || mailFeaturesProbedFor === authUrl) return;
   try {
     const resp = await fetch(`${authUrl}/providers`);
     if (!resp.ok) return;
-    const data: { providers?: string[] } = await resp.json();
-    emailInviteProbedFor = authUrl;
+    const data: { providers?: string[]; support?: boolean } = await resp.json();
+    mailFeaturesProbedFor = authUrl;
     ui.setEmailInvitesAvailable(data.providers?.includes("email") ?? false);
+    supportOffered = data.support === true;
+    reflectSupport();
   } catch {
-    /* offline — leave the default */
+    /* offline — leave the defaults */
   }
+}
+
+/** "Contact support" is for members: a guest has no account to be answered
+ *  at, and `POST /support` would refuse them. */
+function reflectSupport(): void {
+  ui.setSupportAvailable(
+    supportOffered && authSession !== null && authSession.claims.role !== "guest",
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1358,6 +1376,24 @@ async function handleRemoveMember(subject: string): Promise<void> {
     ui.showMembersPanelError(t.errRemoveMember);
   }
   await refreshMemberList(); // authoritative state either way
+}
+
+// ---------------------------------------------------------------------------
+// Contact support (member)
+// ---------------------------------------------------------------------------
+
+/** Mail the member's message to the Hiroba team, naming the build it came from. */
+async function handleSendSupport(message: string): Promise<void> {
+  if (!authSession) return;
+  try {
+    const appVersion = isTauri() ? await getVersion() : "web";
+    const refused = await sendSupport(ui.getAuthUrl(), authSession.token, message, appVersion);
+    if (!refused) ui.showSupportSent();
+    else if (refused.status === 429) ui.showSupportError(t.errSupportThrottled(refused.retryAfter));
+    else ui.showSupportError(refused.status === 401 ? t.errSessionExpired : t.errSupportSend);
+  } catch {
+    ui.showSupportError(t.errSupportSend);
+  }
 }
 
 // ---------------------------------------------------------------------------

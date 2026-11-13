@@ -607,6 +607,33 @@
       </div>
     </div>
 
+    <!-- A member's message to the Hiroba team (POST /support); the reply
+         comes by e-mail. Opened from the settings panel. -->
+    <div id="support-panel" class="overlay" hidden>
+      <div class="card invite-card" role="dialog" aria-modal="true" aria-labelledby="support-title">
+        <header class="invite-head">
+          <span id="support-title" class="invite-title" data-i18n="supportTitle">Contact support</span>
+          <button id="support-close" type="button" class="ghost-btn" data-i18n="closePanel">Close</button>
+        </header>
+
+        <p class="org-setup-desc" data-i18n="supportDesc">Stuck, or something not working? This reaches the Hiroba team, and we reply by e-mail.</p>
+
+        <textarea
+          id="support-message"
+          rows="5"
+          maxlength="2000"
+          data-i18n-placeholder="supportPlaceholder"
+          data-i18n-arialabel="supportPlaceholder"
+          placeholder="What happened?"
+        ></textarea>
+
+        <button id="support-send" type="button" class="setup-primary" data-i18n="supportSend">Send</button>
+
+        <p id="support-sent" class="auth-hint" role="status" data-i18n="supportSent" hidden>Sent. We'll reply by e-mail.</p>
+        <p id="support-error" class="error" role="alert" hidden></p>
+      </div>
+    </div>
+
     <!-- Rename the organization (admin). -->
     <div id="rename-org-panel" class="overlay" hidden>
       <div class="card invite-card" role="dialog" aria-modal="true" aria-labelledby="rename-org-title">
@@ -894,6 +921,9 @@
             <button type="button" data-lang="pt" lang="pt-BR">PT</button>
           </div>
         </div>
+        <!-- Members only, and only where the auth backend has a support
+             address (`support` in GET /providers). -->
+        <button id="support-open" type="button" class="ghost-btn" data-i18n="supportTitle" hidden>Contact support</button>
       </div>
     </div>
 

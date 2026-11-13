@@ -277,6 +277,13 @@ const elRenameOrgClose = $<HTMLButtonElement>("rename-org-close");
 const elRenameOrgName = $<HTMLInputElement>("rename-org-name");
 const elRenameOrgSave = $<HTMLButtonElement>("rename-org-save");
 const elRenameOrgError = $<HTMLParagraphElement>("rename-org-error");
+const elSupportOpen = $<HTMLButtonElement>("support-open");
+const elSupportPanel = $<HTMLDivElement>("support-panel");
+const elSupportClose = $<HTMLButtonElement>("support-close");
+const elSupportMessage = $<HTMLTextAreaElement>("support-message");
+const elSupportSend = $<HTMLButtonElement>("support-send");
+const elSupportSent = $<HTMLParagraphElement>("support-sent");
+const elSupportError = $<HTMLParagraphElement>("support-error");
 const elMembersPanel = $<HTMLDivElement>("members-panel");
 const elMembersPanelBtn = $<HTMLButtonElement>("members-panel-btn");
 const elMembersPanelClose = $<HTMLButtonElement>("members-panel-close");
@@ -480,6 +487,8 @@ export interface UICallbacks {
   onRemoveMember(subject: string): void;
   /** Admin renames the org (already trimmed and non-empty). */
   onRenameOrg(name: string): void;
+  /** A member's message for the Hiroba team (already trimmed and non-empty). */
+  onSendSupport(message: string): void;
   /** Admin opens the Stripe Customer Portal (add card / change plan / cancel). */
   onOpenBilling(): void;
   onMicToggle(): void;
@@ -785,6 +794,7 @@ export class UIManager {
     this._bindInvitePanel();
     this._bindMembersPanel();
     this._bindRenameOrg();
+    this._bindSupport();
     this._bindHud();
     this._bindScreenPerm();
     this._bindAudioSettings();
@@ -1908,6 +1918,59 @@ export class UIManager {
     elRenameOrgSave.disabled = false;
     elRenameOrgError.textContent = msg;
     elRenameOrgError.removeAttribute("hidden");
+  }
+
+  // -------------------------------------------------------------------------
+  // Contact support (settings panel)
+  // -------------------------------------------------------------------------
+
+  /** Offer "Contact support" in the settings panel: for a signed-in member
+   *  whose auth backend has a support address. */
+  setSupportAvailable(available: boolean): void {
+    elSupportOpen.hidden = !available;
+    if (!available) elSupportPanel.setAttribute("hidden", "");
+  }
+
+  /** Delivered: clear the draft and say where the answer will come. */
+  showSupportSent(): void {
+    elSupportMessage.value = "";
+    elSupportMessage.disabled = false;
+    elSupportSend.disabled = false;
+    elSupportSent.removeAttribute("hidden");
+  }
+
+  /** Not delivered: the draft stays for another try. */
+  showSupportError(msg: string): void {
+    elSupportMessage.disabled = false;
+    elSupportSend.disabled = false;
+    elSupportError.textContent = msg;
+    elSupportError.removeAttribute("hidden");
+  }
+
+  private _bindSupport(): void {
+    const hide = () => elSupportPanel.setAttribute("hidden", "");
+    elSupportOpen.addEventListener("click", () => {
+      // Through the settings panel's own close, so its mic preview stops.
+      elAudioSettingsClose.click();
+      elSupportSent.setAttribute("hidden", "");
+      elSupportError.setAttribute("hidden", "");
+      elSupportPanel.removeAttribute("hidden");
+      elSupportMessage.focus();
+    });
+    elSupportSend.addEventListener("click", () => {
+      const message = elSupportMessage.value.trim();
+      if (!message) {
+        elSupportMessage.focus();
+        return;
+      }
+      elSupportMessage.disabled = true;
+      elSupportSend.disabled = true;
+      elSupportSent.setAttribute("hidden", "");
+      elSupportError.setAttribute("hidden", "");
+      this.callbacks.onSendSupport(message);
+    });
+    elSupportClose.addEventListener("click", hide);
+    bindOverlayDismiss(elSupportPanel, hide);
   }
 
   private _bindRenameOrg(): void {

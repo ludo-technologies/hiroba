@@ -442,6 +442,27 @@ export async function renameOrg(authBase: string, token: string, name: string): 
   if (!resp.ok) throw new Error(`rename failed (${resp.status})`);
 }
 
+/**
+ * Mail a member's message to the Hiroba team (POST /support); the reply goes
+ * to their sign-in address. Returns `null` when delivered, else the status the
+ * backend refused with and, for 429, how many seconds to wait. Throws when the
+ * backend is unreachable.
+ */
+export async function sendSupport(
+  authBase: string,
+  token: string,
+  message: string,
+  appVersion: string,
+): Promise<{ status: number; retryAfter: number } | null> {
+  const resp = await fetch(authEndpoint(authBase, "/support"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ message, app_version: appVersion }),
+  });
+  if (resp.ok) return null;
+  return { status: resp.status, retryAfter: Number(resp.headers.get("Retry-After")) };
+}
+
 /** An org whose members share the caller's mail domain (GET /orgs/colleagues). */
 export interface ColleagueOrg {
   slug: string;
