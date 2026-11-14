@@ -92,8 +92,8 @@ fn open_screen_recording_settings() -> Result<(), String> {
 /// Whether this process runs with package identity, i.e. the install came
 /// from the Microsoft Store (the MSIX that `msix/pack.ps1` builds from the
 /// same binary). The Store then owns two things a direct install handles
-/// itself: updates, which the Store delivers so the in-app updater stands
-/// down (updater.ts), and the hiroba:// scheme, which the package manifest
+/// itself: updates, which the Store delivers so the in-app updater checks
+/// without offering one (updater.ts), and the hiroba:// scheme, which the package manifest
 /// declares so the registry registration in `setup` is skipped. Always
 /// false off Windows.
 #[tauri::command]

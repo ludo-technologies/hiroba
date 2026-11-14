@@ -22,9 +22,12 @@
  *
  * Failures never interrupt the user: a failed check only logs (offline is
  * normal), a failed install re-arms the banner with a toast. Runs only under
- * Tauri — a plain-browser session has nothing to update — and not in a
- * Microsoft Store install, which the Store keeps current itself; installing
- * our MSI from inside one would leave a second copy next to the package.
+ * Tauri — a plain-browser session has nothing to update.
+ *
+ * A Microsoft Store install checks on the same schedule and offers nothing:
+ * the Store keeps it current itself, and installing our MSI from inside one
+ * would leave a second copy next to the package. The request still goes out
+ * because it is the only sign that a Store install was ever launched.
  */
 
 import { invoke } from "@tauri-apps/api/core";
@@ -53,18 +56,17 @@ let pending: Update | null = null;
  *  the user. */
 let installing = false;
 
-/** Begin periodic update checks. Call once at startup; no-op outside Tauri
- *  and in a Store install. */
+/** Begin periodic update checks. Call once at startup; no-op outside Tauri. */
 export function startUpdateChecks(ui: UIManager): void {
   if (!isTauri()) return;
   void invoke<boolean>("store_managed").then((storeManaged) => {
-    if (storeManaged) return;
-    window.setTimeout(() => void checkOnce(ui), FIRST_CHECK_DELAY_MS);
-    window.setInterval(() => void checkOnce(ui), CHECK_INTERVAL_MS);
+    const run = () => void checkOnce(ui, storeManaged);
+    window.setTimeout(run, FIRST_CHECK_DELAY_MS);
+    window.setInterval(run, CHECK_INTERVAL_MS);
   });
 }
 
-async function checkOnce(ui: UIManager): Promise<void> {
+async function checkOnce(ui: UIManager, storeManaged: boolean): Promise<void> {
   let update;
   try {
     update = await check();
@@ -75,9 +77,9 @@ async function checkOnce(ui: UIManager): Promise<void> {
   }
   if (!update) return;
 
-  // The release we already offered, or one landing mid-install: drop the
-  // duplicate handle and leave the banner alone.
-  if (installing || update.version === offeredVersion) {
+  // A release the Store will deliver, one we already offered, or one landing
+  // mid-install: drop the handle and leave the banner alone.
+  if (storeManaged || installing || update.version === offeredVersion) {
     await update.close().catch(() => {});
     return;
   }
