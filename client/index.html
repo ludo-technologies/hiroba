@@ -152,67 +152,77 @@
               </div>
             </div>
           </div>
-          <div id="auth-session" class="auth-session" hidden>
-            <span class="auth-dot" aria-hidden="true"></span>
-            <span id="auth-user" class="auth-user"></span>
-            <!-- Org menu: memberships, then "New organization" and sign-out. -->
-            <div id="auth-org-select" class="auth-org-select"></div>
+          <!-- The chip sits here on the join card and in the settings panel's
+               account tab once in the office (ui.ts moves the one node). -->
+          <div id="join-account-slot" class="slot">
+            <div id="auth-session" class="auth-session" hidden>
+              <span class="auth-dot" aria-hidden="true"></span>
+              <span id="auth-user" class="auth-user"></span>
+              <!-- Org menu: memberships, then "New organization" and sign-out. -->
+              <div id="auth-org-select" class="auth-org-select"></div>
+            </div>
           </div>
           <!-- Hosted trial countdown; copy set from ui.ts. Hidden unless the
                org's subscription is trialing. -->
           <p id="auth-trial" class="auth-hint auth-trial" hidden></p>
         </div>
 
-        <div class="identity">
-          <div class="avatar-wrap">
-            <button
-              id="avatar-preview"
-              type="button"
-              class="avatar-preview"
-              data-i18n-title="avatarUpload"
-              data-i18n-arialabel="avatarUpload"
-            >
-              <span id="avatar-initial">?</span>
-              <span class="avatar-edit" aria-hidden="true">
-                <svg viewBox="0 0 16 16" width="11" height="11">
-                  <path fill="currentColor" d="M5.5 3.5 6.7 2h2.6l1.2 1.5H13A1.5 1.5 0 0 1 14.5 5v7A1.5 1.5 0 0 1 13 13.5H3A1.5 1.5 0 0 1 1.5 12V5A1.5 1.5 0 0 1 3 3.5h2.5zM8 11.2A3 3 0 1 0 8 5.2a3 3 0 0 0 0 6zm0-1.4a1.6 1.6 0 1 1 0-3.2 1.6 1.6 0 0 1 0 3.2z"/>
-                </svg>
-              </span>
-            </button>
-            <button
-              id="avatar-remove"
-              type="button"
-              class="avatar-remove"
-              data-i18n-title="avatarRemove"
-              data-i18n-arialabel="avatarRemove"
-              hidden
-            >×</button>
-            <input id="avatar-file" type="file" accept="image/*" hidden />
+        <!-- Name, avatar and colour: here on the join card, and in the settings
+             panel's profile tab once in the office (ui.ts moves the one node). -->
+        <div id="join-profile-slot" class="slot">
+          <div id="profile-fields" class="profile-fields">
+            <div class="identity">
+              <div class="avatar-wrap">
+                <button
+                  id="avatar-preview"
+                  type="button"
+                  class="avatar-preview"
+                  data-i18n-title="avatarUpload"
+                  data-i18n-arialabel="avatarUpload"
+                >
+                  <span id="avatar-initial">?</span>
+                  <span class="avatar-edit" aria-hidden="true">
+                    <svg viewBox="0 0 16 16" width="11" height="11">
+                      <path fill="currentColor" d="M5.5 3.5 6.7 2h2.6l1.2 1.5H13A1.5 1.5 0 0 1 14.5 5v7A1.5 1.5 0 0 1 13 13.5H3A1.5 1.5 0 0 1 1.5 12V5A1.5 1.5 0 0 1 3 3.5h2.5zM8 11.2A3 3 0 1 0 8 5.2a3 3 0 0 0 0 6zm0-1.4a1.6 1.6 0 1 1 0-3.2 1.6 1.6 0 0 1 0 3.2z"/>
+                    </svg>
+                  </span>
+                </button>
+                <button
+                  id="avatar-remove"
+                  type="button"
+                  class="avatar-remove"
+                  data-i18n-title="avatarRemove"
+                  data-i18n-arialabel="avatarRemove"
+                  hidden
+                >×</button>
+                <input id="avatar-file" type="file" accept="image/*" hidden />
+              </div>
+              <label class="field name-field">
+                <span class="field-label" data-i18n="fieldName">Display name</span>
+                <input
+                  id="join-name"
+                  type="text"
+                  maxlength="32"
+                  autocomplete="off"
+                  autocapitalize="words"
+                  placeholder="Your name"
+                  data-i18n-placeholder="namePlaceholder"
+                  required
+                />
+              </label>
+            </div>
+
+            <div class="field">
+              <span class="field-label" data-i18n="fieldAvatar">Avatar</span>
+              <div id="avatar-presets" class="swatches" role="group" aria-label="Avatar presets" data-i18n-arialabel="ariaAvatarPresets"></div>
+            </div>
+
+            <div class="field">
+              <span class="field-label" data-i18n="fieldColor">Your color</span>
+              <div id="color-swatches" class="swatches" role="group" aria-label="Avatar color" data-i18n-arialabel="ariaColor"></div>
+              <input id="join-color" type="color" value="#b54f2c" hidden />
+            </div>
           </div>
-          <label class="field name-field">
-            <span class="field-label" data-i18n="fieldName">Display name</span>
-            <input
-              id="join-name"
-              type="text"
-              maxlength="32"
-              autocomplete="off"
-              autocapitalize="words"
-              placeholder="Your name"
-              data-i18n-placeholder="namePlaceholder"
-              required
-            />
-          </label>
-        </div>
-
-        <div class="field">
-          <span class="field-label" data-i18n="fieldAvatar">Avatar</span>
-          <div id="avatar-presets" class="swatches" role="group" aria-label="Avatar presets" data-i18n-arialabel="ariaAvatarPresets"></div>
-        </div>
-
-        <div class="field">
-          <span class="field-label" data-i18n="fieldColor">Your color</span>
-          <div id="color-swatches" class="swatches" role="group" aria-label="Avatar color" data-i18n-arialabel="ariaColor"></div>
-          <input id="join-color" type="color" value="#b54f2c" hidden />
         </div>
 
         <!-- Connecting: the button turns into Cancel, and this line is what
@@ -797,7 +807,7 @@
           <span id="mic-label" data-i18n="muted">Muted</span>
         </button>
         <button
-          id="audio-settings-btn"
+          id="settings-btn"
           class="hud-icon-btn"
           type="button"
           data-i18n-title="settingsTitle"
@@ -871,40 +881,55 @@
       <span id="m-fit-zoom" data-i18n="viewZoom" hidden>Zoom in</span>
     </button>
 
-    <!-- Settings: mic/speaker device selection + input level meter, camera
-         background, language -->
-    <div id="audio-settings" class="overlay" hidden>
-      <div class="card invite-card" role="dialog" aria-modal="true" aria-labelledby="audio-settings-title">
+    <!-- Settings: what is yours rather than the org's. Profile (the join
+         card's fields), audio & camera (devices, input level, background),
+         account (the join card's signed-in chip); language under all three. -->
+    <div id="settings-panel" class="overlay" hidden>
+      <div class="card invite-card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <header class="invite-head">
-          <span id="audio-settings-title" class="invite-title" data-i18n="settingsTitle">Settings</span>
-          <button id="audio-settings-close" type="button" class="ghost-btn" data-i18n="closePanel">Close</button>
+          <span id="settings-title" class="invite-title" data-i18n="settingsTitle">Settings</span>
+          <button id="settings-close" type="button" class="ghost-btn" data-i18n="closePanel">Close</button>
         </header>
-        <label class="field">
-          <span class="field-label" data-i18n="fieldMicrophone">Microphone</span>
-          <div id="mic-device-select"></div>
-        </label>
-        <div
-          id="mic-level"
-          class="mic-level"
-          role="meter"
-          aria-label="Microphone input level"
-          data-i18n-arialabel="micLevelAria"
-          aria-valuemin="0"
-          aria-valuemax="100"
-          aria-valuenow="0"
-          aria-valuetext="0%"
-        >
-          <div id="mic-level-bar" class="mic-level-bar"></div>
+        <div id="settings-tabs" class="segmented" role="group" aria-labelledby="settings-title">
+          <button type="button" class="segmented-btn" data-tab="profile" data-i18n="settingsProfile">Profile</button>
+          <button type="button" class="segmented-btn" data-tab="audio" data-i18n="settingsAudio">Audio &amp; camera</button>
+          <button type="button" class="segmented-btn" data-tab="account" data-i18n="settingsAccount">Account</button>
         </div>
-        <label class="field">
-          <span class="field-label" data-i18n="fieldSpeaker">Speaker</span>
-          <div id="speaker-device-select"></div>
-        </label>
-        <label class="field">
-          <span class="field-label" data-i18n="fieldCameraBackground">Camera background</span>
-          <div id="camera-background-select"></div>
-        </label>
-        <input id="camera-background-file" type="file" accept="image/*" hidden />
+        <div class="settings-pane" data-pane="profile">
+          <div id="settings-profile-slot" class="slot"></div>
+        </div>
+        <div class="settings-pane" data-pane="audio" hidden>
+          <label class="field">
+            <span class="field-label" data-i18n="fieldMicrophone">Microphone</span>
+            <div id="mic-device-select"></div>
+          </label>
+          <div
+            id="mic-level"
+            class="mic-level"
+            role="meter"
+            aria-label="Microphone input level"
+            data-i18n-arialabel="micLevelAria"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow="0"
+            aria-valuetext="0%"
+          >
+            <div id="mic-level-bar" class="mic-level-bar"></div>
+          </div>
+          <label class="field">
+            <span class="field-label" data-i18n="fieldSpeaker">Speaker</span>
+            <div id="speaker-device-select"></div>
+          </label>
+          <label class="field">
+            <span class="field-label" data-i18n="fieldCameraBackground">Camera background</span>
+            <div id="camera-background-select"></div>
+          </label>
+          <input id="camera-background-file" type="file" accept="image/*" hidden />
+        </div>
+        <div class="settings-pane" data-pane="account" hidden>
+          <div id="settings-account-slot" class="slot"></div>
+          <p id="settings-guest" class="auth-hint" data-i18n="accountGuest">You joined without signing in.</p>
+        </div>
         <div class="field">
           <span class="field-label" data-i18n="fieldLanguage">Language</span>
           <div

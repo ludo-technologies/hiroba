@@ -299,9 +299,18 @@ const elMic = $<HTMLButtonElement>("mic");
 const elMicLabel = $<HTMLSpanElement>("mic-label");
 const elLeave = $<HTMLButtonElement>("leave");
 
-const elAudioSettingsBtn = $<HTMLButtonElement>("audio-settings-btn");
-const elAudioSettings = $<HTMLDivElement>("audio-settings");
-const elAudioSettingsClose = $<HTMLButtonElement>("audio-settings-close");
+const elSettingsBtn = $<HTMLButtonElement>("settings-btn");
+const elSettings = $<HTMLDivElement>("settings-panel");
+const elSettingsClose = $<HTMLButtonElement>("settings-close");
+const elSettingsTabs = $<HTMLDivElement>("settings-tabs");
+const elSettingsGuest = $<HTMLParagraphElement>("settings-guest");
+// The profile fields and the signed-in chip each live in two places: on the
+// join card, and in the settings panel once in the office.
+const elProfileFields = $<HTMLDivElement>("profile-fields");
+const elJoinProfileSlot = $<HTMLDivElement>("join-profile-slot");
+const elSettingsProfileSlot = $<HTMLDivElement>("settings-profile-slot");
+const elJoinAccountSlot = $<HTMLDivElement>("join-account-slot");
+const elSettingsAccountSlot = $<HTMLDivElement>("settings-account-slot");
 const elMicSelectHost = $<HTMLElement>("mic-device-select");
 const elSpeakerSelectHost = $<HTMLElement>("speaker-device-select");
 const elBackgroundSelectHost = $<HTMLElement>("camera-background-select");
@@ -362,6 +371,19 @@ export interface JoinFormValues {
   /** Optional access token; empty for a self-host guest session. */
   token: string;
 }
+
+/** What others see of us; `avatar` is a data URL, "" for none. */
+export interface Profile {
+  name: string;
+  color: string;
+  avatar: string;
+}
+
+/** The gear the HUD and the admin menu wear (index.html), for the roster's own row. */
+const GEAR_SVG =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2" /><path d="M19.4 15a1.6 1.6 0 0 0 .32 1.76l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.76-.32 1.6 1.6 0 0 0-.97 1.46V21a2 2 0 1 1-4 0v-.09a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.76.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.6 1.6 0 0 0 .32-1.76 1.6 1.6 0 0 0-1.46-.97H3a2 2 0 1 1 0-4h.09a1.6 1.6 0 0 0 1.46-1.05 1.6 1.6 0 0 0-.32-1.76l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.6 1.6 0 0 0 1.76.32h.09a1.6 1.6 0 0 0 .97-1.46V3a2 2 0 1 1 4 0v.09a1.6 1.6 0 0 0 .97 1.46 1.6 1.6 0 0 0 1.76-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.76V9a1.6 1.6 0 0 0 1.46.97H21a2 2 0 1 1 0 4h-.09a1.6 1.6 0 0 0-1.46.97z" /></svg>';
+
+type SettingsTab = "profile" | "audio" | "account";
 
 /** What the signed-in chip displays (from the session JWT's claims). */
 export interface AuthDisplay {
@@ -459,6 +481,10 @@ export interface UICallbacks {
   onEmailVerify(code: string, authUrl: string): void;
   /** Drop the stored session and return to the signed-out state. */
   onLogout(): void;
+  /** Found one more org (the chip's menu). */
+  onNewOrg(): void;
+  /** Name, colour or avatar changed while in the office (already saved). */
+  onProfileChange(profile: Profile): void;
   /** The server settings dialog closed: the auth or Hiroba server URL may
    *  have changed. */
   onEndpointsChange(): void;
@@ -492,9 +518,10 @@ export interface UICallbacks {
   /** Admin opens the Stripe Customer Portal (add card / change plan / cancel). */
   onOpenBilling(): void;
   onMicToggle(): void;
-  /** Gear next to the mic button opened the settings panel. */
+  /** The settings panel's audio tab came up: list the devices (see
+   *  `setAudioDevices`) and start the mic preview. */
   onOpenAudioSettings(): void;
-  /** The audio-settings panel closed (stop any mic preview). */
+  /** The audio tab went away (stop any mic preview). */
   onCloseAudioSettings(): void;
   /** Chose a microphone from the audio-settings panel ("" = system default). */
   onMicDeviceChange(deviceId: string): void;
@@ -752,6 +779,10 @@ export class UIManager {
   private lastAuth: AuthDisplay | null = null;
   private lastOrgs: OrgSummary[] = [];
   private lastOrgSlug = "";
+  /** The settings panel's open tab; null while it is closed. */
+  private settingsTab: SettingsTab | null = null;
+  /** Pending send of a profile edit made in the office. */
+  private profileTimer = 0;
 
   private readonly orgSelect: CustomSelect;
   private readonly micSelect: CustomSelect;
@@ -797,7 +828,7 @@ export class UIManager {
     this._bindSupport();
     this._bindHud();
     this._bindScreenPerm();
-    this._bindAudioSettings();
+    this._bindSettings();
     this._bindReconnect();
     this._bindSidebar();
     this._bindPhone();
@@ -862,10 +893,9 @@ export class UIManager {
     elJoin.removeAttribute("hidden");
     elReconnect.setAttribute("hidden", "");
     elHud.setAttribute("hidden", "");
-    this.micSelect.close();
-    this.speakerSelect.close();
-    this.backgroundSelect.close();
-    elAudioSettings.setAttribute("hidden", "");
+    this._closeSettings();
+    elJoinProfileSlot.append(elProfileFields);
+    elJoinAccountSlot.append(elAuthSession);
     elSidebar.setAttribute("hidden", "");
     elTabs.setAttribute("hidden", "");
     delete document.body.dataset.mtab;
@@ -892,6 +922,8 @@ export class UIManager {
     elJoin.setAttribute("hidden", "");
     elServerSettings.setAttribute("hidden", "");
     elReconnect.setAttribute("hidden", "");
+    elSettingsProfileSlot.append(elProfileFields);
+    elSettingsAccountSlot.append(elAuthSession);
     elHud.removeAttribute("hidden");
     elSidebar.removeAttribute("hidden");
     elTabs.removeAttribute("hidden");
@@ -933,11 +965,9 @@ export class UIManager {
     if (!muted) this.setMuteNudge(false);
   }
 
-  /**
-   * Populate the mic/speaker selects and show the audio-settings panel. Called
-   * by main.ts once it has resolved the device lists from AudioEngine.
-   */
-  openAudioSettings(
+  /** Fill the audio tab's mic/speaker selects; the answer to
+   *  `onOpenAudioSettings`, and again when the language changes. */
+  setAudioDevices(
     inputs: { id: string; label: string }[],
     outputs: { id: string; label: string }[],
     selectedMic: string,
@@ -945,8 +975,47 @@ export class UIManager {
   ): void {
     this._fillDeviceSelect(this.micSelect, inputs, t.fieldMicrophone, selectedMic);
     this._fillDeviceSelect(this.speakerSelect, outputs, t.fieldSpeaker, selectedSpeaker);
-    elAudioSettings.removeAttribute("hidden");
   }
+
+  /** The audio tab is the one showing. */
+  get audioSettingsOpen(): boolean {
+    return this.settingsTab === "audio";
+  }
+
+  /** Open the settings panel on `tab`. */
+  showSettings(tab: SettingsTab): void {
+    elSettings.removeAttribute("hidden");
+    this._showSettingsTab(tab);
+  }
+
+  private _closeSettings(): void {
+    this._showSettingsTab(null);
+    elSettings.setAttribute("hidden", "");
+  }
+
+  /** Switch tabs (null: none, the panel is closing). The tab being left
+   *  settles first: the audio tab's mic preview stops, a profile edit goes out. */
+  private _showSettingsTab(tab: SettingsTab | null): void {
+    const left = this.settingsTab;
+    if (left === tab) return;
+    this.settingsTab = tab;
+    if (left === "audio") {
+      this.micSelect.close();
+      this.speakerSelect.close();
+      this.backgroundSelect.close();
+      this.callbacks.onCloseAudioSettings();
+    }
+    if (left === "profile") this._settleProfile();
+    if (left === "account") this.orgSelect.close();
+    for (const b of elSettingsTabs.querySelectorAll<HTMLButtonElement>("[data-tab]")) {
+      b.setAttribute("aria-pressed", b.dataset.tab === tab ? "true" : "false");
+    }
+    for (const pane of elSettings.querySelectorAll<HTMLElement>("[data-pane]")) {
+      pane.toggleAttribute("hidden", pane.dataset.pane !== tab);
+    }
+    if (tab === "audio") this.callbacks.onOpenAudioSettings();
+  }
+
 
   /** Update the input-level meter (0..1) while the audio-settings panel is open.
    *  The percentage drives both the bar width and role="meter"'s aria-valuenow,
@@ -1063,6 +1132,7 @@ export class UIManager {
   setAuthSession(session: AuthDisplay | null): void {
     this.setAuthRestoring(false);
     this.lastAuth = session;
+    elSettingsGuest.toggleAttribute("hidden", session !== null);
     if (session) {
       this._renderAuthChip();
       elAuthSession.removeAttribute("hidden");
@@ -1111,7 +1181,7 @@ export class UIManager {
         : [{ value: "", label: orgLabel(this.lastOrgs.find((o) => o.slug === this.lastOrgSlug)?.name ?? session.org, session.role) }],
       this.lastOrgs.length >= 2 ? this.lastOrgSlug : "",
       [
-        { label: t.newOrgAction, onSelect: () => this.showOrgSetup("another") },
+        { label: t.newOrgAction, onSelect: () => this.callbacks.onNewOrg() },
         { label: t.signOutAccount, onSelect: () => this.callbacks.onLogout() },
       ],
     );
@@ -1192,7 +1262,7 @@ export class UIManager {
     bindOverlayDismiss(elServerSettings, () => this.hideServerSettings());
   }
 
-  /** Wire the language switchers on the server-settings dialog and audio-settings panel. */
+  /** Wire the language switchers on the server-settings dialog and settings panel. */
   private _bindLangSwitch(): void {
     this._syncLangSwitch();
     const onClick = (e: Event) => {
@@ -1951,7 +2021,7 @@ export class UIManager {
     const hide = () => elSupportPanel.setAttribute("hidden", "");
     elSupportOpen.addEventListener("click", () => {
       // Through the settings panel's own close, so its mic preview stops.
-      elAudioSettingsClose.click();
+      this._closeSettings();
       elSupportSent.setAttribute("hidden", "");
       elSupportError.setAttribute("hidden", "");
       elSupportPanel.removeAttribute("hidden");
@@ -2163,6 +2233,17 @@ export class UIManager {
       st.title = e.label;
       text.append(nm, st);
       li.appendChild(text);
+
+      if (e.isSelf) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "self-settings-btn";
+        btn.title = t.settingsTitle;
+        btn.setAttribute("aria-label", t.settingsTitle);
+        btn.innerHTML = GEAR_SVG;
+        li.appendChild(btn);
+        li.addEventListener("click", () => this.showSettings("profile"));
+      }
 
       if (e.canPage) {
         const btn = document.createElement("button");
@@ -2965,6 +3046,7 @@ export class UIManager {
     this._syncSwatchSelection();
     this._syncPresets();
     this._refreshAvatar();
+    this._profileChanged();
     // The preset wears the colour, so it has to be re-rendered.
     if (this.preset) void this._renderPreset();
   }
@@ -3023,8 +3105,14 @@ export class UIManager {
       if (id !== this.preset || color !== elJoinColor.value) return;
       this._setAvatar(data);
     } catch {
-      this.showError(t.errAvatar);
+      this._avatarFailed();
     }
+  }
+
+  /** The join card has a line for errors; the settings panel has the toasts. */
+  private _avatarFailed(): void {
+    if (elProfileFields.parentElement === elSettingsProfileSlot) this.showToast(t.errAvatar, "error");
+    else this.showError(t.errAvatar);
   }
 
   private _setAvatar(data: string): void {
@@ -3032,6 +3120,7 @@ export class UIManager {
     localStorage.setItem(LS_AVATAR, data);
     elJoinError.setAttribute("hidden", "");
     this._refreshAvatar();
+    this._profileChanged();
   }
 
   /** (Re-)label the swatches in the active language. */
@@ -3098,7 +3187,7 @@ export class UIManager {
       this._syncPresets();
       this._setAvatar(data);
     } catch {
-      this.showError(t.errAvatar);
+      this._avatarFailed();
     } finally {
       URL.revokeObjectURL(url);
     }
@@ -3111,6 +3200,45 @@ export class UIManager {
     localStorage.removeItem(LS_AVATAR_PRESET);
     this._syncPresets();
     this._refreshAvatar();
+    this._profileChanged();
+  }
+
+  /** A profile field changed. On the join card the form's submit carries it;
+   *  in the office it goes out once the edits pause, so that typing a name is
+   *  one change to everyone else, not one per key. */
+  private _profileChanged(): void {
+    if (elProfileFields.parentElement !== elSettingsProfileSlot) return;
+    window.clearTimeout(this.profileTimer);
+    this.profileTimer = window.setTimeout(() => this._sendProfile(), 400);
+  }
+
+  /** Save and announce the profile — unless the name is empty, which is a
+   *  name half retyped rather than one to wear. */
+  private _sendProfile(): void {
+    this.profileTimer = 0;
+    const name = elJoinName.value.trim();
+    if (!name) return;
+    const color = elJoinColor.value;
+    this._persistProfile(name, color);
+    this.callbacks.onProfileChange({ name, color, avatar: this.avatar });
+  }
+
+  /** Leaving the profile tab: a pending edit goes out now, and a name left
+   *  empty goes back to the one in use. */
+  private _settleProfile(): void {
+    if (this.profileTimer) {
+      window.clearTimeout(this.profileTimer);
+      this._sendProfile();
+    }
+    if (!elJoinName.value.trim()) {
+      elJoinName.value = localStorage.getItem(LS_NAME) ?? "";
+      this._refreshAvatar();
+    }
+  }
+
+  private _persistProfile(name: string, color: string): void {
+    localStorage.setItem(LS_NAME, name);
+    localStorage.setItem(LS_COLOR, color);
   }
 
   private _restoreFromStorage(): void {
@@ -3161,8 +3289,7 @@ export class UIManager {
   }
 
   private _persistToStorage(name: string, color: string, serverUrl: string, token: string): void {
-    localStorage.setItem(LS_NAME, name);
-    localStorage.setItem(LS_COLOR, color);
+    this._persistProfile(name, color);
     persistUrlDeviation(LS_SERVER, serverUrl, DEFAULT_SERVER);
     persistUrlDeviation(LS_AUTH, elJoinAuth.value.trim(), DEFAULT_AUTH_SERVER);
     // Plain-browser fallback only: under Tauri, tokens live in the keychain
@@ -3172,7 +3299,10 @@ export class UIManager {
   }
 
   private _bindForm(): void {
-    elJoinName.addEventListener("input", () => this._refreshAvatar());
+    elJoinName.addEventListener("input", () => {
+      this._refreshAvatar();
+      this._profileChanged();
+    });
 
     // Avatar upload: the preview circle opens the picker; × clears the photo.
     elAvatar.addEventListener("click", () => elAvatarFile.click());
@@ -3236,22 +3366,19 @@ export class UIManager {
     elLeave.addEventListener("click", () => this.callbacks.onLeave());
   }
 
-  private _bindAudioSettings(): void {
-    elAudioSettingsBtn.addEventListener("click", () => this.callbacks.onOpenAudioSettings());
+  private _bindSettings(): void {
+    elSettingsBtn.addEventListener("click", () => this.showSettings("audio"));
+    elSettingsTabs.addEventListener("click", (e) => {
+      const tab = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-tab]")?.dataset.tab;
+      if (tab) this._showSettingsTab(tab as SettingsTab);
+    });
     elBackgroundFile.addEventListener("change", () => {
       const file = elBackgroundFile.files?.[0];
       elBackgroundFile.value = ""; // re-picking the same file must re-fire change
       if (file) void this._setBackgroundFromFile(file);
     });
-    const close = () => {
-      this.micSelect.close();
-      this.speakerSelect.close();
-      this.backgroundSelect.close();
-      elAudioSettings.setAttribute("hidden", "");
-      this.callbacks.onCloseAudioSettings();
-    };
-    elAudioSettingsClose.addEventListener("click", close);
-    bindOverlayDismiss(elAudioSettings, close);
+    elSettingsClose.addEventListener("click", () => this._closeSettings());
+    bindOverlayDismiss(elSettings, () => this._closeSettings());
   }
 
   private _bindReconnect(): void {

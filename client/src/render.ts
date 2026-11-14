@@ -835,6 +835,14 @@ export class Renderer {
     }
   }
 
+  /** Wear a changed profile (our own `presence` after `set_profile`). */
+  setSelfProfile(name: string, color: string, avatar?: string): void {
+    if (!this.self) return;
+    this.self.name = name;
+    this.self.color = color;
+    this.self.avatar = avatar;
+  }
+
   /** Update self mute state from the mic button. */
   setSelfMuted(muted: boolean): void {
     if (this.self) this.self.muted = muted;

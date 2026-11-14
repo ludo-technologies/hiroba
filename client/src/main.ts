@@ -34,6 +34,7 @@ import {
   type JoinFormValues,
   type MemberEntry,
   type PanelVideo,
+  type Profile,
   type RosterEntry,
   type ShareTarget,
 } from "./ui.js";
@@ -312,8 +313,10 @@ const ui = new UIManager(
     onEmailStart: handleEmailStart,
     onEmailVerify: handleEmailVerify,
     onLogout: handleLogout,
+    onNewOrg: handleNewOrg,
+    onProfileChange: handleProfileChange,
     onEndpointsChange: handleEndpointsChange,
-    onSwitchOrg: (orgSlug) => void handleSwitchOrg(orgSlug),
+    onSwitchOrg: (orgSlug) => void handleSwitchOrg(orgSlug, session !== null),
     onCreateOrg: handleCreateOrg,
     onCancelOrgSetup: handleCancelOrgSetup,
     onAskToJoin: (orgSlug) => void handleAskToJoin(orgSlug),
@@ -918,7 +921,7 @@ let orgSwitchPending: Promise<void> | null = null;
 /** Re-anchor the session in another org. On failure nothing moved — the old
  *  refresh token is only consumed by a successful switch — so keep the current
  *  session and say so. */
-async function handleSwitchOrg(orgSlug: string): Promise<void> {
+async function handleSwitchOrg(orgSlug: string, enter = false): Promise<void> {
   const session = authSession;
   if (orgSwitchPending || !session || orgSlug === session.claims.org) return;
   const run = (async () => {
@@ -947,6 +950,13 @@ async function handleSwitchOrg(orgSlug: string): Promise<void> {
   } finally {
     orgSwitchPending = null;
     ui.setOrgSwitchBusy(false);
+  }
+  // Switched from inside an office (the settings panel): that office belongs
+  // to the org just left, so walk out of it and into the new one — as the
+  // sign-in handoff does (`handleHandoff`).
+  if (enter && authSession?.claims.org === orgSlug) {
+    leaveSession();
+    ui.submitJoin();
   }
 }
 
@@ -1083,6 +1093,24 @@ async function handleLogout(): Promise<void> {
   authSession = null;
   localStorage.removeItem(LS_SESSION_ENDPOINTS);
   reflectAuthSession();
+  // Signed out from inside the office (the settings panel): it was entered
+  // on that session, so it ends with it.
+  if (session) leaveSession();
+}
+
+/** "New organization" in the chip's menu. The step that names it lives on the
+ *  join card, so an open office is left first. */
+function handleNewOrg(): void {
+  if (session) leaveSession();
+  ui.showOrgSetup("another");
+}
+
+/** A profile edit made in the office. The server sends back what it kept as
+ *  our own `presence`, which is what we then wear; a reconnect says `hello`
+ *  with the new profile too. */
+function handleProfileChange({ name, color, avatar }: Profile): void {
+  if (lastJoin) lastJoin = { ...lastJoin, name, color, avatar };
+  session?.net.send({ t: "set_profile", name, color, avatar: avatar || undefined });
 }
 
 // ---------------------------------------------------------------------------
@@ -2479,7 +2507,14 @@ function bindServerMessages(net: HirobaNet): void {
   net.on("presence", (e) => {
     if (!session) return;
     const m = e.detail.member;
-    if (m.id === session.self.id) return; // server excludes us; ignore if echoed
+    if (m.id === session.self.id) {
+      // Ours comes only after `set_profile`: the profile as the server kept it.
+      session.self = { ...session.self, name: m.name, color: m.color, avatar: m.avatar };
+      renderer.setSelfProfile(m.name, m.color, m.avatar);
+      rebuildRoster();
+      wake();
+      return;
+    }
     session.roster.set(m.id, m);
     session.offline.delete(m.id); // a fresh presence means they're online
     rebuildRoster();
@@ -2845,8 +2880,9 @@ function handleOpenAudioSettings(): void {
     // regardless of whether the preview below succeeds, so a denied/missing
     // mic doesn't also lock the user out of picking a speaker.
     const { inputs, outputs } = await audio.listDevices();
-    if (!session || session.audio !== audio) return;
-    ui.openAudioSettings(
+    // The tab may have been left while the devices were being listed.
+    if (!session || session.audio !== audio || !ui.audioSettingsOpen) return;
+    ui.setAudioDevices(
       inputs.map((d) => ({ id: d.deviceId, label: d.label })),
       outputs.map((d) => ({ id: d.deviceId, label: d.label })),
       audio.micDevice ?? "",
@@ -2891,11 +2927,11 @@ function handleLocaleChange(): void {
   ui.setCameraOn(session.audio.isCameraOn);
   syncVideoViews();
 
-  // Audio-settings panel: refill so "System default" / field labels match.
-  if (!document.getElementById("audio-settings")?.hasAttribute("hidden")) {
+  // Audio tab: refill so "System default" / field labels match.
+  if (ui.audioSettingsOpen) {
     void session.audio.listDevices().then(({ inputs, outputs }) => {
       if (!session) return;
-      ui.openAudioSettings(
+      ui.setAudioDevices(
         inputs.map((d) => ({ id: d.deviceId, label: d.label })),
         outputs.map((d) => ({ id: d.deviceId, label: d.label })),
         session.audio.micDevice ?? "",

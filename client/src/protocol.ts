@@ -209,6 +209,15 @@ export interface MuteMsg {
   muted: boolean;
 }
 
+/** Replace our whole profile; validated as in `hello`, and a missing
+ *  `avatar` clears it. The server answers with our own `presence`. */
+export interface SetProfileMsg {
+  t: "set_profile";
+  name: string;
+  color: string;
+  avatar?: string;
+}
+
 /** Set user-controllable status flags. Either field may be omitted. */
 export interface SetStatusMsg {
   t: "set_status";
@@ -276,6 +285,7 @@ export type ClientMsg =
   | MoveMsg
   | MuteMsg
   | SetStatusMsg
+  | SetProfileMsg
   | SignalMsg
   | PageMsg
   | PageAcceptMsg

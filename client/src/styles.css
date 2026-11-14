@@ -222,6 +222,13 @@ body {
   color: var(--ink);
 }
 
+/* A slot holds a node that lives in two places (the join card, the settings
+   panel) without adding a box of its own to either layout. */
+.slot,
+.profile-fields {
+  display: contents;
+}
+
 /* --- Identity row: live avatar preview + name --- */
 
 .identity {
@@ -1144,6 +1151,30 @@ a.hud-pill {
 
 .roster-row.is-self {
   background: rgba(181, 79, 44, 0.10);
+}
+
+/* Your own row opens your settings. */
+.roster-row.is-self {
+  cursor: pointer;
+}
+
+.self-settings-btn {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-btn);
+  background: transparent;
+  color: var(--ink-mute);
+  cursor: pointer;
+}
+
+.roster-row.is-self:hover .self-settings-btn,
+.self-settings-btn:focus-visible {
+  color: var(--accent-lo);
 }
 
 .roster-row.is-offline {
@@ -2699,13 +2730,11 @@ a.hud-pill {
 /* While naming the org or inviting the first teammates, the rest of the join
  * form steps aside (the brand header and error area stay). */
 #join-form.org-setup-mode > .auth-block,
-#join-form.org-setup-mode > .identity,
-#join-form.org-setup-mode > .field,
+#join-form.org-setup-mode > #join-profile-slot,
 #join-form.org-setup-mode > .join-settings-btn,
 #join-form.org-setup-mode > #join-btn,
 #join-form.invite-setup-mode > .auth-block,
-#join-form.invite-setup-mode > .identity,
-#join-form.invite-setup-mode > .field,
+#join-form.invite-setup-mode > #join-profile-slot,
 #join-form.invite-setup-mode > .join-settings-btn,
 #join-form.invite-setup-mode > #join-btn {
   display: none;
@@ -2744,8 +2773,7 @@ a.hud-pill {
 
 /* While the org is billing-locked, the join controls step aside — but the
  * signed-in strip stays (the admin needs to see who they are / sign out). */
-#join-form.billing-lock-mode > .identity,
-#join-form.billing-lock-mode > .field,
+#join-form.billing-lock-mode > #join-profile-slot,
 #join-form.billing-lock-mode > #join-btn {
   display: none;
 }
@@ -2954,6 +2982,25 @@ a.hud-pill {
   background: #fffdf8;
   color: var(--ink);
   box-shadow: 0 1px 3px rgba(60, 40, 20, 0.18);
+}
+
+/* Settings panel: one tab's fields at a time. */
+.settings-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.settings-pane[hidden] {
+  display: none;
+}
+
+/* Three tabs share a phone's width: tight sides, and a label breaks between
+   words (never inside a Japanese one) when it has to. */
+#settings-tabs .segmented-btn {
+  padding-inline: 4px;
+  line-height: 1.25;
+  word-break: keep-all;
 }
 
 /* "How do you want to reach them?": two cards, each naming its method and

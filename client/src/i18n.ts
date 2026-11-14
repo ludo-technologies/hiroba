@@ -294,6 +294,10 @@ const EN = {
 
   // Settings panel (gear next to the mic button)
   settingsTitle: "Settings",
+  settingsProfile: "Profile",
+  settingsAudio: "Audio & camera",
+  settingsAccount: "Account",
+  accountGuest: "You joined without signing in.",
   fieldMicrophone: "Microphone",
   fieldSpeaker: "Speaker",
   fieldLanguage: "Language",
@@ -657,6 +661,10 @@ const JA: typeof EN = {
 
   // Settings panel (gear next to the mic button)
   settingsTitle: "設定",
+  settingsProfile: "プロフィール",
+  settingsAudio: "音声とカメラ",
+  settingsAccount: "アカウント",
+  accountGuest: "サインインせずに参加しています。",
   fieldMicrophone: "マイク",
   fieldSpeaker: "スピーカー",
   fieldLanguage: "言語",
@@ -1019,6 +1027,10 @@ const ES: typeof EN = {
 
   // Settings panel (gear next to the mic button)
   settingsTitle: "Ajustes",
+  settingsProfile: "Perfil",
+  settingsAudio: "Audio y cámara",
+  settingsAccount: "Cuenta",
+  accountGuest: "Entraste sin iniciar sesión.",
   fieldMicrophone: "Micrófono",
   fieldSpeaker: "Altavoz",
   fieldLanguage: "Idioma",
@@ -1382,6 +1394,10 @@ const FR: typeof EN = {
 
   // Settings panel (gear next to the mic button)
   settingsTitle: "Paramètres",
+  settingsProfile: "Profil",
+  settingsAudio: "Audio et caméra",
+  settingsAccount: "Compte",
+  accountGuest: "Vous êtes entré sans vous connecter.",
   fieldMicrophone: "Microphone",
   fieldSpeaker: "Haut-parleur",
   fieldLanguage: "Langue",
@@ -1745,6 +1761,10 @@ const PT: typeof EN = {
 
   // Settings panel (gear next to the mic button)
   settingsTitle: "Configurações",
+  settingsProfile: "Perfil",
+  settingsAudio: "Áudio e câmera",
+  settingsAccount: "Conta",
+  accountGuest: "Você entrou sem fazer login.",
   fieldMicrophone: "Microfone",
   fieldSpeaker: "Alto-falante",
   fieldLanguage: "Idioma",
