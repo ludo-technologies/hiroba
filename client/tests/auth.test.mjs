@@ -256,18 +256,26 @@ test("emailVerify rejects a refused code and a malformed session", async () => {
 // Org membership (multi-org: list + refresh-based switch)
 // ---------------------------------------------------------------------------
 
-test("listOrgs sends the bearer and returns the memberships", async () => {
+test("listOrgs sends the bearer and returns the memberships and the account's address", async () => {
   const orgs = [
     { slug: "beta", name: "Beta", role: "member" },
     { slug: "acme", name: "Acme", role: "admin" },
   ];
   const { result, calls } = await withFetch(
-    () => jsonResponse(200, { orgs }),
+    () => jsonResponse(200, { orgs, email: "aoi@example.com" }),
     () => listOrgs("https://auth.example.com/", "tok"),
   );
   assert.equal(calls[0].url, "https://auth.example.com/orgs");
   assert.equal(calls[0].init.headers.Authorization, "Bearer tok");
-  assert.deepEqual(result, orgs);
+  assert.deepEqual(result, { orgs, email: "aoi@example.com" });
+});
+
+test("listOrgs has no address where the backend sends none", async () => {
+  const { result } = await withFetch(
+    () => jsonResponse(200, { orgs: [] }),
+    () => listOrgs("https://auth.example.com/", "tok"),
+  );
+  assert.deepEqual(result, { orgs: [], email: null });
 });
 
 test("listOrgs throws on a refusal or a malformed answer", async () => {

@@ -898,17 +898,19 @@ async function syncOrgList(): Promise<void> {
     ui.setOrgList([], "");
     return;
   }
-  let orgs: OrgSummary[];
+  let orgs: OrgSummary[] = [];
+  let email: string | null = null;
   try {
-    orgs = await listOrgs(ui.getAuthUrl(), session.token);
+    ({ orgs, email } = await listOrgs(ui.getAuthUrl(), session.token));
   } catch {
-    orgs = [];
+    // No list, no address: the chip shows the name and the one org.
   }
   // The session may have moved (sign-out, switch) while the list was in
   // flight; whatever caused that runs its own sync against the new claims.
   if (authSession !== session) return;
   orgList = orgs;
   ui.setOrgList(orgs, session.claims.org);
+  ui.setAccountEmail(email ?? "");
 }
 
 /** The in-flight org switch, if any. One at a time: the refresh token is

@@ -167,6 +167,7 @@ const elLoginCodeResend = $<HTMLButtonElement>("login-code-resend");
 const elLoginCodeBack = $<HTMLButtonElement>("login-code-back");
 const elAuthSession = $<HTMLDivElement>("auth-session");
 const elAuthUser = $<HTMLSpanElement>("auth-user");
+const elAuthEmail = $<HTMLSpanElement>("auth-email");
 const elAuthOrgSelect = $<HTMLDivElement>("auth-org-select");
 const elJoinBtn = $<HTMLButtonElement>("join-btn");
 const elJoinStatus = $<HTMLParagraphElement>("join-status");
@@ -779,6 +780,8 @@ export class UIManager {
   private lastAuth: AuthDisplay | null = null;
   private lastOrgs: OrgSummary[] = [];
   private lastOrgSlug = "";
+  /** The signed-in account's address ("" until GET /orgs answers, or none). */
+  private lastEmail = "";
   /** The settings panel's open tab; null while it is closed. */
   private settingsTab: SettingsTab | null = null;
   /** Pending send of a profile edit made in the office. */
@@ -1140,6 +1143,7 @@ export class UIManager {
     } else {
       this.lastOrgs = [];
       this.lastOrgSlug = "";
+      this.lastEmail = "";
       elAuthSession.setAttribute("hidden", "");
       elAuthActions.removeAttribute("hidden");
       // Signing out mid-code-entry would otherwise leave a stale code step.
@@ -1161,6 +1165,13 @@ export class UIManager {
     this._renderBillingLockOrgs();
   }
 
+  /** The address of the signed-in account, from the same request as the org
+   *  list: shown under the name, which alone cannot tell two accounts apart. */
+  setAccountEmail(email: string): void {
+    this.lastEmail = email;
+    this._renderAuthChip();
+  }
+
   /** Freeze both switch surfaces while a switch is in flight — the refresh
    *  token is single-use, so there is exactly one rotation at a time. */
   setOrgSwitchBusy(busy: boolean): void {
@@ -1175,6 +1186,9 @@ export class UIManager {
     if (!session) return;
     const orgLabel = (name: string, role: string) => (role === "admin" ? `${name} (admin)` : name);
     elAuthUser.textContent = session.name;
+    elAuthEmail.textContent = this.lastEmail;
+    // An account that signed in by mailed code is often named by its address.
+    elAuthEmail.toggleAttribute("hidden", !this.lastEmail || this.lastEmail === session.name);
     this.orgSelect.setOptions(
       this.lastOrgs.length >= 2
         ? this.lastOrgs.map((o) => ({ value: o.slug, label: orgLabel(o.name, o.role) }))

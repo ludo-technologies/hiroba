@@ -421,15 +421,20 @@ export interface OrgSummary {
   role: string;
 }
 
-/** The session's memberships, most recently used first. */
-export async function listOrgs(authBase: string, token: string): Promise<OrgSummary[]> {
+/** The session's memberships, most recently used first, and the address of
+ *  the account they belong to (null when the provider gave none, or the
+ *  backend predates the field). */
+export async function listOrgs(
+  authBase: string,
+  token: string,
+): Promise<{ orgs: OrgSummary[]; email: string | null }> {
   const resp = await fetch(authEndpoint(authBase, "/orgs"), {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!resp.ok) throw new Error(`org list refused with HTTP ${resp.status}`);
-  const data: { orgs?: OrgSummary[] } = await resp.json();
+  const data: { orgs?: OrgSummary[]; email?: string | null } = await resp.json();
   if (!Array.isArray(data.orgs)) throw new Error("org list response malformed");
-  return data.orgs;
+  return { orgs: data.orgs, email: data.email ?? null };
 }
 
 /** Rename the session's org (admin only; PATCH /orgs). Throws if refused. */
