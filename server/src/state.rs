@@ -106,6 +106,29 @@ fn is_valid_avatar(s: &str) -> bool {
     }
 }
 
+/// A profile as it enters [`Member`], from `hello` or `set_profile`: the name
+/// trimmed and capped at 32 characters ("Anonymous" when nothing is left), the
+/// colour a strict `#RRGGBB` or the default (see [`is_hex_color`]), the avatar
+/// a small image data URL or nothing (see [`is_valid_avatar`]).
+fn sanitize_profile(
+    name: &str,
+    color: String,
+    avatar: Option<String>,
+) -> (String, String, Option<String>) {
+    let name = name.trim().chars().take(32).collect::<String>();
+    let name = if name.is_empty() {
+        "Anonymous".to_string()
+    } else {
+        name
+    };
+    let color = if is_hex_color(&color) {
+        color
+    } else {
+        DEFAULT_COLOR.to_string()
+    };
+    (name, color, avatar.filter(|a| is_valid_avatar(a)))
+}
+
 /// A note's text as it goes on the board: one line, trimmed, at most
 /// [`MAX_NOTE_CHARS`]. None when nothing is left. Like the colour, the text is
 /// relayed to every client, so it is shaped here, where it enters the state.
@@ -697,24 +720,7 @@ impl Org {
 
         let mut guard = self.inner.lock().await;
 
-        // Sanitise name: trim and cap at 32 chars.
-        let name = name.trim().chars().take(32).collect::<String>();
-        let name = if name.is_empty() {
-            "Anonymous".to_string()
-        } else {
-            name
-        };
-
-        // Sanitise colour: strict `#RRGGBB` or the default (see is_hex_color).
-        let color = if is_hex_color(&color) {
-            color
-        } else {
-            DEFAULT_COLOR.to_string()
-        };
-
-        // Sanitise avatar: a small, well-formed image data URL or nothing
-        // (see is_valid_avatar). Invalid avatars degrade to the initial disc.
-        let avatar = avatar.filter(|a| is_valid_avatar(a));
+        let (name, color, avatar) = sanitize_profile(&name, color, avatar);
 
         let space_id = "lobby".to_string();
         let lobby = guard
@@ -919,6 +925,28 @@ impl Org {
             },
         );
         guard.broadcast_presence(id);
+    }
+
+    /// Replace a member's profile (`set_profile`), sanitised as at `hello`.
+    /// Everyone learns of it through the messages they already apply: the org
+    /// by `presence` — the member too, as the confirmation of what was kept —
+    /// and the others in their space by `space_joined`, an upsert there.
+    pub async fn set_profile(&self, id: &str, name: &str, color: String, avatar: Option<String>) {
+        let mut guard = self.inner.lock().await;
+        let Some(m) = guard.members.get_mut(id) else {
+            return;
+        };
+        (m.name, m.color, m.avatar) = sanitize_profile(name, color, avatar);
+        let space_id = m.space_id.clone();
+        let presence = ServerMsg::Presence {
+            member: m.as_roster_member(),
+        };
+        let joined = ServerMsg::SpaceJoined {
+            peer: m.as_peer_info(),
+        };
+        m.tx.send(presence);
+        guard.broadcast_presence(id);
+        guard.broadcast_space_except(&space_id, id, joined);
     }
 
     /// Apply a partial status update (away / dnd) and broadcast `presence`.
@@ -1915,6 +1943,57 @@ mod tests {
         assert_eq!(
             board.last().unwrap().text,
             format!("n{MAX_NOTES_PER_BOARD}")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_profile_change_reaches_the_org_the_space_and_the_member() {
+        let org = Org::new("o", "O", None);
+        let mut a = connect(&org, "A", Some("a"), Role::Member).await;
+        let mut same_space = connect(&org, "B", Some("b"), Role::Member).await;
+        let mut elsewhere = connect(&org, "C", Some("c"), Role::Member).await;
+        assert!(matches!(
+            org.enter_space(&elsewhere.id, "dev").await,
+            EnterOutcome::Snapshot(_)
+        ));
+        for c in [&mut a, &mut same_space, &mut elsewhere] {
+            while c.rx.try_recv().is_ok() {}
+        }
+
+        let avatar = "data:image/png;base64,iVBORw0KGgo=".to_string();
+        org.set_profile(&a.id, "  Alice ", "#112233".into(), Some(avatar.clone()))
+            .await;
+
+        // (roster names, canvas names) each connection was told.
+        let told = |c: &mut Conn| {
+            let (mut roster, mut canvas) = (Vec::new(), Vec::new());
+            while let Ok(msg) = c.rx.try_recv() {
+                match msg {
+                    ServerMsg::Presence { member } => {
+                        assert_eq!(member.color, "#112233");
+                        assert_eq!(member.avatar.as_ref(), Some(&avatar));
+                        roster.push(member.name);
+                    }
+                    ServerMsg::SpaceJoined { peer } => canvas.push(peer.name),
+                    _ => {}
+                }
+            }
+            (roster, canvas)
+        };
+        let alice = vec!["Alice".to_string()];
+        assert_eq!(told(&mut a), (alice.clone(), vec![]));
+        assert_eq!(told(&mut same_space), (alice.clone(), alice.clone()));
+        assert_eq!(told(&mut elsewhere), (alice, vec![]));
+
+        // What fails validation falls back exactly as it does at `hello`.
+        org.set_profile(&a.id, " ", "red".into(), Some("https://x/a.png".into()))
+            .await;
+        let Some(ServerMsg::Presence { member }) = a.rx.try_recv().ok() else {
+            unreachable!()
+        };
+        assert_eq!(
+            (member.name.as_str(), member.color.as_str(), member.avatar),
+            ("Anonymous", DEFAULT_COLOR, None)
         );
     }
 

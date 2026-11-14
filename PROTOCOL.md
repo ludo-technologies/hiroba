@@ -246,6 +246,15 @@ Either field MAY be omitted (partial update). The server computes the effective
 `status` (§Presence & status) and broadcasts a `presence` update to the org.
 Clients SHOULD set `away: true` when they dim themselves on idle (NFR-01).
 
+### `set_profile` — replace own name, colour and avatar
+```json
+{ "t": "set_profile", "name": "Aoi", "color": "#4f9dde", "avatar": "data:image/webp;base64,…" }
+```
+The whole profile, validated as in `hello`; a missing `avatar` clears it. The
+server broadcasts `presence` to the org — the sender included, as the
+confirmation of what was kept — and re-sends `space_joined` to the others in
+the sender's space.
+
 ### `signal` — relay a WebRTC signaling payload to one peer
 ```json
 { "t": "signal", "to": "3", "data": { "...": "opaque SDP or ICE" } }
@@ -416,7 +425,8 @@ space, and a client that never receives one shows no chat.
 { "t": "presence", "member": { "id": "9", "name": "Sora", "color": "#7ac77a", "spaceId": "dev", "status": "away", "muted": true } }
 ```
 Broadcast to the whole org whenever a member joins, switches space, changes
-mute, or changes status. Clients upsert by `id`.
+mute, changes status, or changes profile. Clients upsert by `id`. A member
+receives their own only after `set_profile`.
 
 ### `presence_left` — a member disconnected from the org
 ```json
@@ -429,6 +439,8 @@ client/product choice; the wire simply reports disconnect.)
 ```json
 { "t": "space_joined", "peer": { "id": "9", "name": "Sora", "color": "#7ac77a", "x": 520, "y": 320, "muted": true } }
 ```
+Sent again for a peer already present when they change profile (`set_profile`).
+Clients upsert by `id`.
 
 ### `space_left` — a peer left **your current space** (switched away or disconnected)
 ```json

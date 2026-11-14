@@ -257,6 +257,11 @@ pub async fn handle_ws(
                     Ok(ClientMsg::Move { x, y }) => org.set_pos(&pid, x, y).await,
                     Ok(ClientMsg::Mute { muted }) => org.set_mute(&pid, muted).await,
                     Ok(ClientMsg::SetStatus { away, dnd }) => org.set_status(&pid, away, dnd).await,
+                    Ok(ClientMsg::SetProfile {
+                        name,
+                        color,
+                        avatar,
+                    }) => org.set_profile(&pid, &name, color, avatar).await,
                     Ok(ClientMsg::Signal { to, data }) => org.route_signal(&pid, &to, data).await,
                     Ok(ClientMsg::EnterSpace { space_id }) => {
                         let outcome = org.enter_space(&pid, &space_id).await;

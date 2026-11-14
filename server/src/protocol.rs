@@ -350,6 +350,14 @@ pub enum ClientMsg {
     /// Mic mute toggle.
     Mute { muted: bool },
 
+    /// Replace the caller's profile; same fields and validation as `hello`.
+    SetProfile {
+        name: String,
+        color: String,
+        #[serde(default)]
+        avatar: Option<String>,
+    },
+
     /// Set user-controllable status flags. Either field may be omitted.
     SetStatus {
         #[serde(default)]
