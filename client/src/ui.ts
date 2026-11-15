@@ -29,7 +29,23 @@ import {
 import { CODE_LENGTH, inviteLinkUrl, sanitizeCode, type OAuthProvider, type OrgSummary } from "./auth.js";
 import { CustomSelect, type SelectOption } from "./select.js";
 import { bindOverlayDismiss } from "./overlay.js";
-import { AVATAR_MAX_CHARS, AVATAR_PRESETS, encodeAvatar, encodePreset, isPresetId, loadImage, presetSvg } from "./avatars.js";
+import {
+  AVATAR_MAX_CHARS,
+  AVATAR_OPTIONS,
+  AVATAR_PRESETS,
+  HAIR,
+  SKIN,
+  encodeAvatar,
+  encodeLook,
+  loadImage,
+  lookSvg,
+  parseLook,
+  presetLook,
+  randomLook,
+  sameLook,
+  type AvatarPart,
+  type Look,
+} from "./avatars.js";
 import type { CameraBackground } from "./background.js";
 import { notesIn, type ReleaseNotes } from "./release-notes.js";
 
@@ -43,6 +59,8 @@ const TEAM_LAYOUTS: TeamLayout[] = ["meeting", "desks", "lounge", "cafe"];
 const LS_NAME = "hiroba_name";
 const LS_COLOR = "hiroba_color";
 const LS_AVATAR = "hiroba_avatar";
+const LS_AVATAR_LOOK = "hiroba_avatar_look";
+/** What versions before the look editor stored: the id of one of 8 presets. */
 const LS_AVATAR_PRESET = "hiroba_avatar_preset";
 const LS_SERVER = "hiroba_server";
 const LS_TOKEN = "hiroba_token";
@@ -105,6 +123,31 @@ function putOffInstall(): void {
 /** Curated friendly palette offered as one-tap swatches. Each carries a
  *  localized name so a swatch announces "Clay", not "#b54f2c" (the catalog is
  *  read lazily so the labels follow a language switch). */
+const AVATAR_TABS = ["preset", "hair", "face", "extra", "outfit"] as const;
+type AvatarTab = (typeof AVATAR_TABS)[number];
+const AVATAR_TAB_LABEL: Record<AvatarTab, () => string> = {
+  preset: () => t.avatarTabPreset,
+  hair: () => t.avatarTabHair,
+  face: () => t.avatarTabFace,
+  extra: () => t.avatarTabExtra,
+  outfit: () => t.avatarTabOutfit,
+};
+
+/** One row of options in the avatar editor. */
+interface AvatarGroup {
+  label: string;
+  options: {
+    /** What picking the option changes in the look. */
+    patch: Partial<Look>;
+    /** A colour swatch instead of a drawn face. */
+    hex?: string;
+    /** What the tile shows beyond `patch` (a switch shows itself on). */
+    show?: Partial<Look>;
+    /** Whether it is in use, where comparing looks can't tell (a switch). */
+    on?: boolean;
+  }[];
+}
+
 const PALETTE: { hex: string; name: () => string }[] = [
   { hex: "#b54f2c", name: () => t.colorClay }, // accent
   { hex: "#e6a94e", name: () => t.colorAmber },
@@ -181,7 +224,9 @@ const elAvatar = $<HTMLButtonElement>("avatar-preview");
 const elAvatarInitial = $<HTMLSpanElement>("avatar-initial");
 const elAvatarRemove = $<HTMLButtonElement>("avatar-remove");
 const elAvatarFile = $<HTMLInputElement>("avatar-file");
-const elAvatarPresets = $<HTMLDivElement>("avatar-presets");
+const elAvatarTabs = $<HTMLDivElement>("avatar-tabs");
+const elAvatarOptions = $<HTMLDivElement>("avatar-options");
+const elAvatarShuffle = $<HTMLButtonElement>("avatar-shuffle");
 
 const elOrgSetup = $<HTMLDivElement>("org-setup");
 const elOrgSetupName = $<HTMLInputElement>("org-setup-name");
@@ -696,7 +741,8 @@ export class UIManager {
   private callbacks: UICallbacks;
   private custom = false; // whether the current color came from the custom picker
   private avatar = ""; // avatar data URL ("" = none, use initial+color)
-  private preset = ""; // built-in preset id the avatar was rendered from ("" = uploaded/none)
+  private look: Look | null = null; // the built-in look the avatar was rendered from (null = uploaded/none)
+  private avatarTab: AvatarTab = "preset";
   private onboardTimer = 0;
   private roomHintTimer = 0;
 
@@ -816,7 +862,7 @@ export class UIManager {
     this._syncBackgroundSelect();
 
     this._buildSwatches();
-    this._buildPresets();
+    this._buildAvatarTabs();
     this._restoreFromStorage();
     this._bindForm();
     this._bindServerSettings();
@@ -1310,7 +1356,7 @@ export class UIManager {
   private _onLocaleChanged(): void {
     this._syncLangSwitch();
     this._syncSwatchLabels();
-    this._syncPresetLabels();
+    this._syncAvatarEditor();
     this._syncBackgroundSelect();
 
     // Join / auth / org-setup button labels.
@@ -3058,65 +3104,142 @@ export class UIManager {
     elJoinColor.value = color;
     this.custom = custom;
     this._syncSwatchSelection();
-    this._syncPresets();
+    this._syncAvatarEditor();
     this._refreshAvatar();
     this._profileChanged();
-    // The preset wears the colour, so it has to be re-rendered.
-    if (this.preset) void this._renderPreset();
+    // The look wears the colour, so it has to be re-rendered.
+    if (this.look) void this._renderLook();
   }
 
   // -------------------------------------------------------------------------
-  // Built-in avatar presets
+  // Built-in avatar: a look put together part by part
   // -------------------------------------------------------------------------
 
-  private _buildPresets(): void {
-    for (const { id } of AVATAR_PRESETS) {
+  private _buildAvatarTabs(): void {
+    for (const tab of AVATAR_TABS) {
       const b = document.createElement("button");
       b.type = "button";
-      b.className = "swatch swatch-preset";
-      b.dataset.preset = id;
-      b.setAttribute("aria-pressed", "false");
-      b.addEventListener("click", () => this._selectPreset(id));
-      elAvatarPresets.appendChild(b);
+      b.className = "avatar-tab";
+      b.dataset.tab = tab;
+      b.addEventListener("click", () => {
+        this.avatarTab = tab;
+        this._syncAvatarEditor();
+      });
+      elAvatarTabs.appendChild(b);
     }
-    this._syncPresetLabels();
-    this._syncPresets();
+    elAvatarShuffle.addEventListener("click", () => this._selectLook(randomLook()));
   }
 
-  /** (Re-)label the presets in the active language. */
-  private _syncPresetLabels(): void {
-    elAvatarPresets.querySelectorAll<HTMLButtonElement>(".swatch-preset").forEach((b, i) => {
-      const label = t.avatarPreset(i + 1);
-      b.setAttribute("aria-label", label);
-      b.title = label;
+  /** The option groups of the open tab. */
+  private _avatarGroups(): AvatarGroup[] {
+    const choices = (label: string, part: AvatarPart): AvatarGroup => ({
+      label,
+      options: AVATAR_OPTIONS[part].map((choice) => ({ patch: { [part]: choice } })),
     });
-  }
-
-  /** Tint every tile with the current colour and mark the chosen one. */
-  private _syncPresets(): void {
-    const color = elJoinColor.value;
-    for (const b of elAvatarPresets.querySelectorAll<HTMLButtonElement>(".swatch-preset")) {
-      const id = b.dataset.preset ?? "";
-      b.innerHTML = presetSvg(id, color);
-      b.setAttribute("aria-pressed", id === this.preset ? "true" : "false");
+    const colours = (label: string, part: "skin" | "hair", table: Record<string, string>): AvatarGroup => ({
+      label,
+      options: AVATAR_OPTIONS[part].map((choice) => ({ patch: { [part]: choice }, hex: table[choice] })),
+    });
+    switch (this.avatarTab) {
+      case "preset":
+        return [{ label: t.avatarTabPreset, options: AVATAR_PRESETS.map((patch) => ({ patch })) }];
+      case "hair":
+        return [choices(t.avatarStyle, "style"), colours(t.avatarHairColor, "hair", HAIR)];
+      case "face":
+        return [colours(t.avatarSkin, "skin", SKIN), choices(t.avatarEyes, "eyes"), choices(t.avatarMouth, "mouth")];
+      case "extra": {
+        const base = this._baseLook();
+        return [
+          choices(t.avatarGlasses, "glasses"),
+          choices(t.avatarFacial, "facial"),
+          {
+            label: t.avatarAccents,
+            // Worn together, so each is a switch rather than a choice.
+            options: (["earrings", "freckles"] as const).map((k) => ({
+              patch: { [k]: !base[k] },
+              show: { [k]: true },
+              on: base[k],
+            })),
+          },
+        ];
+      }
+      case "outfit":
+        return [choices(t.avatarTabOutfit, "outfit")];
     }
   }
 
-  private _selectPreset(id: string): void {
-    this.preset = id;
-    localStorage.setItem(LS_AVATAR_PRESET, id);
-    this._syncPresets();
-    void this._renderPreset();
+  /** What the options are drawn on and applied to: the look in use, or the
+   *  first preset while the avatar is a photo or the initial. */
+  private _baseLook(): Look {
+    return this.look ?? AVATAR_PRESETS[0];
   }
 
-  /** Rasterize the chosen preset in the current colour into `this.avatar`.
-   *  A stale render (colour or preset changed meanwhile) is dropped. */
-  private async _renderPreset(): Promise<void> {
-    const id = this.preset;
+  /** (Re-)draw the tabs and the open tab's options: in the active language,
+   *  tinted with the current colour, the choices in use marked. */
+  private _syncAvatarEditor(): void {
+    const color = elJoinColor.value;
+    const base = this._baseLook();
+    for (const b of elAvatarTabs.querySelectorAll<HTMLButtonElement>(".avatar-tab")) {
+      b.textContent = AVATAR_TAB_LABEL[b.dataset.tab as AvatarTab]();
+      b.setAttribute("aria-pressed", b.dataset.tab === this.avatarTab ? "true" : "false");
+    }
+    const groups = this._avatarGroups();
+    elAvatarOptions.replaceChildren(
+      ...groups.map((group) => {
+        const box = document.createElement("div");
+        box.className = "avatar-group";
+        box.setAttribute("role", "group");
+        box.setAttribute("aria-label", group.label);
+        if (groups.length > 1) {
+          const label = document.createElement("span");
+          label.className = "avatar-group-label";
+          label.textContent = group.label;
+          box.appendChild(label);
+        }
+        const row = document.createElement("div");
+        row.className = "swatches";
+        group.options.forEach((option, i) => {
+          const picked = { ...base, ...option.patch };
+          const b = document.createElement("button");
+          b.type = "button";
+          b.className = "swatch";
+          if (option.hex) {
+            b.style.background = option.hex;
+            b.style.setProperty("--swatch-glow", option.hex);
+          } else {
+            b.classList.add("swatch-look");
+            b.innerHTML = lookSvg({ ...picked, ...option.show }, color);
+          }
+          const on = option.on ?? (this.look !== null && sameLook(picked, this.look));
+          const label = `${group.label} ${i + 1}`;
+          b.setAttribute("aria-pressed", on ? "true" : "false");
+          b.setAttribute("aria-label", label);
+          b.title = label;
+          b.addEventListener("click", () => this._selectLook(picked));
+          row.appendChild(b);
+        });
+        box.appendChild(row);
+        return box;
+      }),
+    );
+  }
+
+  private _selectLook(look: Look): void {
+    this.look = look;
+    localStorage.setItem(LS_AVATAR_LOOK, JSON.stringify(look));
+    this._syncAvatarEditor();
+    void this._renderLook();
+  }
+
+  /** Rasterize the look in the current colour into `this.avatar`.
+   *  A stale render (colour or look changed meanwhile) is dropped. */
+  private async _renderLook(): Promise<void> {
+    const look = this.look;
+    if (!look) return;
     const color = elJoinColor.value;
     try {
-      const data = await encodePreset(id, color);
-      if (id !== this.preset || color !== elJoinColor.value) return;
+      const data = await encodeLook(look, color);
+      if (look !== this.look || color !== elJoinColor.value) return;
       this._setAvatar(data);
     } catch {
       this._avatarFailed();
@@ -3196,9 +3319,9 @@ export class UIManager {
     const url = URL.createObjectURL(file);
     try {
       const data = encodeAvatar(await loadImage(url));
-      this.preset = "";
-      localStorage.removeItem(LS_AVATAR_PRESET);
-      this._syncPresets();
+      this.look = null;
+      localStorage.removeItem(LS_AVATAR_LOOK);
+      this._syncAvatarEditor();
       this._setAvatar(data);
     } catch {
       this._avatarFailed();
@@ -3209,10 +3332,10 @@ export class UIManager {
 
   private _clearAvatar(): void {
     this.avatar = "";
-    this.preset = "";
+    this.look = null;
     localStorage.removeItem(LS_AVATAR);
-    localStorage.removeItem(LS_AVATAR_PRESET);
-    this._syncPresets();
+    localStorage.removeItem(LS_AVATAR_LOOK);
+    this._syncAvatarEditor();
     this._refreshAvatar();
     this._profileChanged();
   }
@@ -3266,8 +3389,16 @@ export class UIManager {
     if (avatar && avatar.startsWith("data:image/") && avatar.length <= AVATAR_MAX_CHARS) {
       this.avatar = avatar;
     }
+    const look = localStorage.getItem(LS_AVATAR_LOOK);
     const preset = localStorage.getItem(LS_AVATAR_PRESET);
-    if (preset && isPresetId(preset)) this.preset = preset;
+    if (look) {
+      this.look = parseLook(look);
+    } else if (preset) {
+      // A preset picked before the look editor: carry it over as its look.
+      this.look = presetLook(preset);
+      if (this.look) localStorage.setItem(LS_AVATAR_LOOK, JSON.stringify(this.look));
+      localStorage.removeItem(LS_AVATAR_PRESET);
+    }
     const server = localStorage.getItem(LS_SERVER);
     const authServer = localStorage.getItem(LS_AUTH);
     // Under Tauri the session lives in the keychain; purge any token a
@@ -3297,9 +3428,9 @@ export class UIManager {
       }
     }
     this._syncSwatchSelection();
-    this._syncPresets();
-    // Re-render the preset so artwork changes between versions reach peers.
-    if (this.preset) void this._renderPreset();
+    this._syncAvatarEditor();
+    // Re-render the look so artwork changes between versions reach peers.
+    if (this.look) void this._renderLook();
   }
 
   private _persistToStorage(name: string, color: string, serverUrl: string, token: string): void {
