@@ -186,6 +186,22 @@ const LS_SPEAKER_DEVICE = "hiroba_speaker_device";
  *  which nobody needs to be told twice — a hint that returns on every join
  *  stops reading as onboarding and starts reading as clutter. */
 const LS_MOVE_HINT_SEEN = "hiroba_move_hint_seen";
+/** A call we did not take: it rang out or was withdrawn, or it came while we
+ *  were in do-not-disturb or in a call. */
+interface MissedCall {
+  name: string;
+  /** When the last one came, ms epoch. */
+  at: number;
+  count: number;
+}
+
+/** Missed calls by caller id, in the org `missedOrg`. Outside the session so
+ *  they are still there after a reconnect (a laptop that slept). */
+const missedCalls = new Map<string, MissedCall>();
+let missedOrg = "";
+/** The count the Dock / taskbar badge was last set to. */
+let appBadge = 0;
+
 /** `{ "<orgId>/<spaceId>": <newest message id seen> }`. Note ids are org-wide
  *  and monotonic on the server, so a stored id stays meaningful across
  *  restarts of either side. */
@@ -356,6 +372,7 @@ const ui = new UIManager(
     onCreateSpace: handleCreateSpace,
     onSetSpaceLock: handleSetSpaceLock,
     onPage: handlePage,
+    onDismissMissed: clearMissedCall,
     onPageAccept: handlePageAccept,
     onHangUp: handleHangUp,
     onScreenShareToggle: handleScreenShareToggle,
@@ -2034,6 +2051,14 @@ function initSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[]
   const roster = new Map<string, RosterMember>();
   for (const m of msg.roster) roster.set(m.id, m);
 
+  // Missed calls outlive a reconnect, but ids do not outlive a server restart
+  // or an org switch: keep only those whose caller is still who they were.
+  if (missedOrg !== msg.org.id) missedCalls.clear();
+  missedOrg = msg.org.id;
+  for (const [id, m] of missedCalls) {
+    if (roster.get(id)?.name !== m.name) missedCalls.delete(id);
+  }
+
   const peerPositions = new Map<string, { x: number; y: number }>();
   renderer.init(msg.space, msg.you);
   for (const peer of msg.peers) {
@@ -2163,8 +2188,12 @@ function rebuildRoster(): void {
     canPage: false,
   });
 
-  // Then everyone else (online first, then greyed offline), name-sorted.
+  // Then everyone else (missed calls first, then online, then greyed
+  // offline), name-sorted.
   const others = [...session.roster.values()].sort((a, b) => {
+    const am = missedCalls.has(a.id) ? 0 : 1;
+    const bm = missedCalls.has(b.id) ? 0 : 1;
+    if (am !== bm) return am - bm;
     const ao = session!.offline.has(a.id) ? 1 : 0;
     const bo = session!.offline.has(b.id) ? 1 : 0;
     if (ao !== bo) return ao - bo;
@@ -2181,11 +2210,28 @@ function rebuildRoster(): void {
       tone: off ? "offline" : m.status,
       isSelf: false,
       canPage: !off && !session.pages.has(m.id),
+      missed: missedCalls.get(m.id),
     });
   }
 
   ui.renderRoster(entries);
+  ui.setMissedCalls(missedCalls.size);
+  if (missedCalls.size !== appBadge) void setAppBadge(missedCalls.size);
   if (syncAvatarStatuses()) wake();
+}
+
+/** Keep a call from `from` that we did not take; the roster shows it until
+ *  we call back or dismiss it. Quiet in do-not-disturb. Callers rebuild the
+ *  roster. */
+function recordMissedCall(from: string): void {
+  if (!session) return;
+  const name = session.roster.get(from)?.name ?? from;
+  missedCalls.set(from, { name, at: Date.now(), count: (missedCalls.get(from)?.count ?? 0) + 1 });
+  if (!session.dnd) ui.showToast(t.pageMissed(name));
+}
+
+function clearMissedCall(id: string): void {
+  if (missedCalls.delete(id)) rebuildRoster();
 }
 
 /** Push org-wide status onto canvas avatars for self + peers in this space. */
@@ -2562,11 +2608,18 @@ function bindServerMessages(net: HirobaNet): void {
     wake();
   });
 
+  net.on("page_missed", (e) => {
+    if (!session) return;
+    recordMissedCall(e.detail.from);
+    rebuildRoster();
+  });
+
   net.on("page_connect", (e) => {
     if (!session) return;
     const { peer, initiator } = e.detail;
     session.ringingOut.delete(peer);
     session.ringingIn.delete(peer);
+    missedCalls.delete(peer);
     void session.audio.connect(peer, initiator, "page");
     session.pages.set(peer, session.roster.get(peer)?.name ?? peer);
     syncVideoViews();
@@ -2593,13 +2646,13 @@ function bindServerMessages(net: HirobaNet): void {
     if (!session) return;
     const { from } = e.detail;
     const wasIncoming = session.ringingIn.has(from);
-    const name = session.ringingIn.get(from) ?? session.roster.get(from)?.name ?? from;
     // Pending offer cancelled / timed out, or live hang-up.
     session.ringingIn.delete(from);
     session.ringingOut.delete(from);
     session.audio.endPage(from); // keeps proximity audio if still near
     session.pages.delete(from);
-    if (wasIncoming && e.detail.reason === "timeout") ui.showToast(t.pageMissed(name));
+    // Our own decline never comes back here: an offer that ends is one we missed.
+    if (wasIncoming) recordMissedCall(from);
     session.remoteVideos.delete(from);
     syncVideoViews();
     updateCallBanner();
@@ -2770,6 +2823,18 @@ async function requestWindowAttention(active: boolean): Promise<void> {
     );
   } catch (err) {
     console.warn("[attention] requestUserAttention failed:", err);
+  }
+}
+
+/** Missed calls as the Dock / taskbar badge (0 clears it). Windows has no
+ *  badge count and refuses. */
+async function setAppBadge(count: number): Promise<void> {
+  appBadge = count;
+  if (!isTauri()) return;
+  try {
+    await getCurrentWindow().setBadgeCount(count || undefined);
+  } catch (err) {
+    console.warn("[badge] setBadgeCount failed:", err);
   }
 }
 
@@ -3063,6 +3128,7 @@ function handlePage(memberId: string): void {
   // Optimistic outgoing UI until page_ringing / page_rejected arrives.
   const name = session.roster.get(memberId)?.name ?? memberId;
   session.ringingOut.set(memberId, name);
+  clearMissedCall(memberId);
   updateCallBanner();
   session.net.send({ t: "page", to: memberId });
   wake();
@@ -3289,6 +3355,8 @@ function leaveSession(): void {
     session.net.send({ t: "bye" });
     teardownSession();
   }
+  missedCalls.clear();
+  void setAppBadge(0);
   ui.showJoin();
 }
 

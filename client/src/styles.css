@@ -1420,6 +1420,45 @@ a.hud-pill {
   border-color: var(--accent);
 }
 
+/* A call we did not take: the row says when, and its button calls back. */
+.roster-row.has-missed {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* Wraps rather than ellipsizes: beside the two buttons there is no room for
+   "Missed call 14:32" on one line, and the time is the point. */
+.roster-row.has-missed .roster-status {
+  color: var(--accent-lo);
+  font-weight: 600;
+  white-space: normal;
+}
+
+.roster-row.has-missed .page-btn {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.missed-dismiss {
+  flex: 0 0 auto;
+  margin-left: -4px;
+  border: 0;
+  background: none;
+  color: var(--ink-mute);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  padding: 4px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.missed-dismiss:hover,
+.missed-dismiss:focus-visible {
+  color: var(--ink);
+  background: var(--accent-soft);
+}
+
 .side-foot {
   display: flex;
   gap: 0;
@@ -3834,6 +3873,11 @@ a.hud-pill {
   .page-btn {
     padding: 10px 18px;
     font-size: 14px;
+  }
+
+  .missed-dismiss {
+    padding: 10px;
+    font-size: 18px;
   }
 
   /* Keyboard hints mean nothing on a phone. */

@@ -304,6 +304,7 @@ const elSpaceLock = $<HTMLButtonElement>("space-lock");
 const elChatUnread = $<HTMLSpanElement>("chat-unread");
 const elMTabButtons = [...$<HTMLElement>("m-tabs").querySelectorAll<HTMLButtonElement>("button[data-mtab]")];
 const elMChatUnread = $<HTMLSpanElement>("m-chat-unread");
+const elMMissed = $<HTMLSpanElement>("m-missed");
 const elMFit = $<HTMLButtonElement>("m-fit");
 const elMFitWhole = $<HTMLSpanElement>("m-fit-whole");
 const elMFitZoom = $<HTMLSpanElement>("m-fit-zoom");
@@ -623,6 +624,8 @@ export interface UICallbacks {
   onRoomInset(inset: RoomInset): void;
   /** Start a page (cross-space 1:1) with a roster member (FR-10). */
   onPage(memberId: string): void;
+  /** Forget the missed call from a roster member. */
+  onDismissMissed(memberId: string): void;
   /** The banner's accept button: answer a page, or let a knocker in. */
   onPageAccept(): void;
   /** The banner's other button: hang up a live page, cancel an outgoing ring
@@ -709,6 +712,9 @@ export interface RosterEntry {
   isSelf: boolean;
   /** Whether to offer a "page" button on this row. */
   canPage: boolean;
+  /** A call from them we did not take: when the last one came (ms epoch) and
+   *  how many. The row says so and its button calls back. */
+  missed?: { at: number; count: number };
 }
 
 /** The reconnect overlay's message, derived so `showReconnecting` and the
@@ -2344,8 +2350,14 @@ export class UIManager {
       nm.title = nm.textContent;
       const st = document.createElement("span");
       st.className = "roster-status";
-      st.textContent = e.label;
-      st.title = e.label;
+      st.textContent = e.missed
+        ? t.missedCall(
+            new Date(e.missed.at).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" }),
+            e.missed.count,
+          )
+        : e.label;
+      st.title = st.textContent;
+      if (e.missed) li.classList.add("has-missed");
       text.append(nm, st);
       li.appendChild(text);
 
@@ -2366,8 +2378,19 @@ export class UIManager {
         btn.className = "page-btn";
         btn.title = t.callTitle(e.name);
         btn.setAttribute("aria-label", t.callTitle(e.name));
-        btn.textContent = t.callBtn;
+        btn.textContent = e.missed ? t.callBackBtn : t.callBtn;
         btn.addEventListener("click", () => this.callbacks.onPage(e.id));
+        li.appendChild(btn);
+      }
+
+      if (e.missed) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "missed-dismiss";
+        btn.title = t.missedDismiss;
+        btn.setAttribute("aria-label", t.missedDismiss);
+        btn.textContent = "×";
+        btn.addEventListener("click", () => this.callbacks.onDismissMissed(e.id));
         li.appendChild(btn);
       }
 
@@ -2821,6 +2844,12 @@ export class UIManager {
       // keys are ours again the moment the panel closes.
       elChatInput.blur();
     }
+  }
+
+  /** Missed-call badge on the phone layout's members tab (0 hides it). */
+  setMissedCalls(count: number): void {
+    elMMissed.textContent = String(count);
+    elMMissed.hidden = count === 0;
   }
 
   /** Unread badge on the HUD chat button (0 hides it). */

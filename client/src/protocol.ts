@@ -441,6 +441,12 @@ export interface PageOfferMsg {
   from: string;
 }
 
+/** Someone paged us while we were `dnd` or in a call: nothing rang. */
+export interface PageMissedMsg {
+  t: "page_missed";
+  from: string;
+}
+
 /** Outgoing page is ringing (to the caller). */
 export interface PageRingingMsg {
   t: "page_ringing";
@@ -543,6 +549,7 @@ export type ServerMsg =
   | PeerMuteMsg
   | ProximityMsg
   | PageOfferMsg
+  | PageMissedMsg
   | PageRingingMsg
   | PageConnectMsg
   | PageRejectedMsg
