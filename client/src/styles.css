@@ -1549,6 +1549,16 @@ a.hud-pill {
   color: rgba(255, 255, 255, 0.85);
 }
 
+/* A locked space's tab wears a padlock in place of the team dot. */
+.tab[data-locked]::before {
+  content: none;
+}
+
+.tab[data-locked] svg {
+  vertical-align: -2px;
+  margin-right: 5px;
+}
+
 .tab-add {
   font-size: 16px;
   line-height: 1;
@@ -1620,6 +1630,37 @@ a.hud-pill {
 .layout-hint {
   font-size: 11.5px;
   color: var(--ink-mute);
+}
+
+/* "Lock it" switch under the layouts (members with an account only). */
+.layout-lock {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: none;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.layout-lock svg {
+  flex: none;
+}
+
+.layout-lock:hover {
+  background: var(--paper-2);
+}
+
+.layout-lock[aria-checked="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-lo);
 }
 
 /* ---------------------------------------------------------------------------
@@ -2561,6 +2602,17 @@ a.hud-pill {
 .chat-toggle[aria-pressed="true"] {
   color: var(--accent);
   border-color: var(--accent);
+}
+
+/* HUD lock button: in our own space only; accented while locked. */
+#space-lock[hidden] {
+  display: none;
+}
+
+#space-lock[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .chat-unread {

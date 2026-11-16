@@ -366,6 +366,21 @@ const EN = {
   spaceLobby: "Lobby",
   spaceDev: "Dev",
 
+  // Locked spaces (PROTOCOL.md §"Locked spaces")
+  lockOption: "Lock it: others knock, and you let them in",
+  spaceLock: "Lock this space",
+  spaceUnlock: "Unlock this space",
+  spaceLocked: "Locked. Anyone else knocks, and you let them in.",
+  spaceUnlocked: "Unlocked. Anyone can walk in.",
+  lockedTitle: (name: string) => `${name} (locked, knock to enter)`,
+  knockLetIn: "Let in",
+  knockWaiting: (space: string) => `Knocking on ${space}…`,
+  knockIncoming: (name: string, space: string) => `${name} is knocking on ${space}`,
+  knockDeclined: (space: string) => `You weren't let into ${space}.`,
+  knockTimeout: (space: string) => `Nobody answered at ${space}.`,
+  knockFull: (space: string) => `${space} filled up before you got in.`,
+  errSpaceLocked: "This space is locked, and nobody is around to let you in.",
+
   // Paging / call banner
   inCallWith: (name: string) => `In call with ${name}`,
   inCallN: (n: number) => `In call with ${n} people`,
@@ -744,6 +759,21 @@ const JA: typeof EN = {
   spaceLobby: "ロビー",
   spaceDev: "開発",
 
+  // Locked spaces (PROTOCOL.md §"Locked spaces")
+  lockOption: "鍵をかける: ほかの人はノックし、あなたが許可すると入れます",
+  spaceLock: "このスペースに鍵をかける",
+  spaceUnlock: "このスペースの鍵を開ける",
+  spaceLocked: "鍵をかけました。ほかの人はノックし、あなたが許可すると入れます。",
+  spaceUnlocked: "鍵を開けました。誰でも入れます。",
+  lockedTitle: (name: string) => `${name}(鍵付き・ノックして入室)`,
+  knockLetIn: "許可",
+  knockWaiting: (space: string) => `${space} をノックしています…`,
+  knockIncoming: (name: string, space: string) => `${name} が ${space} をノックしています`,
+  knockDeclined: (space: string) => `${space} への入室は許可されませんでした。`,
+  knockTimeout: (space: string) => `${space} から応答がありませんでした。`,
+  knockFull: (space: string) => `${space} は入る前に満員になりました。`,
+  errSpaceLocked: "このスペースには鍵がかかっていて、入室を許可できる人がいません。",
+
   // Paging / call banner
   inCallWith: (name: string) => `${name} と通話中`,
   inCallN: (n: number) => `${n}人と通話中`,
@@ -1121,6 +1151,21 @@ const ES: typeof EN = {
   // Built-in space display names (keyed by the server's stable space id).
   spaceLobby: "Vestíbulo",
   spaceDev: "Desarrollo",
+
+  // Locked spaces (PROTOCOL.md §"Locked spaces")
+  lockOption: "Cerrar con llave: los demás llaman y tú los dejas pasar",
+  spaceLock: "Cerrar este espacio con llave",
+  spaceUnlock: "Abrir este espacio",
+  spaceLocked: "Cerrado con llave. Los demás llaman y tú los dejas pasar.",
+  spaceUnlocked: "Abierto. Cualquiera puede entrar.",
+  lockedTitle: (name: string) => `${name} (cerrado, llama para entrar)`,
+  knockLetIn: "Dejar pasar",
+  knockWaiting: (space: string) => `Llamando a la puerta de ${space}…`,
+  knockIncoming: (name: string, space: string) => `${name} llama a la puerta de ${space}`,
+  knockDeclined: (space: string) => `No te dejaron pasar a ${space}.`,
+  knockTimeout: (space: string) => `Nadie respondió en ${space}.`,
+  knockFull: (space: string) => `${space} se llenó antes de que pudieras entrar.`,
+  errSpaceLocked: "Este espacio está cerrado con llave y no hay nadie para dejarte pasar.",
 
   // Paging / call banner
   inCallWith: (name: string) => `En llamada con ${name}`,
@@ -1501,6 +1546,21 @@ const FR: typeof EN = {
   spaceLobby: "Hall",
   spaceDev: "Développement",
 
+  // Locked spaces (PROTOCOL.md §"Locked spaces")
+  lockOption: "Verrouiller : les autres frappent et vous les faites entrer",
+  spaceLock: "Verrouiller cet espace",
+  spaceUnlock: "Déverrouiller cet espace",
+  spaceLocked: "Verrouillé. Les autres frappent, et vous les faites entrer.",
+  spaceUnlocked: "Déverrouillé. Tout le monde peut entrer.",
+  lockedTitle: (name: string) => `${name} (verrouillé, frappez pour entrer)`,
+  knockLetIn: "Faire entrer",
+  knockWaiting: (space: string) => `Vous frappez à la porte de ${space}…`,
+  knockIncoming: (name: string, space: string) => `${name} frappe à la porte de ${space}`,
+  knockDeclined: (space: string) => `Vous n'avez pas été admis dans ${space}.`,
+  knockTimeout: (space: string) => `Personne n'a répondu dans ${space}.`,
+  knockFull: (space: string) => `${space} s'est rempli avant votre entrée.`,
+  errSpaceLocked: "Cet espace est verrouillé et personne n'est là pour vous faire entrer.",
+
   // Paging / call banner — names are never preceded by "de", which would
   // need elision ("d'Aoi") the template can't know about.
   inCallWith: (name: string) => `En appel avec ${name}`,
@@ -1879,6 +1939,21 @@ const PT: typeof EN = {
   // Built-in space display names (keyed by the server's stable space id).
   spaceLobby: "Saguão",
   spaceDev: "Dev",
+
+  // Locked spaces (PROTOCOL.md §"Locked spaces")
+  lockOption: "Trancar: os outros batem e você deixa entrar",
+  spaceLock: "Trancar este espaço",
+  spaceUnlock: "Destrancar este espaço",
+  spaceLocked: "Trancado. Os outros batem na porta e você deixa entrar.",
+  spaceUnlocked: "Destrancado. Qualquer pessoa pode entrar.",
+  lockedTitle: (name: string) => `${name} (trancado, bata para entrar)`,
+  knockLetIn: "Deixar entrar",
+  knockWaiting: (space: string) => `Batendo na porta de ${space}…`,
+  knockIncoming: (name: string, space: string) => `${name} está batendo na porta de ${space}`,
+  knockDeclined: (space: string) => `Você não foi autorizado a entrar em ${space}.`,
+  knockTimeout: (space: string) => `Ninguém respondeu em ${space}.`,
+  knockFull: (space: string) => `${space} lotou antes de você entrar.`,
+  errSpaceLocked: "Este espaço está trancado e não há ninguém para deixar você entrar.",
 
   // Paging / call banner
   inCallWith: (name: string) => `Em chamada com ${name}`,

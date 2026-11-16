@@ -65,6 +65,11 @@ export interface SpaceDescriptor {
    * is soundproof both ways. Absent on team spaces.
    */
   meetingRoom?: Rect;
+  /** Entering takes a knock answered from inside (PROTOCOL.md §"Locked
+   *  spaces"). Omitted when unlocked. */
+  locked?: boolean;
+  /** We own it: we walk in without knocking, and may lock and unlock it. */
+  mine?: boolean;
 }
 
 /** An axis-aligned rectangle in world units (top-left origin). */
@@ -164,11 +169,32 @@ export interface EnterSpaceMsg {
   spaceId: string;
 }
 
-/** Create a new team space (FR-14). */
+/** Create a new team space (FR-14), owned by our account. */
 export interface CreateSpaceMsg {
   t: "create_space";
   name: string;
   layout: TeamLayout;
+  /** Start it locked (needs an account to own it). */
+  locked: boolean;
+}
+
+/** Lock or unlock a space we own. */
+export interface SetSpaceLockMsg {
+  t: "set_space_lock";
+  spaceId: string;
+  locked: boolean;
+}
+
+/** Let in (`admit`) or turn away the member `id` knocking on a locked space. */
+export interface KnockAnswerMsg {
+  t: "knock_answer";
+  id: string;
+  admit: boolean;
+}
+
+/** Withdraw our pending knock. */
+export interface KnockCancelMsg {
+  t: "knock_cancel";
 }
 
 /** Rename the org (admin only). The server answers with `org` to everyone. */
@@ -278,6 +304,9 @@ export type ClientMsg =
   | HelloMsg
   | EnterSpaceMsg
   | CreateSpaceMsg
+  | SetSpaceLockMsg
+  | KnockAnswerMsg
+  | KnockCancelMsg
   | RenameOrgMsg
   | PostNoteMsg
   | RemoveNoteMsg
@@ -439,6 +468,33 @@ export interface PageEndedMsg {
   reason?: "ended" | "cancelled" | "timeout";
 }
 
+/** Our `enter_space` into a locked space is waiting for an answer.
+ *  Admission arrives as an ordinary `space_snapshot`. */
+export interface KnockingMsg {
+  t: "knocking";
+  spaceId: string;
+}
+
+/** Member `id` is knocking on `spaceId`, and it is ours to answer. */
+export interface KnockMsg {
+  t: "knock";
+  id: string;
+  spaceId: string;
+}
+
+/** Our knock on `spaceId` was turned away. */
+export interface KnockRejectedMsg {
+  t: "knock_rejected";
+  spaceId: string;
+  reason: "declined" | "timeout" | "full";
+}
+
+/** The knock by `id` is over (answered, withdrawn, timed out, or they left). */
+export interface KnockEndMsg {
+  t: "knock_end";
+  id: string;
+}
+
 /** Relayed WebRTC signaling from another peer. */
 export interface ServerSignalMsg {
   t: "signal";
@@ -462,6 +518,7 @@ export interface ErrorMsg {
     | "space_full"
     | "space_limit"
     | "space_exists"
+    | "space_locked"
     | "unknown_space"
     | "forbidden"
     | "org_name"
@@ -490,6 +547,10 @@ export type ServerMsg =
   | PageConnectMsg
   | PageRejectedMsg
   | PageEndedMsg
+  | KnockingMsg
+  | KnockMsg
+  | KnockRejectedMsg
+  | KnockEndMsg
   | ServerSignalMsg
   | PongMsg
   | ErrorMsg;

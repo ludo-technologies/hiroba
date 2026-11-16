@@ -155,6 +155,10 @@ interface Session {
   ringingOut: Map<string, string>;
   /** Incoming offers awaiting accept/decline: peer id → display name. */
   ringingIn: Map<string, string>;
+  /** Knocks on a locked space put to us: knocker id → space id. */
+  knocksIn: Map<string, string>;
+  /** The locked space we are knocking on, waiting to be let in. */
+  knockingAt: string | null;
   /** Remote video (screen share or camera) streams keyed by peer id. Mode is
    *  null for the brief window before the peer's "video-mode" label arrives. */
   remoteVideos: Map<string, { stream: MediaStream; mode: "screen" | "camera" | null }>;
@@ -350,6 +354,7 @@ const ui = new UIManager(
     onCancelReconnect: handleCancelReconnect,
     onEnterSpace: handleEnterSpace,
     onCreateSpace: handleCreateSpace,
+    onSetSpaceLock: handleSetSpaceLock,
     onPage: handlePage,
     onPageAccept: handlePageAccept,
     onHangUp: handleHangUp,
@@ -2079,6 +2084,8 @@ function initSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[]
     pages: new Map(),
     ringingOut: new Map(),
     ringingIn: new Map(),
+    knocksIn: new Map(),
+    knockingAt: null,
     remoteVideos: new Map(),
     screenDismissed: false,
     pickedVideo: null,
@@ -2472,6 +2479,9 @@ function bindServerMessages(net: HirobaNet): void {
 
     ui.renderTabs(session.spaces, spaceId);
     rebuildRoster(); // our own spaceId label changed
+    // Let in, or walked elsewhere (which withdrew the knock server-side).
+    session.knockingAt = null;
+    updateCallBanner();
     wake();
   });
 
@@ -2599,12 +2609,56 @@ function bindServerMessages(net: HirobaNet): void {
     wake();
   });
 
+  // --- Locked spaces: knock → let in / decline ---
+
+  net.on("knocking", (e) => {
+    if (!session) return;
+    session.knockingAt = e.detail.spaceId;
+    updateCallBanner();
+    wake();
+  });
+
+  net.on("knock_rejected", (e) => {
+    if (!session) return;
+    const { spaceId, reason } = e.detail;
+    if (session.knockingAt === spaceId) session.knockingAt = null;
+    // A reconnect that knocked to get back in is not going back there.
+    if (resumeAt?.spaceId === spaceId) resumeAt = null;
+    ui.showToast(knockRejectedCopy(reason, spaceName(spaceId)));
+    updateCallBanner();
+    wake();
+  });
+
+  net.on("knock", (e) => {
+    if (!session) return;
+    session.knocksIn.set(e.detail.id, e.detail.spaceId);
+    updateCallBanner();
+    syncIncomingAlert();
+    wake();
+  });
+
+  net.on("knock_end", (e) => {
+    if (!session) return;
+    session.knocksIn.delete(e.detail.id);
+    updateCallBanner();
+    syncIncomingAlert();
+    wake();
+  });
+
   // --- Errors ---
 
   net.on("error", (e) => {
     if (e.detail.code === "note_empty" || e.detail.code === "note_rate") ui.restoreChatDraft();
-    ui.showToast(e.detail.message, "error");
+    ui.showToast(e.detail.code === "space_locked" ? t.errSpaceLocked : e.detail.message, "error");
   });
+}
+
+function knockRejectedCopy(reason: "declined" | "timeout" | "full", space: string): string {
+  switch (reason) {
+    case "declined": return t.knockDeclined(space);
+    case "timeout": return t.knockTimeout(space);
+    case "full": return t.knockFull(space);
+  }
 }
 
 function pageRejectedCopy(reason: "dnd" | "busy" | "offline" | "declined" | "timeout", name: string): string {
@@ -2619,13 +2673,16 @@ function pageRejectedCopy(reason: "dnd" | "busy" | "offline" | "declined" | "tim
 
 /**
  * What the call banner is currently showing (and what Accept / Hang-up act on).
- * Priority: first incoming offer > live call > first outgoing ring.
+ * Priority: first incoming offer > first knock put to us > live call > first
+ * outgoing ring > our own knock.
  * Hang-up must only affect this focus — never tear down hidden concurrent rings.
  */
 type CallFocus =
   | { mode: "in_call" }
   | { mode: "incoming"; peerId: string; name: string }
-  | { mode: "outgoing"; peerId: string; name: string };
+  | { mode: "outgoing"; peerId: string; name: string }
+  | { mode: "knock_in"; peerId: string; spaceId: string }
+  | { mode: "knock_out"; spaceId: string };
 
 function callFocus(): CallFocus | null {
   if (!session) return null;
@@ -2633,11 +2690,16 @@ function callFocus(): CallFocus | null {
     const [peerId, name] = [...session.ringingIn.entries()][0];
     return { mode: "incoming", peerId, name };
   }
+  if (session.knocksIn.size > 0) {
+    const [peerId, spaceId] = [...session.knocksIn.entries()][0];
+    return { mode: "knock_in", peerId, spaceId };
+  }
   if (session.pages.size > 0) return { mode: "in_call" };
   if (session.ringingOut.size > 0) {
     const [peerId, name] = [...session.ringingOut.entries()][0];
     return { mode: "outgoing", peerId, name };
   }
+  if (session.knockingAt) return { mode: "knock_out", spaceId: session.knockingAt };
   return null;
 }
 
@@ -2664,18 +2726,28 @@ function updateCallBanner(): void {
     ui.setCall({ mode: "outgoing", text: t.pageCalling(focus.name) });
     return;
   }
+  if (focus?.mode === "knock_in") {
+    const name = session.roster.get(focus.peerId)?.name ?? focus.peerId;
+    ui.setCall({ mode: "incoming", knock: true, text: t.knockIncoming(name, spaceName(focus.spaceId)) });
+    return;
+  }
+  if (focus?.mode === "knock_out") {
+    ui.setCall({ mode: "outgoing", knock: true, text: t.knockWaiting(spaceName(focus.spaceId)) });
+    return;
+  }
   ui.setCall(null);
 }
 
 /**
- * Ringtone + Dock/taskbar attention while any incoming offer is pending.
+ * Ringtone + Dock/taskbar attention while any incoming offer is pending, or a
+ * knock waits on us outside do-not-disturb.
  * The in-app banner alone is invisible when the window is unfocused — without
  * this the ring→accept flow (PROTOCOL.md §page) times out silently (~25s).
- * Keeps ringing across concurrent offers; stops when `ringingIn` is empty.
+ * Keeps ringing across concurrent offers; stops when nothing is waiting.
  */
 function syncIncomingAlert(): void {
   if (!session) return;
-  if (session.ringingIn.size > 0) {
+  if (session.ringingIn.size > 0 || (session.knocksIn.size > 0 && !session.dnd)) {
     session.audio.startRingtone();
     void requestWindowAttention(true);
   } else {
@@ -2971,10 +3043,18 @@ function handleEnterSpace(spaceId: string): void {
   session.net.send({ t: "enter_space", spaceId });
 }
 
-function handleCreateSpace(name: string, layout: TeamLayout): void {
+function handleCreateSpace(name: string, layout: TeamLayout, locked: boolean): void {
   if (!session) return;
   markActive();
-  session.net.send({ t: "create_space", name, layout });
+  session.net.send({ t: "create_space", name, layout, locked });
+}
+
+/** Lock or unlock the space we are in; the `spaces` that follows redraws it. */
+function handleSetSpaceLock(locked: boolean): void {
+  if (!session) return;
+  markActive();
+  session.net.send({ t: "set_space_lock", spaceId: session.spaceId, locked });
+  ui.showToast(locked ? t.spaceLocked : t.spaceUnlocked);
 }
 
 function handlePage(memberId: string): void {
@@ -2988,10 +3068,15 @@ function handlePage(memberId: string): void {
   wake();
 }
 
-/** Accept the offer currently shown on the banner (incoming focus only). */
+/** Accept the offer, or let in the knocker, shown on the banner. */
 function handlePageAccept(): void {
   if (!session) return;
   const focus = callFocus();
+  if (focus?.mode === "knock_in") {
+    markActive();
+    answerKnock(focus.peerId, true);
+    return;
+  }
   if (focus?.mode !== "incoming") return;
   markActive();
   session.net.send({ t: "page_accept", to: focus.peerId });
@@ -3000,17 +3085,41 @@ function handlePageAccept(): void {
   wake();
 }
 
+/** Answer the knock by `knockerId`; `knock_end` follows, but the banner
+ *  moves on now. */
+function answerKnock(knockerId: string, admit: boolean): void {
+  if (!session) return;
+  session.net.send({ t: "knock_answer", id: knockerId, admit });
+  session.knocksIn.delete(knockerId);
+  updateCallBanner();
+  syncIncomingAlert();
+  wake();
+}
+
 /**
  * Act on the banner's current focus only (same priority as {@link callFocus}):
- * - in_call  → hang up every live page (banner aggregates them)
- * - incoming → decline that one offer (not hidden outgoing rings)
- * - outgoing → cancel that one ring (not hidden incoming offers)
+ * - in_call   → hang up every live page (banner aggregates them)
+ * - incoming  → decline that one offer (not hidden outgoing rings)
+ * - outgoing  → cancel that one ring (not hidden incoming offers)
+ * - knock_in  → decline that one knock
+ * - knock_out → withdraw our knock
  */
 function handleHangUp(): void {
   if (!session) return;
   const focus = callFocus();
   if (!focus) return;
 
+  if (focus.mode === "knock_in") {
+    answerKnock(focus.peerId, false);
+    return;
+  }
+  if (focus.mode === "knock_out") {
+    session.net.send({ t: "knock_cancel" });
+    session.knockingAt = null;
+    updateCallBanner();
+    wake();
+    return;
+  }
   if (focus.mode === "in_call") {
     for (const id of session.pages.keys()) {
       session.net.send({ t: "page_end", to: id });
@@ -3152,6 +3261,7 @@ function handleSetStatus(away: boolean, dnd: boolean): void {
   session.away = away;
   session.dnd = dnd;
   session.net.send({ t: "set_status", away, dnd });
+  syncIncomingAlert(); // a knock rings only outside do-not-disturb
   rebuildRoster();
   if (away) window.clearTimeout(idleTimer);
   else resetIdleTimer();

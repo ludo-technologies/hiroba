@@ -287,6 +287,7 @@ const elChatLog = $<HTMLOListElement>("chat-log");
 const elChatForm = $<HTMLFormElement>("chat-form");
 const elChatInput = $<HTMLInputElement>("chat-input");
 const elChatToggle = $<HTMLButtonElement>("chat-toggle");
+const elSpaceLock = $<HTMLButtonElement>("space-lock");
 const elChatUnread = $<HTMLSpanElement>("chat-unread");
 const elMTabButtons = [...$<HTMLElement>("m-tabs").querySelectorAll<HTMLButtonElement>("button[data-mtab]")];
 const elMChatUnread = $<HTMLSpanElement>("m-chat-unread");
@@ -428,6 +429,13 @@ export interface Profile {
 /** The gear the HUD and the admin menu wear (index.html), for the roster's own row. */
 const GEAR_SVG =
   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2" /><path d="M19.4 15a1.6 1.6 0 0 0 .32 1.76l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.76-.32 1.6 1.6 0 0 0-.97 1.46V21a2 2 0 1 1-4 0v-.09a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.76.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.6 1.6 0 0 0 .32-1.76 1.6 1.6 0 0 0-1.46-.97H3a2 2 0 1 1 0-4h.09a1.6 1.6 0 0 0 1.46-1.05 1.6 1.6 0 0 0-.32-1.76l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.6 1.6 0 0 0 1.76.32h.09a1.6 1.6 0 0 0 .97-1.46V3a2 2 0 1 1 4 0v.09a1.6 1.6 0 0 0 .97 1.46 1.6 1.6 0 0 0 1.76-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.76V9a1.6 1.6 0 0 0 1.46.97H21a2 2 0 1 1 0 4h-.09a1.6 1.6 0 0 0-1.46.97z" /></svg>';
+
+/** A padlock, shut or open: on a locked space's tab, on the HUD's lock
+ *  button, and on the create picker's lock toggle. */
+function lockSvg(shut: boolean, size: number): string {
+  const shackle = shut ? "M8 11V7a4 4 0 0 1 8 0v4" : "M8 11V7a4 4 0 0 1 7.75-1.4";
+  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="${shackle}" /></svg>`;
+}
 
 type SettingsTab = "profile" | "audio" | "account";
 
@@ -580,8 +588,11 @@ export interface UICallbacks {
   onCancelReconnect(): void;
   /** Switch to another space (tab click). */
   onEnterSpace(spaceId: string): void;
-  /** Create a new team space with the given name and layout (FR-14). */
-  onCreateSpace(name: string, layout: TeamLayout): void;
+  /** Create a new team space with the given name and layout (FR-14),
+   *  locked from the start if `locked`. */
+  onCreateSpace(name: string, layout: TeamLayout, locked: boolean): void;
+  /** The HUD's lock button: lock or unlock the space we are in (ours). */
+  onSetSpaceLock(locked: boolean): void;
   /** Post a message to the current space's chat. */
   onPostNote(text: string): void;
   /** Delete a message from the chat. */
@@ -599,9 +610,10 @@ export interface UICallbacks {
   onRoomInset(inset: RoomInset): void;
   /** Start a page (cross-space 1:1) with a roster member (FR-10). */
   onPage(memberId: string): void;
-  /** Accept an incoming page offer. */
+  /** The banner's accept button: answer a page, or let a knocker in. */
   onPageAccept(): void;
-  /** Hang up a live page, cancel an outgoing ring, or decline an incoming offer. */
+  /** The banner's other button: hang up a live page, cancel an outgoing ring
+   *  or knock, or decline an incoming offer or knock. */
   onHangUp(): void;
   /** Start or stop screen sharing in the current page link. */
   onScreenShareToggle(): void;
@@ -627,6 +639,22 @@ export interface UICallbacks {
 
 /** Call banner mode: live conversation vs ring states. */
 export type CallBannerMode = "in_call" | "outgoing" | "incoming";
+
+/** What the call banner shows. `knock` makes a ring a knock on a locked
+ *  space: incoming lets the knocker in or declines, outgoing withdraws. */
+export interface CallBanner {
+  mode: CallBannerMode;
+  text: string;
+  knock?: boolean;
+}
+
+/** The call banner's button labels for `state`. */
+function callLabels(state: CallBanner): { accept: string; dismiss: string } {
+  const accept = state.knock ? t.knockLetIn : t.pageAccept;
+  if (state.mode === "incoming") return { accept, dismiss: t.pageDecline };
+  if (state.mode === "outgoing") return { accept, dismiss: t.pageCancel };
+  return { accept, dismiss: t.hangUp };
+}
 
 /** Who a screen share or camera would reach right now: the live call, the
  *  group place we stand in, or nobody (no share or camera button). */
@@ -773,7 +801,7 @@ export class UIManager {
   /** Last value pushed to the level meter's ARIA state (0..100), so a 60 Hz
    *  meter loop only touches the DOM when the rounded level actually moves. */
   private lastMicLevelPct = 0;
-  private lastCall: { mode: CallBannerMode; text: string } | null = null;
+  private lastCall: CallBanner | null = null;
   private lastScreenSharing = false;
   private lastShareTarget: ShareTarget = null;
   private lastCameraOn = false;
@@ -1385,10 +1413,9 @@ export class UIManager {
 
     // Call banner button labels (text itself is re-translated by main).
     if (this.lastCall) {
-      const mode = this.lastCall.mode;
-      if (mode === "incoming") elHangup.textContent = t.pageDecline;
-      else if (mode === "outgoing") elHangup.textContent = t.pageCancel;
-      else elHangup.textContent = t.hangUp;
+      const labels = callLabels(this.lastCall);
+      elCallAccept.textContent = labels.accept;
+      elHangup.textContent = labels.dismiss;
     }
 
     // Admin panels, if they have data already loaded.
@@ -2358,7 +2385,8 @@ export class UIManager {
   // Space tabs (FR-05)
   // -------------------------------------------------------------------------
 
-  /** Rebuild the space tabs from the catalog, marking the current one active. */
+  /** Rebuild the space tabs from the catalog, marking the current one active,
+   *  and show the HUD's lock button while the current one is ours. */
   renderTabs(spaces: SpaceDescriptor[], currentSpaceId: string): void {
     // The picker lives outside the tab row, so removing the input won't take it along.
     this.cancelCreateSpace?.();
@@ -2373,8 +2401,13 @@ export class UIManager {
         b.setAttribute("aria-current", "true");
       }
       const label = spaceLabel(sp.id, sp.name);
-      b.textContent = label;
-      b.title = sp.kind === "team" ? t.teamTitle(label) : label;
+      if (sp.locked) {
+        b.dataset.locked = "";
+        b.innerHTML = lockSvg(true, 12);
+      }
+      b.append(label);
+      b.title =
+        sp.locked && !sp.mine ? t.lockedTitle(label) : sp.kind === "team" ? t.teamTitle(label) : label;
       b.addEventListener("click", () => {
         if (sp.id !== currentSpaceId) this.callbacks.onEnterSpace(sp.id);
       });
@@ -2393,6 +2426,14 @@ export class UIManager {
 
     // The row scrolls horizontally once it overflows; keep the current space visible.
     elTabs.querySelector(".tab.active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+
+    const current = spaces.find((sp) => sp.id === currentSpaceId);
+    elSpaceLock.toggleAttribute("hidden", !current?.mine);
+    const locked = current?.locked === true;
+    elSpaceLock.innerHTML = lockSvg(locked, 15);
+    elSpaceLock.setAttribute("aria-pressed", String(locked));
+    elSpaceLock.title = locked ? t.spaceUnlock : t.spaceLock;
+    elSpaceLock.setAttribute("aria-label", elSpaceLock.title);
   }
 
   /** Swap the "+" button for an inline input to name a new space, with a
@@ -2414,7 +2455,31 @@ export class UIManager {
     const hint = document.createElement("div");
     hint.className = "layout-hint";
     hint.textContent = t.layoutHint;
-    picker.append(group, hint);
+    picker.append(group);
+
+    // Locking needs an account to own the space (a guest's is new each visit).
+    let locked = false;
+    if (this.lastAuth && this.lastAuth.role !== "guest") {
+      const lock = document.createElement("button");
+      lock.type = "button";
+      lock.className = "layout-lock";
+      lock.tabIndex = -1;
+      lock.setAttribute("role", "switch");
+      lock.setAttribute("aria-checked", "false");
+      const text = document.createElement("span");
+      text.textContent = t.lockOption;
+      lock.addEventListener("mousedown", (e) => e.preventDefault());
+      lock.addEventListener("click", () => {
+        locked = !locked;
+        lock.setAttribute("aria-checked", String(locked));
+        lock.innerHTML = lockSvg(locked, 14);
+        lock.append(text);
+      });
+      lock.innerHTML = lockSvg(false, 14);
+      lock.append(text);
+      picker.append(lock);
+    }
+    picker.append(hint);
 
     let layout: TeamLayout = "meeting";
     const choices = TEAM_LAYOUTS.map((l) => {
@@ -2455,7 +2520,7 @@ export class UIManager {
       if (done) return;
       const name = input.value.trim();
       close();
-      if (name) this.callbacks.onCreateSpace(name, layout);
+      if (name) this.callbacks.onCreateSpace(name, layout, locked);
     };
     input.addEventListener("keydown", (e) => {
       if (e.isComposing) return; // Enter confirming an IME candidate is not a submit
@@ -2497,7 +2562,7 @@ export class UIManager {
    * - `outgoing`: cancel only
    * - `incoming`: answer + decline
    */
-  setCall(state: { mode: CallBannerMode; text: string } | null): void {
+  setCall(state: CallBanner | null): void {
     this.lastCall = state;
     if (!state) {
       elCallBanner.setAttribute("hidden", "");
@@ -2508,17 +2573,10 @@ export class UIManager {
     elCallText.textContent = state.text;
     elCallBanner.dataset.mode = state.mode;
     elCallBanner.removeAttribute("hidden");
-
-    if (state.mode === "incoming") {
-      elCallAccept.removeAttribute("hidden");
-      elHangup.textContent = t.pageDecline;
-    } else if (state.mode === "outgoing") {
-      elCallAccept.setAttribute("hidden", "");
-      elHangup.textContent = t.pageCancel;
-    } else {
-      elCallAccept.setAttribute("hidden", "");
-      elHangup.textContent = t.hangUp;
-    }
+    elCallAccept.toggleAttribute("hidden", state.mode !== "incoming");
+    const labels = callLabels(state);
+    elCallAccept.textContent = labels.accept;
+    elHangup.textContent = labels.dismiss;
   }
 
   /** Reflect whether the local user is currently sharing their screen. */
@@ -3473,6 +3531,9 @@ export class UIManager {
       if (e.key === "Escape") elChatInput.blur();
     });
     elChatToggle.addEventListener("click", () => this.callbacks.onSetChatOpen(elChatPanel.hidden));
+    elSpaceLock.addEventListener("click", () =>
+      this.callbacks.onSetSpaceLock(elSpaceLock.getAttribute("aria-pressed") !== "true"),
+    );
     elChatClose.addEventListener("click", () => this.callbacks.onSetChatOpen(false));
 
     elJoinForm.addEventListener("submit", (e) => {

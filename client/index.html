@@ -837,6 +837,9 @@
           </svg>
           <span id="chat-unread" class="chat-unread" hidden></span>
         </button>
+        <!-- Lock or unlock the space we are in; shown only in our own
+             (ui.ts renderTabs draws the padlock, shut while locked). -->
+        <button id="space-lock" class="hud-icon-btn" type="button" hidden aria-pressed="false"></button>
         <!-- Shown while there is someone to share with: the call, or the group
              place we stand in (a team space, or the lobby's meeting room). -->
         <button id="screen-share" class="hud-btn" type="button" hidden aria-pressed="false" data-i18n="shareScreen">Share screen</button>
