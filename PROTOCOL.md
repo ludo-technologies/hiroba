@@ -153,7 +153,9 @@ Anyone else **knocks**:
    "full"}`. Turned away, they receive `knock_rejected{reason: "declined"}`.
 4. Unanswered for 30 seconds, it ends with `knock_rejected{reason:
    "timeout"}`. The knocker withdraws it with `knock_cancel`, by entering any
-   other space, or by disconnecting; those asked then receive `knock_end`.
+   other space or knocking on one, or by disconnecting; those asked then
+   receive `knock_end`. An `enter_space` elsewhere that is refused (full,
+   unknown, `space_locked`) leaves it pending.
 
 A member has at most one knock pending; another `enter_space` into the same
 space while it is pending is answered with `knocking` again, nothing more.

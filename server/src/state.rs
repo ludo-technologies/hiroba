@@ -1158,8 +1158,10 @@ impl Org {
     /// A locked space the member may not walk into ([`OrgInner::walks_in`])
     /// gets a knock instead, put to those who may let them in
     /// ([`OrgInner::knock_askees`]); with nobody to put it to, it is refused
-    /// (`space_locked`). Any other knock of theirs is withdrawn first: one at
-    /// a time, and walking off somewhere else is giving up on it.
+    /// (`space_locked`). Any other knock of theirs is withdrawn once this
+    /// request goes ahead — one at a time, and walking off somewhere else is
+    /// giving up on it — but not when it is refused, which leaves it pending
+    /// as the requester's client still shows it.
     pub async fn enter_space(&self, id: &str, target: &str) -> EnterOutcome {
         let mut guard = self.inner.lock().await;
 
@@ -1206,9 +1208,7 @@ impl Org {
         if guard.knocks.get(id).is_some_and(|k| k.space_id == target) {
             return EnterOutcome::Knocking(knocking);
         }
-        guard.end_knock(id);
-
-        if guard.spaces[target].desc.locked && !guard.walks_in(id, target) {
+        let asked = if guard.spaces[target].desc.locked && !guard.walks_in(id, target) {
             let asked = guard.knock_askees(target);
             if asked.is_empty() {
                 return EnterOutcome::Error(ServerMsg::Error {
@@ -1217,6 +1217,13 @@ impl Org {
                         .to_string(),
                 });
             }
+            Some(asked)
+        } else {
+            None
+        };
+        guard.end_knock(id);
+
+        if let Some(asked) = asked {
             for a in &asked {
                 guard.members[a].tx.send(ServerMsg::Knock {
                     id: id.to_string(),
@@ -2664,6 +2671,21 @@ mod tests {
             panic!("expected a refusal")
         };
         assert_eq!(code, "space_locked");
+
+        // A refusal there leaves a knock pending elsewhere as it was: the
+        // knocker's client still shows it, and it can still be answered.
+        let owner2 = connect(&org, "D", Some("d"), Role::Member).await;
+        let open = create(&org, &owner2, "Open", true).await;
+        assert!(matches!(
+            org.enter_space(&other.id, &open).await,
+            EnterOutcome::Knocking(_)
+        ));
+        assert!(matches!(
+            org.enter_space(&other.id, &room).await,
+            EnterOutcome::Error(_)
+        ));
+        org.knock_answer(&owner2.id, &other.id, true).await;
+        assert_eq!(space_of(&org, &other).await, open);
     }
 
     #[tokio::test]
