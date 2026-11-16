@@ -121,6 +121,20 @@ pub struct SpaceDescriptor {
         skip_serializing_if = "Option::is_none"
     )]
     pub meeting_room: Option<Rect>,
+    /// Entering takes a knock answered from inside (PROTOCOL.md §"Locked
+    /// spaces"). Only a space with an owner can be locked.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub locked: bool,
+    /// The `sub` of the account that created it, which enters without
+    /// knocking and locks and unlocks it. `None` for the seeded spaces and
+    /// those created without an account. Never on the wire: `mine` says it
+    /// per recipient.
+    #[serde(skip)]
+    pub owner: Option<String>,
+    /// The recipient owns it. Per recipient, set where a descriptor goes out
+    /// (`OrgInner::view`); always false in the org's own copy.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub mine: bool,
 }
 
 impl SpaceDescriptor {
@@ -142,11 +156,15 @@ impl SpaceDescriptor {
             tick_hz: 12,
             capacity: 5,
             meeting_room: meeting_room_for(SpaceKind::Lobby, width, height),
+            locked: false,
+            owner: None,
+            mine: false,
         }
     }
 
     /// A team space: radii ≥ diagonal so the whole space is one group call.
     /// 800×600 → diagonal = 1000; we use 1100 so everyone is always near.
+    /// Unlocked and without an owner; `create_space` sets both.
     pub fn team(id: impl Into<String>, name: impl Into<String>, layout: TeamLayout) -> Self {
         Self {
             id: id.into(),
@@ -160,6 +178,9 @@ impl SpaceDescriptor {
             tick_hz: 12,
             capacity: 5,
             meeting_room: None,
+            locked: false,
+            owner: None,
+            mine: false,
         }
     }
 }
@@ -334,12 +355,29 @@ pub enum ClientMsg {
         space_id: String,
     },
 
-    /// Create a new team space (FR-14).
+    /// Create a new team space (FR-14), owned by the creator's account.
     CreateSpace {
         name: String,
         #[serde(default)]
         layout: TeamLayout,
+        /// Start it locked (needs an account to own it).
+        #[serde(default)]
+        locked: bool,
     },
+
+    /// Lock or unlock a space (its owner only).
+    SetSpaceLock {
+        #[serde(rename = "spaceId")]
+        space_id: String,
+        locked: bool,
+    },
+
+    /// Let in (`admit`) or turn away the member `id` knocking on a locked
+    /// space — asked of whoever received the `knock`.
+    KnockAnswer { id: String, admit: bool },
+
+    /// Withdraw the caller's pending knock.
+    KnockCancel,
 
     /// Rename the org (admin only).
     RenameOrg { name: String },
@@ -498,6 +536,32 @@ pub enum ServerMsg {
         reason: String,
     },
 
+    /// Your `enter_space` into a locked space is waiting for an answer (to
+    /// the knocker). Admission arrives as an ordinary `space_snapshot`.
+    Knocking {
+        #[serde(rename = "spaceId")]
+        space_id: String,
+    },
+
+    /// Member `id` is knocking on `spaceId` (to whoever may let them in).
+    Knock {
+        id: String,
+        #[serde(rename = "spaceId")]
+        space_id: String,
+    },
+
+    /// Your knock on `spaceId` was turned away. `reason` is "declined" or
+    /// "timeout". To the knocker.
+    KnockRejected {
+        #[serde(rename = "spaceId")]
+        space_id: String,
+        reason: String,
+    },
+
+    /// The knock by `id` is over — answered (by you or someone else),
+    /// withdrawn, timed out, or the knocker left. To everyone it was asked of.
+    KnockEnd { id: String },
+
     /// Relayed WebRTC signaling from another peer.
     Signal { from: String, data: Value },
 
@@ -516,8 +580,8 @@ pub enum ServerMsg {
     Pong,
 
     /// A request failed. Codes: auth_failed, org_suspended, space_full,
-    /// space_limit, space_exists, unknown_space, forbidden, note_empty,
-    /// note_rate, reaction_rate. On auth_failed or org_suspended the server closes the socket
+    /// space_limit, space_exists, space_locked, unknown_space, forbidden,
+    /// note_empty, note_rate, reaction_rate. On auth_failed or org_suspended the server closes the socket
     /// after this frame.
     Error { code: String, message: String },
 }

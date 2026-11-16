@@ -143,6 +143,26 @@ mod tests {
         }
     }
 
+    /// Create a team space in `org` as a newly joined member with an account.
+    async fn create_space(org: &Org, name: &str) {
+        let (tx, _rx) = mpsc::channel::<ServerMsg>(8);
+        let ServerMsg::Welcome { id, .. } = org
+            .join(
+                "Aoi".into(),
+                "#fff".into(),
+                None,
+                Some("u".into()),
+                Role::Member,
+                tx,
+            )
+            .await
+        else {
+            unreachable!()
+        };
+        org.create_space(&id, name.into(), TeamLayout::Meeting, false)
+            .await;
+    }
+
     #[tokio::test]
     async fn created_spaces_survive_a_reload() {
         let store = Arc::new(Store::open_in_memory());
@@ -150,7 +170,7 @@ mod tests {
         // "First boot": seed the org, create a space.
         let reg = OrgRegistry::with_store(store.clone(), store.load_all());
         let org = reg.seed("ludo", "Ludo").await;
-        org.create_space("Design".into(), TeamLayout::Meeting).await;
+        create_space(&org, "Design").await;
 
         // "Restart": a fresh registry built from the same store.
         let reg2 = OrgRegistry::with_store(store.clone(), store.load_all());
@@ -174,11 +194,11 @@ mod tests {
         let store = Arc::new(Store::open_in_memory());
         let reg = OrgRegistry::with_store(store.clone(), store.load_all());
         let org = reg.seed("ludo", "Ludo").await;
-        org.create_space("A".into(), TeamLayout::Meeting).await; // team1
+        create_space(&org, "A").await; // team1
 
         let reg2 = OrgRegistry::with_store(store.clone(), store.load_all());
         let org2 = reg2.get_or_create("ludo", "Ludo").await;
-        org2.create_space("B".into(), TeamLayout::Meeting).await; // must be team2, not a clash
+        create_space(&org2, "B").await; // must be team2, not a clash
 
         let cat = &store.load_all()[0];
         let ids: Vec<&str> = cat.spaces.iter().map(|s| s.id.as_str()).collect();

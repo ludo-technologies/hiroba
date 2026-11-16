@@ -267,8 +267,9 @@ pub async fn handle_ws(
                         let outcome = org.enter_space(&pid, &space_id).await;
                         let entered = matches!(outcome, EnterOutcome::Snapshot(_));
                         let msg = match outcome {
-                            EnterOutcome::Snapshot(m) => m,
-                            EnterOutcome::Error(m) => m,
+                            EnterOutcome::Snapshot(m)
+                            | EnterOutcome::Knocking(m)
+                            | EnterOutcome::Error(m) => m,
                         };
                         // Deliver to the requester via their own channel.
                         let _ = tx.send(msg).await;
@@ -276,8 +277,12 @@ pub async fn handle_ws(
                             org.send_notes(&pid).await;
                         }
                     }
-                    Ok(ClientMsg::CreateSpace { name, layout }) => {
-                        let err = match org.create_space(name, layout).await {
+                    Ok(ClientMsg::CreateSpace {
+                        name,
+                        layout,
+                        locked,
+                    }) => {
+                        let err = match org.create_space(&pid, name, layout, locked).await {
                             CreateSpaceOutcome::Created => None,
                             CreateSpaceOutcome::LimitReached => Some(ServerMsg::Error {
                                 code: "space_limit".to_string(),
@@ -287,11 +292,30 @@ pub async fn handle_ws(
                                 code: "space_exists".to_string(),
                                 message: format!("A space named \"{name}\" already exists."),
                             }),
+                            CreateSpaceOutcome::Forbidden => Some(ServerMsg::Error {
+                                code: "forbidden".to_string(),
+                                message: "Only a signed-in member can lock a space.".to_string(),
+                            }),
                         };
                         if let Some(msg) = err {
                             let _ = tx.send(msg).await;
                         }
                     }
+                    Ok(ClientMsg::SetSpaceLock { space_id, locked }) => {
+                        if !org.set_space_lock(&pid, &space_id, locked).await {
+                            let _ = tx
+                                .send(ServerMsg::Error {
+                                    code: "forbidden".to_string(),
+                                    message: "Only the space's owner can lock or unlock it."
+                                        .to_string(),
+                                })
+                                .await;
+                        }
+                    }
+                    Ok(ClientMsg::KnockAnswer { id, admit }) => {
+                        org.knock_answer(&pid, &id, admit).await
+                    }
+                    Ok(ClientMsg::KnockCancel) => org.knock_cancel(&pid).await,
                     Ok(ClientMsg::RenameOrg { name }) => {
                         if let Err(e) = org.rename(&pid, &name).await {
                             let (code, message) = match e {

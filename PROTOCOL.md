@@ -123,6 +123,41 @@ floor plan, one of `"meeting"`, `"desks"`, `"lounge"`, `"cafe"`, fixed at
 creation. It changes only furniture and seats, never radii or capacity. The
 lobby has no `layout`.
 
+A team space may also carry `locked: true` — entering it takes a knock (see
+§Locked spaces) — and `mine: true`, computed per recipient: they own it,
+which lets them in without knocking and lets them lock and unlock it. Both are
+omitted when false. Whose a space is never crosses the wire otherwise.
+
+## Locked spaces
+
+A team space created by a member with an account (a token `sub`, and a role
+other than `guest`) is **owned** by that account; the lobby, the seeded `dev`
+and spaces created without an account have no owner and can never be locked.
+The owner locks and unlocks it (`set_space_lock`, or `locked` on
+`create_space`). A lock only guards the door: whoever is inside stays.
+
+An `enter_space` into a locked space goes straight in for the owner, for an
+account already inside (another device), and for an account whose
+connection dropped inside it within the last five minutes (the reconnect).
+Anyone else **knocks**:
+
+1. The knock is put to the owner — every connection of theirs — while they
+   are online, otherwise to everyone inside. With nobody to put it to, the
+   `enter_space` is refused with `error` code `space_locked`.
+2. Those asked receive `knock{id, spaceId}`; the knocker receives
+   `knocking{spaceId}`.
+3. The first `knock_answer` from someone asked settles it, and everyone asked
+   receives `knock_end{id}`. Admitted, the knocker is moved in exactly as by
+   `enter_space` (an ordinary `space_snapshot`, then `notes`) — or gets
+   `space_full` if the space filled meanwhile. Turned away, they receive
+   `knock_rejected{spaceId, reason: "declined"}`.
+4. Unanswered for 30 seconds, it ends with `knock_rejected{reason:
+   "timeout"}`. The knocker withdraws it with `knock_cancel`, by entering any
+   other space, or by disconnecting; those asked then receive `knock_end`.
+
+A member has at most one knock pending; another `enter_space` into the same
+space while it is pending is answered with `knocking` again, nothing more.
+
 ## Roster member descriptor
 
 Used in `welcome.roster` and `presence`:
@@ -170,20 +205,43 @@ down that client's in-space proximity links, sends a fresh space snapshot
 update (new `spaceId`) to the org. Peers left behind in the old space receive
 **both** `space_left` and a `proximity` disconnect for the mover (see
 §`proximity` — "Isolation guarantee"). Rejected with `error` if the space is
-full or unknown.
+full or unknown. A locked space the client may not walk into is knocked on
+instead (§Locked spaces).
 
 A live **page** link deliberately survives the switch — an explicit 1:1 call is
 not hung up by moving rooms (see §`page`).
 
 ### `create_space` — create a new team space (FR-14)
 ```json
-{ "t": "create_space", "name": "Design", "layout": "desks" }
+{ "t": "create_space", "name": "Design", "layout": "desks", "locked": true }
 ```
 `layout` is optional and defaults to `"meeting"` (clients from before layouts
-omit it). Server creates a team space, assigns a `spaceId`, and broadcasts the updated
-catalog via `spaces` to the org. A name already in use is rejected with
-`error` code `space_exists`. (Permission to create may be restricted; see
-requirements §9.)
+omit it). `locked` is optional and defaults to `false`. Server creates a team
+space owned by the requester's account (§Locked spaces), assigns a `spaceId`,
+and broadcasts the updated catalog via `spaces` to the org. A name already in
+use is rejected with `error` code `space_exists`; `locked` from a requester
+without an account to own the space, with `forbidden`. (Permission to create
+may be restricted; see requirements §9.)
+
+### `set_space_lock` — lock or unlock a space (its owner only)
+```json
+{ "t": "set_space_lock", "spaceId": "team3", "locked": true }
+```
+The server persists it and broadcasts the catalog via `spaces`. Anyone but the
+owner — and any space without one — gets `error` code `forbidden`. Pending
+knocks are left to their answer.
+
+### `knock_answer` — let in or turn away a knocker
+```json
+{ "t": "knock_answer", "id": "9", "admit": true }
+```
+`id` is the knocker. Only someone the knock was put to may answer; anything
+else (a knock already settled, or never put to the sender) is ignored.
+
+### `knock_cancel` — withdraw your pending knock
+```json
+{ "t": "knock_cancel" }
+```
 
 ### `rename_org` — rename the org (admin only)
 ```json
@@ -389,6 +447,34 @@ Servers that predate this message ignore it, and do not expire connections.
 Sent to the switching client only. `you.x/you.y` is the spawn position in the
 new space. `peers` is that space's current roster (excluding self).
 
+### `knocking` — your knock on a locked space is waiting
+```json
+{ "t": "knocking", "spaceId": "team3" }
+```
+To the knocker (§Locked spaces). Admission arrives as a `space_snapshot` for
+that space; anything else as `knock_rejected` or an `error`.
+
+### `knock` — someone is knocking on a locked space
+```json
+{ "t": "knock", "id": "9", "spaceId": "team3" }
+```
+To those it is put to: the owner, or — while the owner is offline — everyone
+inside. Answer with `knock_answer`. Clients SHOULD request OS attention, as
+for `page_offer`.
+
+### `knock_rejected` — your knock was turned away
+```json
+{ "t": "knock_rejected", "spaceId": "team3", "reason": "declined" }
+```
+`reason` is `"declined"` or `"timeout"`. To the knocker.
+
+### `knock_end` — a knock is over
+```json
+{ "t": "knock_end", "id": "9" }
+```
+To everyone the knock by `id` was put to, the one who answered included: it
+was answered, withdrawn, timed out, or the knocker left. Dismiss it.
+
 ### `org` — the org was renamed (`rename_org`)
 ```json
 { "t": "org", "org": { "id": "acme", "name": "Acme Corp" } }
@@ -555,7 +641,7 @@ Tear down the page link to `from`, or dismiss a pending `page_offer` from
 { "t": "error", "code": "space_full", "message": "Team is full (5/5)." }
 ```
 Codes: `auth_failed`, `org_suspended`, `space_full`, `space_limit`,
-`space_exists`, `unknown_space`, `forbidden`, `org_name`, `note_empty`, `note_rate`,
+`space_exists`, `space_locked`, `unknown_space`, `forbidden`, `org_name`, `note_empty`, `note_rate`,
 `reaction_rate`. On
 `auth_failed` or `org_suspended`, the server
 closes the socket after sending this frame.

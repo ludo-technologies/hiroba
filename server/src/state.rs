@@ -74,6 +74,17 @@ const MAX_AVATAR_LEN: usize = 64 * 1024;
 /// decline). Short enough to avoid long surprise rings on an always-on tool.
 const PAGE_RING_TIMEOUT: Duration = Duration::from_secs(25);
 
+/// How long a knock on a locked space waits for an answer before it is
+/// turned away. A little longer than a ring: the answer may have to come from
+/// someone who has to look up from their work first.
+const KNOCK_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How long after a connection drops inside a locked space the same account
+/// may come back without knocking. Covers the client's reconnect (its offline
+/// window is three minutes), so a network blip does not put a knock in front
+/// of whoever let them in.
+const REJOIN_GRACE: Duration = Duration::from_secs(5 * 60);
+
 /// Connections one account may hold at once: the desktop app, a browser tab,
 /// and a reconnect racing the socket it replaces. Past it the oldest is closed —
 /// the newest is the one the person is looking at.
@@ -283,6 +294,43 @@ struct SpaceState {
     member_ids: HashSet<String>,
     /// The chat, oldest first.
     notes: Vec<Note>,
+    /// Accounts whose connection dropped while inside, and when — they come
+    /// back in without knocking within [`REJOIN_GRACE`].
+    dropped: HashMap<String, Instant>,
+}
+
+impl SpaceState {
+    fn new(desc: SpaceDescriptor) -> Self {
+        Self {
+            desc,
+            member_ids: HashSet::new(),
+            notes: Vec::new(),
+            dropped: HashMap::new(),
+        }
+    }
+}
+
+/// A knock on a locked space, waiting for an answer (PROTOCOL.md §"Locked
+/// spaces"). Keyed by the knocker's id in [`OrgInner::knocks`]: one at a time.
+struct Knock {
+    space_id: String,
+    /// Who was sent the `knock`, and so may answer it.
+    asked: HashSet<String>,
+    /// When it was made, which tells its timeout from a later knock's.
+    at: Instant,
+}
+
+/// Whether `member` owns the space `desc` describes.
+fn owns(desc: &SpaceDescriptor, member: &Member) -> bool {
+    desc.owner.is_some() && desc.owner == member.sub
+}
+
+/// `desc` as `member` is shown it.
+fn view(desc: &SpaceDescriptor, member: &Member) -> SpaceDescriptor {
+    SpaceDescriptor {
+        mine: owns(desc, member),
+        ..desc.clone()
+    }
 }
 
 /// Interior of the org — always accessed through `Org`'s Mutex.
@@ -303,6 +351,8 @@ pub struct OrgInner {
     /// [`Org::route_signal`], which relays signaling only over these links
     /// and page links.
     links: HashMap<String, proximity::LinkSets>,
+    /// Pending knocks on locked spaces, by knocker id.
+    knocks: HashMap<String, Knock>,
 }
 
 /// Choose a spawn position for the n-th member in a space. Index 0 lands
@@ -409,12 +459,141 @@ impl OrgInner {
         }
     }
 
-    /// Space catalog in insertion order.
-    fn catalog(&self) -> Vec<SpaceDescriptor> {
+    /// Space catalog in insertion order, as `member` is shown it.
+    fn catalog_for(&self, member: &Member) -> Vec<SpaceDescriptor> {
         self.space_order
             .iter()
-            .filter_map(|id| self.spaces.get(id).map(|s| s.desc.clone()))
+            .filter_map(|id| self.spaces.get(id).map(|s| view(&s.desc, member)))
             .collect()
+    }
+
+    /// Send everyone in the org the catalog, after it changed.
+    fn broadcast_catalog(&self) {
+        for m in self.members.values() {
+            m.tx.send(ServerMsg::Spaces {
+                spaces: self.catalog_for(m),
+            });
+        }
+    }
+
+    /// Whether member `id` enters the locked space `space_id` without
+    /// knocking: they own it, their account is already inside (another
+    /// device, or a reconnect racing the socket it replaces), or it dropped
+    /// out of there within [`REJOIN_GRACE`].
+    fn walks_in(&self, id: &str, space_id: &str) -> bool {
+        let member = &self.members[id];
+        let space = &self.spaces[space_id];
+        if owns(&space.desc, member) {
+            return true;
+        }
+        let Some(sub) = &member.sub else {
+            return false;
+        };
+        space
+            .member_ids
+            .iter()
+            .any(|m| self.members[m].sub.as_ref() == Some(sub))
+            || space
+                .dropped
+                .get(sub)
+                .is_some_and(|at| at.elapsed() < REJOIN_GRACE)
+    }
+
+    /// Who a knock on `space_id` is put to: the owner (every connection of
+    /// theirs) while they are online, otherwise whoever is inside.
+    fn knock_askees(&self, space_id: &str) -> HashSet<String> {
+        let space = &self.spaces[space_id];
+        let owners: HashSet<String> = self
+            .members
+            .values()
+            .filter(|m| owns(&space.desc, m))
+            .map(|m| m.id.clone())
+            .collect();
+        if owners.is_empty() {
+            space.member_ids.clone()
+        } else {
+            owners
+        }
+    }
+
+    /// Take `id`'s pending knock off, telling everyone it was put to.
+    fn end_knock(&mut self, id: &str) -> Option<Knock> {
+        let knock = self.knocks.remove(id)?;
+        for asked in &knock.asked {
+            if let Some(m) = self.members.get(asked) {
+                m.tx.send(ServerMsg::KnockEnd { id: id.to_string() });
+            }
+        }
+        Some(knock)
+    }
+
+    /// Move member `id` from their space into `target`, telling both spaces
+    /// and the org, and return the `space_snapshot` for the mover. The
+    /// caller has checked that `target` exists and has room.
+    fn move_into(&mut self, id: &str, target: &str) -> ServerMsg {
+        let current_space_id = self.members[id].space_id.clone();
+
+        // Leave the old space (notify its members). The explicit proximity
+        // disconnect makes audio teardown server-authoritative: peers must not
+        // depend on interpreting `space_left` to close a live P2P link
+        // (idempotent on clients with no link to `id`).
+        if let Some(old) = self.spaces.get_mut(&current_space_id) {
+            old.member_ids.remove(id);
+        }
+        self.unlink(&current_space_id, id);
+        self.broadcast_space_except(
+            &current_space_id,
+            id,
+            ServerMsg::SpaceLeft { id: id.to_string() },
+        );
+        self.broadcast_space_except(
+            &current_space_id,
+            id,
+            ServerMsg::Proximity {
+                connect: Vec::new(),
+                disconnect: vec![id.to_string()],
+            },
+        );
+
+        // Spawn into the new space. Back inside, a drop out of it is spent.
+        let (x, y) = self.pick_spawn(target);
+        let member = self.members.get_mut(id).unwrap();
+        member.space_id = target.to_string();
+        member.x = x;
+        member.y = y;
+        let space = self.spaces.get_mut(target).unwrap();
+        space.member_ids.insert(id.to_string());
+        if let Some(sub) = &member.sub {
+            space.dropped.remove(sub);
+        }
+
+        // Tell the new space + the org.
+        let member = &self.members[id];
+        let joined = ServerMsg::SpaceJoined {
+            peer: member.as_peer_info(),
+        };
+        self.broadcast_space_except(target, id, joined);
+        self.broadcast_presence(id);
+
+        ServerMsg::SpaceSnapshot {
+            space_id: target.to_string(),
+            space: view(&self.spaces[target].desc, member),
+            you: PeerPos {
+                id: id.to_string(),
+                x,
+                y,
+            },
+            peers: self.peers_in_space_except(target, id),
+        }
+    }
+
+    /// `space_full` for `space`, when it has no room for one more.
+    fn full_error(space: &SpaceState) -> Option<ServerMsg> {
+        let occupancy = space.member_ids.len() as u32;
+        (occupancy >= space.desc.capacity).then(|| ServerMsg::Error {
+            code: "space_full".to_string(),
+            message: format!("Space is full ({}/{}).", occupancy, space.desc.capacity),
+        })
     }
 
     /// Send a message to every member of the org except `except`.
@@ -524,6 +703,9 @@ impl OrgInner {
 pub enum EnterOutcome {
     /// Success: the space snapshot to send to the switching member.
     Snapshot(ServerMsg),
+    /// The space is locked and the knock went out: the `knocking` to send
+    /// to the requester.
+    Knocking(ServerMsg),
     /// Failure: the error to send to the requester.
     Error(ServerMsg),
 }
@@ -538,6 +720,7 @@ pub enum RenameOrgError {
 }
 
 /// Outcome of a `create_space` request.
+#[derive(Debug, PartialEq)]
 pub enum CreateSpaceOutcome {
     /// The space was created; the updated catalog was broadcast org-wide
     /// (including to the creator).
@@ -549,6 +732,8 @@ pub enum CreateSpaceOutcome {
     /// created. Guards against runaway duplicate creation from a misbehaving
     /// client. The caller reports this to the requester.
     Duplicate(String),
+    /// Asked to start locked by a requester without an account to own it.
+    Forbidden,
 }
 
 /// Why a `post_note` / `remove_note` / `react` was refused.
@@ -609,14 +794,7 @@ impl Org {
         let mut space_order = Vec::new();
         for desc in [lobby, dev] {
             space_order.push(desc.id.clone());
-            spaces.insert(
-                desc.id.clone(),
-                SpaceState {
-                    desc,
-                    member_ids: HashSet::new(),
-                    notes: Vec::new(),
-                },
-            );
+            spaces.insert(desc.id.clone(), SpaceState::new(desc));
         }
 
         Self {
@@ -630,6 +808,7 @@ impl Org {
                 next_space_seq: 1,
                 next_note_id: 1,
                 links: HashMap::new(),
+                knocks: HashMap::new(),
             })),
             next_id: Arc::new(AtomicU64::new(1)),
             store,
@@ -655,14 +834,7 @@ impl Org {
         let mut space_order = Vec::new();
         for desc in descs {
             space_order.push(desc.id.clone());
-            spaces.insert(
-                desc.id.clone(),
-                SpaceState {
-                    desc,
-                    member_ids: HashSet::new(),
-                    notes: Vec::new(),
-                },
-            );
+            spaces.insert(desc.id.clone(), SpaceState::new(desc));
         }
 
         let mut next_note_id = 1;
@@ -686,6 +858,7 @@ impl Org {
                 next_space_seq: catalog.next_space_seq,
                 next_note_id,
                 links: HashMap::new(),
+                knocks: HashMap::new(),
             })),
             next_id: Arc::new(AtomicU64::new(1)),
             store,
@@ -778,7 +951,8 @@ impl Org {
 
         // Snapshots BEFORE inserting so they're "all others".
         let org = guard.org_info();
-        let spaces = guard.catalog();
+        let spaces = guard.catalog_for(&member);
+        let lobby = view(&lobby, &member);
         let peers = guard.peers_in_space_except("lobby", &id);
         let roster = guard.roster_except(&id);
         let you = member.as_peer_info();
@@ -822,7 +996,17 @@ impl Org {
     /// Returns the departed member (its stay and peers), or `None` if already gone.
     pub async fn leave(&self, id: &str) -> Option<Member> {
         let mut guard = self.inner.lock().await;
+        guard.end_knock(id);
         let member = guard.members.remove(id)?;
+
+        // A drop inside a space that can be locked: the reconnect comes back
+        // in without a knock, even if it was locked meanwhile.
+        if let (Some(sub), Some(space)) = (&member.sub, guard.spaces.get_mut(&member.space_id)) {
+            if space.desc.owner.is_some() {
+                space.dropped.retain(|_, at| at.elapsed() < REJOIN_GRACE);
+                space.dropped.insert(sub.clone(), Instant::now());
+            }
+        }
 
         // Remove from its space + notify that space. The explicit proximity
         // disconnect makes audio teardown server-authoritative: peers must not
@@ -974,6 +1158,12 @@ impl Org {
 
     /// Switch a member to another space. On success returns the snapshot to
     /// send to the mover and broadcasts `space_left`/`space_joined`/`presence`.
+    ///
+    /// A locked space the member may not walk into ([`OrgInner::walks_in`])
+    /// gets a knock instead, put to those who may let them in
+    /// ([`OrgInner::knock_askees`]); with nobody to put it to, it is refused
+    /// (`space_locked`). Any other knock of theirs is withdrawn first: one at
+    /// a time, and walking off somewhere else is giving up on it.
     pub async fn enter_space(&self, id: &str, target: &str) -> EnterOutcome {
         let mut guard = self.inner.lock().await;
 
@@ -986,22 +1176,16 @@ impl Org {
         };
         if current_space_id == target {
             // Already here — re-send a snapshot so the client can resync.
-            let space = guard.spaces[&current_space_id].desc.clone();
-            let (x, y) = guard
-                .members
-                .get(id)
-                .map(|m| (m.x, m.y))
-                .unwrap_or((space.width / 2.0, space.height / 2.0));
-            let peers = guard.peers_in_space_except(&current_space_id, id);
+            let member = &guard.members[id];
             return EnterOutcome::Snapshot(ServerMsg::SpaceSnapshot {
-                space_id: current_space_id,
-                space,
+                space_id: current_space_id.clone(),
+                space: view(&guard.spaces[&current_space_id].desc, member),
                 you: PeerPos {
                     id: id.to_string(),
-                    x,
-                    y,
+                    x: member.x,
+                    y: member.y,
                 },
-                peers,
+                peers: guard.peers_in_space_except(&current_space_id, id),
             });
         }
         let Some(target_space) = guard.spaces.get(target) else {
@@ -1010,71 +1194,101 @@ impl Org {
                 message: format!("No such space: {target}"),
             });
         };
-        let desc = target_space.desc.clone();
-        let occupancy = target_space.member_ids.len() as u32;
-        if occupancy >= desc.capacity {
-            return EnterOutcome::Error(ServerMsg::Error {
-                code: "space_full".to_string(),
-                message: format!("Space is full ({}/{}).", occupancy, desc.capacity),
-            });
+        if let Some(full) = OrgInner::full_error(target_space) {
+            return EnterOutcome::Error(full);
         }
-
-        // Leave the old space (notify its members). The explicit proximity
-        // disconnect makes audio teardown server-authoritative: peers must not
-        // depend on interpreting `space_left` to close a live P2P link
-        // (idempotent on clients with no link to `id`).
-        if let Some(old) = guard.spaces.get_mut(&current_space_id) {
-            old.member_ids.remove(id);
-        }
-        guard.unlink(&current_space_id, id);
-        guard.broadcast_space_except(
-            &current_space_id,
-            id,
-            ServerMsg::SpaceLeft { id: id.to_string() },
-        );
-        guard.broadcast_space_except(
-            &current_space_id,
-            id,
-            ServerMsg::Proximity {
-                connect: Vec::new(),
-                disconnect: vec![id.to_string()],
-            },
-        );
-
-        // Spawn into the new space.
-        let (x, y) = guard.pick_spawn(target);
-        if let Some(member) = guard.members.get_mut(id) {
-            member.space_id = target.to_string();
-            member.x = x;
-            member.y = y;
-        }
-        guard
-            .spaces
-            .get_mut(target)
-            .unwrap()
-            .member_ids
-            .insert(id.to_string());
-
-        // Tell the new space + the org.
-        if let Some(member) = guard.members.get(id) {
-            let joined = ServerMsg::SpaceJoined {
-                peer: member.as_peer_info(),
-            };
-            guard.broadcast_space_except(target, id, joined);
-        }
-        guard.broadcast_presence(id);
-
-        let peers = guard.peers_in_space_except(target, id);
-        EnterOutcome::Snapshot(ServerMsg::SpaceSnapshot {
+        let knocking = ServerMsg::Knocking {
             space_id: target.to_string(),
-            space: desc,
-            you: PeerPos {
-                id: id.to_string(),
-                x,
-                y,
-            },
-            peers,
-        })
+        };
+        if guard.knocks.get(id).is_some_and(|k| k.space_id == target) {
+            return EnterOutcome::Knocking(knocking);
+        }
+        guard.end_knock(id);
+
+        if guard.spaces[target].desc.locked && !guard.walks_in(id, target) {
+            let asked = guard.knock_askees(target);
+            if asked.is_empty() {
+                return EnterOutcome::Error(ServerMsg::Error {
+                    code: "space_locked".to_string(),
+                    message: "This space is locked, and nobody is around to let you in."
+                        .to_string(),
+                });
+            }
+            for a in &asked {
+                guard.members[a].tx.send(ServerMsg::Knock {
+                    id: id.to_string(),
+                    space_id: target.to_string(),
+                });
+            }
+            let at = Instant::now();
+            guard.knocks.insert(
+                id.to_string(),
+                Knock {
+                    space_id: target.to_string(),
+                    asked,
+                    at,
+                },
+            );
+            let org = self.clone();
+            let knocker = id.to_string();
+            tokio::spawn(async move {
+                tokio::time::sleep(KNOCK_TIMEOUT).await;
+                org.knock_timeout(&knocker, at).await;
+            });
+            return EnterOutcome::Knocking(knocking);
+        }
+
+        EnterOutcome::Snapshot(guard.move_into(id, target))
+    }
+
+    /// `answerer` lets in (`admit`) or turns away the member `knocker`. Only
+    /// someone the knock was put to may answer it; the first answer settles
+    /// it for all of them. Admitted, the knocker is moved in and sent the
+    /// space as after `enter_space` — unless it filled up meanwhile.
+    pub async fn knock_answer(&self, answerer: &str, knocker: &str, admit: bool) {
+        let mut guard = self.inner.lock().await;
+        if !guard
+            .knocks
+            .get(knocker)
+            .is_some_and(|k| k.asked.contains(answerer))
+        {
+            return;
+        }
+        let knock = guard.end_knock(knocker).unwrap();
+        let target = knock.space_id;
+        let reply = if !admit {
+            vec![ServerMsg::KnockRejected {
+                space_id: target,
+                reason: "declined".to_string(),
+            }]
+        } else if let Some(full) = OrgInner::full_error(&guard.spaces[&target]) {
+            vec![full]
+        } else {
+            let snapshot = guard.move_into(knocker, &target);
+            vec![snapshot, guard.notes_msg_for(&guard.members[knocker])]
+        };
+        for msg in reply {
+            guard.members[knocker].tx.send(msg);
+        }
+    }
+
+    /// Member `id` withdraws their pending knock, if any.
+    pub async fn knock_cancel(&self, id: &str) {
+        self.inner.lock().await.end_knock(id);
+    }
+
+    /// Turn away a knock still unanswered after [`KNOCK_TIMEOUT`] — the one
+    /// made `at`, not a later knock by the same member.
+    async fn knock_timeout(&self, knocker: &str, at: Instant) {
+        let mut guard = self.inner.lock().await;
+        if guard.knocks.get(knocker).is_none_or(|k| k.at != at) {
+            return;
+        }
+        let knock = guard.end_knock(knocker).unwrap();
+        guard.members[knocker].tx.send(ServerMsg::KnockRejected {
+            space_id: knock.space_id,
+            reason: "timeout".to_string(),
+        });
     }
 
     /// Rename the org (admin only) and broadcast the new name to everyone in
@@ -1100,13 +1314,28 @@ impl Org {
         Ok(())
     }
 
-    /// Create a new team space (FR-14) and broadcast the updated catalog.
+    /// Create a new team space (FR-14) for member `id` and broadcast the
+    /// updated catalog. Their account owns it — a guest's is minted afresh on
+    /// every connect, so a guest's space has no owner and cannot be locked.
     ///
     /// Refuses (creating nothing) when the org already holds
     /// [`MAX_SPACES_PER_ORG`] spaces — otherwise any guest could create spaces
     /// without bound (resource-exhaustion guard).
-    pub async fn create_space(&self, name: String, layout: TeamLayout) -> CreateSpaceOutcome {
+    pub async fn create_space(
+        &self,
+        id: &str,
+        name: String,
+        layout: TeamLayout,
+        locked: bool,
+    ) -> CreateSpaceOutcome {
         let mut guard = self.inner.lock().await;
+        let Some(creator) = guard.members.get(id) else {
+            return CreateSpaceOutcome::Forbidden;
+        };
+        let owner = creator.sub.clone().filter(|_| creator.role != Role::Guest);
+        if locked && owner.is_none() {
+            return CreateSpaceOutcome::Forbidden;
+        }
 
         if guard.spaces.len() >= MAX_SPACES_PER_ORG {
             return CreateSpaceOutcome::LimitReached;
@@ -1132,7 +1361,11 @@ impl Org {
             space_id = format!("team{seq}");
         }
 
-        let desc = SpaceDescriptor::team(space_id.clone(), name, layout);
+        let desc = SpaceDescriptor {
+            owner,
+            locked,
+            ..SpaceDescriptor::team(space_id.clone(), name, layout)
+        };
         // Write-through before the in-memory insert: a crash in between leaves
         // the space persisted, which `from_catalog` restores cleanly. The
         // synchronous INSERT inside the tokio mutex is deliberate — space
@@ -1147,23 +1380,32 @@ impl Org {
             );
         }
         guard.space_order.push(space_id.clone());
-        guard.spaces.insert(
-            space_id,
-            SpaceState {
-                desc,
-                member_ids: HashSet::new(),
-                notes: Vec::new(),
-            },
-        );
+        guard.spaces.insert(space_id, SpaceState::new(desc));
 
-        let spaces = guard.catalog();
         // Broadcast to the whole org (including the creator).
-        for m in guard.members.values() {
-            m.tx.send(ServerMsg::Spaces {
-                spaces: spaces.clone(),
-            });
-        }
+        guard.broadcast_catalog();
         CreateSpaceOutcome::Created
+    }
+
+    /// Lock or unlock `space_id` for member `id`, its owner; anyone else is
+    /// refused (`false`). Who is inside stays; a lock only stops the door.
+    /// Pending knocks stay too, still waiting for their answer.
+    pub async fn set_space_lock(&self, id: &str, space_id: &str, locked: bool) -> bool {
+        let mut guard = self.inner.lock().await;
+        let (Some(member), Some(space)) = (guard.members.get(id), guard.spaces.get(space_id))
+        else {
+            return false;
+        };
+        if !owns(&space.desc, member) {
+            return false;
+        }
+        // Write-through first, as in `create_space`.
+        if let Some(s) = &self.store {
+            s.set_space_locked(&self.id, space_id, locked);
+        }
+        guard.spaces.get_mut(space_id).unwrap().desc.locked = locked;
+        guard.broadcast_catalog();
+        true
     }
 
     // -----------------------------------------------------------------------
@@ -1739,9 +1981,8 @@ mod tests {
         spaces.insert(
             desc.id.clone(),
             SpaceState {
-                desc: desc.clone(),
                 member_ids,
-                notes: Vec::new(),
+                ..SpaceState::new(desc.clone())
             },
         );
         OrgInner {
@@ -1753,6 +1994,7 @@ mod tests {
             next_space_seq: 0,
             next_note_id: 1,
             links: HashMap::new(),
+            knocks: HashMap::new(),
         }
     }
 
@@ -2246,5 +2488,236 @@ mod tests {
         )
         .await;
         assert!(!kicked(&other).await);
+    }
+
+    impl Conn {
+        /// Everything received so far, draining the channel.
+        fn drain(&mut self) -> Vec<ServerMsg> {
+            let mut out = Vec::new();
+            while let Ok(msg) = self.rx.try_recv() {
+                out.push(msg);
+            }
+            out
+        }
+
+        /// Who knocked on us, in the messages received so far (draining).
+        fn knocks(&mut self) -> Vec<String> {
+            self.drain()
+                .into_iter()
+                .filter_map(|m| match m {
+                    ServerMsg::Knock { id, .. } => Some(id),
+                    _ => None,
+                })
+                .collect()
+        }
+    }
+
+    /// Member `a` creates a space named `name` (locked or not) and gets its id.
+    async fn create(org: &Org, a: &Conn, name: &str, locked: bool) -> String {
+        assert_eq!(
+            org.create_space(&a.id, name.into(), TeamLayout::Meeting, locked)
+                .await,
+            CreateSpaceOutcome::Created
+        );
+        let guard = org.inner.lock().await;
+        guard
+            .spaces
+            .values()
+            .find(|s| s.desc.name == name)
+            .unwrap()
+            .desc
+            .id
+            .clone()
+    }
+
+    async fn space_of(org: &Org, conn: &Conn) -> String {
+        org.inner.lock().await.members[&conn.id].space_id.clone()
+    }
+
+    #[tokio::test]
+    async fn a_knock_on_a_locked_space_goes_to_its_owner_who_lets_them_in() {
+        let org = Org::new("o", "O", None);
+        let mut owner = connect(&org, "A", Some("a"), Role::Member).await;
+        let mut other = connect(&org, "B", Some("b"), Role::Member).await;
+        let mut bystander = connect(&org, "C", Some("c"), Role::Member).await;
+        let room = create(&org, &owner, "Focus", true).await;
+
+        // The owner walks in; anyone else knocks, and only the owner hears it.
+        assert!(matches!(
+            org.enter_space(&owner.id, &room).await,
+            EnterOutcome::Snapshot(_)
+        ));
+        bystander.drain();
+        assert!(matches!(
+            org.enter_space(&other.id, &room).await,
+            EnterOutcome::Knocking(_)
+        ));
+        assert_eq!(owner.knocks(), vec![other.id.clone()]);
+        assert!(bystander.knocks().is_empty());
+        assert_eq!(space_of(&org, &other).await, "lobby");
+        // Asking again is the same knock, not a second one.
+        assert!(matches!(
+            org.enter_space(&other.id, &room).await,
+            EnterOutcome::Knocking(_)
+        ));
+        assert!(owner.knocks().is_empty());
+
+        // Nobody it was not put to can answer it.
+        org.knock_answer(&bystander.id, &other.id, true).await;
+        assert_eq!(space_of(&org, &other).await, "lobby");
+
+        other.drain();
+        org.knock_answer(&owner.id, &other.id, true).await;
+        assert_eq!(space_of(&org, &other).await, room);
+        let got = other.drain();
+        assert!(
+            matches!(&got[..], [.., ServerMsg::SpaceSnapshot { space_id, .. }, ServerMsg::Notes { .. }] if *space_id == room)
+        );
+        assert!(owner
+            .drain()
+            .iter()
+            .any(|m| matches!(m, ServerMsg::KnockEnd { id } if *id == other.id)));
+    }
+
+    #[tokio::test]
+    async fn a_knock_is_turned_away_by_a_no_by_time_and_by_walking_off() {
+        let org = Org::new("o", "O", None);
+        let mut owner = connect(&org, "A", Some("a"), Role::Member).await;
+        let mut other = connect(&org, "B", Some("b"), Role::Member).await;
+        let room = create(&org, &owner, "Focus", true).await;
+        let rejected = |c: &mut Conn| {
+            c.drain().into_iter().find_map(|m| match m {
+                ServerMsg::KnockRejected { reason, .. } => Some(reason),
+                _ => None,
+            })
+        };
+
+        org.enter_space(&other.id, &room).await;
+        org.knock_answer(&owner.id, &other.id, false).await;
+        assert_eq!(rejected(&mut other).as_deref(), Some("declined"));
+        assert_eq!(space_of(&org, &other).await, "lobby");
+
+        org.enter_space(&other.id, &room).await;
+        let at = org.inner.lock().await.knocks[&other.id].at;
+        org.knock_timeout(&other.id, at).await;
+        assert_eq!(rejected(&mut other).as_deref(), Some("timeout"));
+
+        // Walking off elsewhere withdraws it; the owner's banner goes.
+        org.enter_space(&other.id, &room).await;
+        owner.drain();
+        assert!(matches!(
+            org.enter_space(&other.id, "dev").await,
+            EnterOutcome::Snapshot(_)
+        ));
+        assert!(owner
+            .drain()
+            .iter()
+            .any(|m| matches!(m, ServerMsg::KnockEnd { .. })));
+        org.knock_answer(&owner.id, &other.id, true).await;
+        assert_eq!(space_of(&org, &other).await, "dev");
+    }
+
+    #[tokio::test]
+    async fn without_the_owner_those_inside_answer_and_with_nobody_it_is_refused() {
+        let org = Org::new("o", "O", None);
+        let owner = connect(&org, "A", Some("a"), Role::Member).await;
+        let mut inside = connect(&org, "B", Some("b"), Role::Member).await;
+        let other = connect(&org, "C", Some("c"), Role::Member).await;
+        let room = create(&org, &owner, "Focus", false).await;
+        org.enter_space(&inside.id, &room).await;
+        assert!(org.set_space_lock(&owner.id, &room, true).await);
+        org.leave(&owner.id).await;
+
+        inside.drain();
+        assert!(matches!(
+            org.enter_space(&other.id, &room).await,
+            EnterOutcome::Knocking(_)
+        ));
+        assert_eq!(inside.knocks(), vec![other.id.clone()]);
+        org.knock_answer(&inside.id, &other.id, true).await;
+        assert_eq!(space_of(&org, &other).await, room);
+
+        // Everyone gone, owner offline: no one to knock to.
+        org.enter_space(&inside.id, "lobby").await;
+        org.enter_space(&other.id, "lobby").await;
+        let EnterOutcome::Error(ServerMsg::Error { code, .. }) =
+            org.enter_space(&other.id, &room).await
+        else {
+            panic!("expected a refusal")
+        };
+        assert_eq!(code, "space_locked");
+    }
+
+    #[tokio::test]
+    async fn only_the_owner_locks_and_only_an_account_owns() {
+        let org = Org::new("o", "O", None);
+        let mut owner = connect(&org, "A", Some("a"), Role::Member).await;
+        let mut other = connect(&org, "B", Some("b"), Role::Member).await;
+        let guest = connect(&org, "G", Some("g"), Role::Guest).await;
+        let anonymous = connect(&org, "N", None, Role::Admin).await;
+        let room = create(&org, &owner, "Focus", false).await;
+
+        // `mine` is per recipient.
+        let mine = |c: &mut Conn| {
+            c.drain()
+                .into_iter()
+                .rev()
+                .find_map(|m| match m {
+                    ServerMsg::Spaces { spaces } => Some(spaces),
+                    _ => None,
+                })
+                .unwrap()
+                .into_iter()
+                .find(|s| s.id == room)
+                .map(|s| (s.mine, s.locked))
+                .unwrap()
+        };
+        assert_eq!(mine(&mut owner), (true, false));
+        assert_eq!(mine(&mut other), (false, false));
+
+        assert!(!org.set_space_lock(&other.id, &room, true).await);
+        assert!(!org.set_space_lock(&owner.id, "dev", true).await);
+        assert!(org.set_space_lock(&owner.id, &room, true).await);
+        assert_eq!(mine(&mut other), (false, true));
+
+        for c in [&guest, &anonymous] {
+            assert_eq!(
+                org.create_space(&c.id, "Mine".into(), TeamLayout::Meeting, true)
+                    .await,
+                CreateSpaceOutcome::Forbidden
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_dropped_connection_comes_back_in_without_knocking() {
+        let org = Org::new("o", "O", None);
+        let owner = connect(&org, "A", Some("a"), Role::Member).await;
+        let other = connect(&org, "B", Some("b"), Role::Member).await;
+        let room = create(&org, &owner, "Focus", true).await;
+        org.enter_space(&other.id, &room).await;
+        org.knock_answer(&owner.id, &other.id, true).await;
+
+        // A second device of an account already inside walks in too.
+        let second = connect(&org, "B", Some("b"), Role::Member).await;
+        assert!(matches!(
+            org.enter_space(&second.id, &room).await,
+            EnterOutcome::Snapshot(_)
+        ));
+        org.leave(&second.id).await;
+
+        // The connection drops; the reconnect walks back in, once.
+        org.leave(&other.id).await;
+        let back = connect(&org, "B", Some("b"), Role::Member).await;
+        assert!(matches!(
+            org.enter_space(&back.id, &room).await,
+            EnterOutcome::Snapshot(_)
+        ));
+        // Walking out on purpose is leaving: coming back is a knock.
+        org.enter_space(&back.id, "lobby").await;
+        assert!(matches!(
+            org.enter_space(&back.id, &room).await,
+            EnterOutcome::Knocking(_)
+        ));
     }
 }

@@ -98,6 +98,8 @@ impl Store {
                tick_hz     INTEGER NOT NULL,
                capacity    INTEGER NOT NULL,
                ord         INTEGER NOT NULL,
+               owner_sub   TEXT,
+               locked      INTEGER NOT NULL DEFAULT 0,
                PRIMARY KEY (org_id, space_id)
              );
              CREATE TABLE IF NOT EXISTS notes (
@@ -139,6 +141,22 @@ impl Store {
             )
             .expect("add spaces.layout");
         }
+        // Catalogs from before locked spaces: every existing space is
+        // unlocked and has no owner, as it never had one.
+        let has_owner: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('spaces') WHERE name = 'owner_sub'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("inspect spaces schema");
+        if !has_owner {
+            conn.execute_batch(
+                "ALTER TABLE spaces ADD COLUMN owner_sub TEXT;
+                 ALTER TABLE spaces ADD COLUMN locked INTEGER NOT NULL DEFAULT 0;",
+            )
+            .expect("add spaces.owner_sub and spaces.locked");
+        }
         // Notes from before they carried the author's colour: they show in
         // the default colour, as a client with no colour of its own would.
         let has_color: bool = conn
@@ -169,7 +187,7 @@ impl Store {
         let mut spaces_stmt = conn
             .prepare(
                 "SELECT space_id, name, kind, width, height, near_radius, far_radius,
-                        tick_hz, capacity, layout
+                        tick_hz, capacity, layout, owner_sub, locked
                  FROM spaces WHERE org_id = ?1 ORDER BY ord",
             )
             .expect("prepare spaces");
@@ -222,6 +240,9 @@ impl Store {
                             capacity: row.get::<_, i64>(8)? as u32,
                             // Not a column: fixed by kind and footprint.
                             meeting_room: meeting_room_for(kind, width, height),
+                            owner: row.get(10)?,
+                            locked: row.get(11)?,
+                            mine: false,
                         })
                     })
                     .expect("query spaces")
@@ -311,8 +332,8 @@ impl Store {
         conn.execute(
             "INSERT OR IGNORE INTO spaces
                (org_id, space_id, name, kind, width, height, near_radius,
-                far_radius, tick_hz, capacity, ord, layout)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                far_radius, tick_hz, capacity, ord, layout, owner_sub, locked)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 org_id,
                 desc.id,
@@ -326,6 +347,8 @@ impl Store {
                 desc.capacity as i64,
                 ord as i64,
                 desc.layout.map(TeamLayout::as_str),
+                desc.owner,
+                desc.locked,
             ],
         )
         .expect("insert space");
@@ -334,6 +357,18 @@ impl Store {
             params![org_id, next_space_seq as i64],
         )
         .expect("update next_space_seq");
+    }
+
+    /// Persist a space's lock (`set_space_lock`).
+    pub fn set_space_locked(&self, org_id: &str, space_id: &str, locked: bool) {
+        self.conn
+            .lock()
+            .expect("db lock")
+            .execute(
+                "UPDATE spaces SET locked = ?3 WHERE org_id = ?1 AND space_id = ?2",
+                params![org_id, space_id, locked],
+            )
+            .expect("set space lock");
     }
 
     /// Apply one board change atomically: the notes that came down (`removed`)
@@ -464,6 +499,23 @@ mod tests {
         let spaces = &Store::init(conn).load_all()[0].spaces;
         assert_eq!(spaces[0].layout, None);
         assert_eq!(spaces[1].layout, Some(TeamLayout::Meeting));
+        // Nor did spaces have owners or locks.
+        assert!(spaces.iter().all(|s| s.owner.is_none() && !s.locked));
+    }
+
+    #[test]
+    fn a_space_keeps_its_owner_and_lock() {
+        let store = Store::open_in_memory();
+        store.upsert_org("acme", "Acme");
+        let mut desc = SpaceDescriptor::team("team1", "Design", TeamLayout::Meeting);
+        desc.owner = Some("u".into());
+        desc.locked = true;
+        store.insert_space("acme", &desc, 1, 2);
+        let space = &store.load_all()[0].spaces[0];
+        assert_eq!((space.owner.as_deref(), space.locked), (Some("u"), true));
+
+        store.set_space_locked("acme", "team1", false);
+        assert!(!store.load_all()[0].spaces[0].locked);
     }
 
     #[test]
