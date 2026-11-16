@@ -308,6 +308,11 @@ impl SpaceState {
             dropped: HashMap::new(),
         }
     }
+
+    /// No room for one more.
+    fn is_full(&self) -> bool {
+        self.member_ids.len() as u32 >= self.desc.capacity
+    }
 }
 
 /// A knock on a locked space, waiting for an answer (PROTOCOL.md §"Locked
@@ -585,15 +590,6 @@ impl OrgInner {
             },
             peers: self.peers_in_space_except(target, id),
         }
-    }
-
-    /// `space_full` for `space`, when it has no room for one more.
-    fn full_error(space: &SpaceState) -> Option<ServerMsg> {
-        let occupancy = space.member_ids.len() as u32;
-        (occupancy >= space.desc.capacity).then(|| ServerMsg::Error {
-            code: "space_full".to_string(),
-            message: format!("Space is full ({}/{}).", occupancy, space.desc.capacity),
-        })
     }
 
     /// Send a message to every member of the org except `except`.
@@ -1194,8 +1190,15 @@ impl Org {
                 message: format!("No such space: {target}"),
             });
         };
-        if let Some(full) = OrgInner::full_error(target_space) {
-            return EnterOutcome::Error(full);
+        if target_space.is_full() {
+            return EnterOutcome::Error(ServerMsg::Error {
+                code: "space_full".to_string(),
+                message: format!(
+                    "Space is full ({}/{}).",
+                    target_space.member_ids.len(),
+                    target_space.desc.capacity
+                ),
+            });
         }
         let knocking = ServerMsg::Knocking {
             space_id: target.to_string(),
@@ -1244,7 +1247,8 @@ impl Org {
     /// `answerer` lets in (`admit`) or turns away the member `knocker`. Only
     /// someone the knock was put to may answer it; the first answer settles
     /// it for all of them. Admitted, the knocker is moved in and sent the
-    /// space as after `enter_space` — unless it filled up meanwhile.
+    /// space as after `enter_space` — unless it filled up meanwhile, which
+    /// turns them away as `full`.
     pub async fn knock_answer(&self, answerer: &str, knocker: &str, admit: bool) {
         let mut guard = self.inner.lock().await;
         if !guard
@@ -1256,20 +1260,21 @@ impl Org {
         }
         let knock = guard.end_knock(knocker).unwrap();
         let target = knock.space_id;
-        let reply = if !admit {
-            vec![ServerMsg::KnockRejected {
-                space_id: target,
-                reason: "declined".to_string(),
-            }]
-        } else if let Some(full) = OrgInner::full_error(&guard.spaces[&target]) {
-            vec![full]
+        let reason = if !admit {
+            "declined"
+        } else if guard.spaces[&target].is_full() {
+            "full"
         } else {
             let snapshot = guard.move_into(knocker, &target);
-            vec![snapshot, guard.notes_msg_for(&guard.members[knocker])]
+            let member = &guard.members[knocker];
+            member.tx.send(snapshot);
+            member.tx.send(guard.notes_msg_for(member));
+            return;
         };
-        for msg in reply {
-            guard.members[knocker].tx.send(msg);
-        }
+        guard.members[knocker].tx.send(ServerMsg::KnockRejected {
+            space_id: target,
+            reason: reason.to_string(),
+        });
     }
 
     /// Member `id` withdraws their pending knock, if any.
@@ -2614,6 +2619,19 @@ mod tests {
             .iter()
             .any(|m| matches!(m, ServerMsg::KnockEnd { .. })));
         org.knock_answer(&owner.id, &other.id, true).await;
+        assert_eq!(space_of(&org, &other).await, "dev");
+
+        // Let in after it filled up with others let in meanwhile.
+        org.enter_space(&owner.id, &room).await;
+        org.enter_space(&other.id, &room).await;
+        for i in 1..SpaceDescriptor::team("x", "x", TeamLayout::Meeting).capacity {
+            let c = connect(&org, "M", Some(&format!("m{i}")), Role::Member).await;
+            org.enter_space(&c.id, &room).await;
+            org.knock_answer(&owner.id, &c.id, true).await;
+            assert_eq!(space_of(&org, &c).await, room);
+        }
+        org.knock_answer(&owner.id, &other.id, true).await;
+        assert_eq!(rejected(&mut other).as_deref(), Some("full"));
         assert_eq!(space_of(&org, &other).await, "dev");
     }
 

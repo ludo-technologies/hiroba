@@ -550,8 +550,9 @@ pub enum ServerMsg {
         space_id: String,
     },
 
-    /// Your knock on `spaceId` was turned away. `reason` is "declined" or
-    /// "timeout". To the knocker.
+    /// Your knock on `spaceId` was turned away. `reason` is "declined",
+    /// "timeout", or "full" (let in, but it filled up meanwhile). To the
+    /// knocker.
     KnockRejected {
         #[serde(rename = "spaceId")]
         space_id: String,

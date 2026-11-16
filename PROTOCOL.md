@@ -148,9 +148,9 @@ Anyone else **knocks**:
    `knocking{spaceId}`.
 3. The first `knock_answer` from someone asked settles it, and everyone asked
    receives `knock_end{id}`. Admitted, the knocker is moved in exactly as by
-   `enter_space` (an ordinary `space_snapshot`, then `notes`) — or gets
-   `space_full` if the space filled meanwhile. Turned away, they receive
-   `knock_rejected{spaceId, reason: "declined"}`.
+   `enter_space` (an ordinary `space_snapshot`, then `notes`) — unless the
+   space filled meanwhile, which ends it as `knock_rejected{spaceId, reason:
+   "full"}`. Turned away, they receive `knock_rejected{reason: "declined"}`.
 4. Unanswered for 30 seconds, it ends with `knock_rejected{reason:
    "timeout"}`. The knocker withdraws it with `knock_cancel`, by entering any
    other space, or by disconnecting; those asked then receive `knock_end`.
@@ -452,7 +452,7 @@ new space. `peers` is that space's current roster (excluding self).
 { "t": "knocking", "spaceId": "team3" }
 ```
 To the knocker (§Locked spaces). Admission arrives as a `space_snapshot` for
-that space; anything else as `knock_rejected` or an `error`.
+that space; anything else as `knock_rejected`.
 
 ### `knock` — someone is knocking on a locked space
 ```json
@@ -466,7 +466,8 @@ for `page_offer`.
 ```json
 { "t": "knock_rejected", "spaceId": "team3", "reason": "declined" }
 ```
-`reason` is `"declined"` or `"timeout"`. To the knocker.
+`reason` is `"declined"`, `"timeout"`, or `"full"` (let in, but the space
+filled up meanwhile). To the knocker.
 
 ### `knock_end` — a knock is over
 ```json
