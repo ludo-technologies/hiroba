@@ -224,7 +224,37 @@ class Client {
   R.send({ t: "reauth", token: mint({ org: "globex", sub: "u-r" }) });
   ok(await R.waitClosed(), "a reauth for another org closes the connection");
 
+  // ── 8) Locked spaces: knock → let in, and only the owner locks ──────────
+  const Own = await join({ org: "locks", sub: "u-own", name: "Owner" });
+  const Kn = await join({ org: "locks", sub: "u-kn", name: "Knocker" });
+  const Gst = await join({ org: "locks", sub: "u-gst", name: "Guest", role: "guest" });
+  Own.send({ t: "create_space", name: "Focus", layout: "meeting", locked: true });
+  const cat = await Kn.wait((m) => m.t === "spaces");
+  const focus = cat?.spaces.find((s) => s.name === "Focus");
+  ok(focus?.locked === true && !focus.mine, "a locked space shows as locked, and not as the knocker's");
+  ok((await Own.wait((m) => m.t === "spaces"))?.spaces.find((s) => s.id === focus?.id)?.mine === true,
+    "…and as the owner's own");
+  Gst.send({ t: "create_space", name: "GuestRoom", layout: "meeting", locked: true });
+  ok((await Gst.wait((m) => m.t === "error"))?.code === "forbidden", "a guest cannot create a locked space");
+  Kn.send({ t: "set_space_lock", spaceId: focus?.id, locked: false });
+  ok((await Kn.wait((m) => m.t === "error"))?.code === "forbidden", "only the owner unlocks it");
+
+  Kn.send({ t: "enter_space", spaceId: focus?.id });
+  ok(!!(await Kn.wait((m) => m.t === "knocking")), "entering a locked space knocks");
+  const knock = await Own.wait((m) => m.t === "knock");
+  ok(knock?.spaceId === focus?.id, "…and the owner is asked");
+  Own.send({ t: "knock_answer", id: knock?.id, admit: true });
+  ok((await Kn.wait((m) => m.t === "space_snapshot"))?.spaceId === focus?.id, "let in, the knocker is in the space");
+  ok(!!(await Own.wait((m) => m.t === "knock_end")), "…and the owner's banner is told it is over");
+
+  Gst.send({ t: "enter_space", spaceId: focus?.id });
+  await Gst.wait((m) => m.t === "knocking");
+  const knock2 = await Own.wait((m) => m.t === "knock" && m.id !== knock?.id);
+  Own.send({ t: "knock_answer", id: knock2?.id, admit: false });
+  ok((await Gst.wait((m) => m.t === "knock_rejected"))?.reason === "declined", "turned away, the knocker hears so");
+
   A.close(); B.close(); C.close(); D.close(); bogus.close(); G.close(); M.close(); Adm.close();
+  Own.close(); Kn.close(); Gst.close();
   await sleep(100);
 
   console.log(failures === 0 ? "\nALL AUTH CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);
