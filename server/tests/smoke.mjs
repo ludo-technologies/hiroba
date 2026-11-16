@@ -278,6 +278,9 @@ class Client {
   B.send({ t: "page", to: idA });
   const rej = await B.wait((m) => m.t === "page_rejected" && m.to === idA);
   ok(rej?.reason === "dnd", "paging a DND member is rejected with reason=dnd");
+  const missedA = await A.wait((m) => m.t === "page_missed" && m.from === idB);
+  ok(!!missedA, "a DND member is told who paged them (page_missed), without a ring");
+  ok(!A.drain("page_offer").length, "a DND member is not rung");
 
   // A clears DND → B pages A → ring (no media / no in_call yet).
   A.clear(); B.clear();

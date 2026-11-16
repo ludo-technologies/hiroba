@@ -332,7 +332,8 @@ space, out of earshot, across the meeting-room wall, or not yet told to
 { "t": "page", "to": "9" }
 ```
 If `to` is offline, `dnd`, or already in a call, the server replies
-`page_rejected` (`reason`: `"offline"` | `"dnd"` | `"busy"`). Otherwise the
+`page_rejected` (`reason`: `"offline"` | `"dnd"` | `"busy"`); a `dnd` or busy
+callee is not rung but receives `page_missed{from}`. Otherwise the
 server places a **ring** (no media yet):
 - callee receives `page_offer{from}`
 - caller receives `page_ringing{to}`
@@ -596,6 +597,15 @@ Decline with `page_end{to: from}`; accept with `page_accept{to: from}`.
 Clients SHOULD play a ringtone and request OS attention (Dock bounce / taskbar
 flash) so an unfocused window is not a silent miss — unanswered rings time out
 server-side (~25s) as a decline.
+
+### `page_missed` — someone paged you while you could not be rung
+```json
+{ "t": "page_missed", "from": "3" }
+```
+To a callee who was `dnd` or in a call when `from` paged them (the caller got
+`page_rejected`). Nothing rings and nothing is pending. Clients SHOULD keep it
+as a missed call, without sound, so it is found once the focus or the call is
+over.
 
 ### `page_ringing` — outgoing page is ringing (to the caller)
 ```json

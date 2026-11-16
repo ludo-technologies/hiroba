@@ -521,6 +521,10 @@ pub enum ServerMsg {
     /// Outgoing page is ringing (to the caller). Awaits accept / decline / timeout.
     PageRinging { to: String },
 
+    /// Someone paged you while you were `dnd` or in a call (to the callee).
+    /// Nothing rang; the caller got `page_rejected`.
+    PageMissed { from: String },
+
     /// Open a 1:1 page link (sent to both peers after accept). Same tie-break
     /// as proximity.
     PageConnect { peer: String, initiator: bool },

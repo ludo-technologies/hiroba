@@ -1574,11 +1574,23 @@ impl Org {
         let Some(target) = guard.members.get(to) else {
             return PageOutcome::Rejected("offline".to_string());
         };
-        if target.dnd {
-            return PageOutcome::Rejected("dnd".to_string());
+        if !guard.members.contains_key(from) {
+            return PageOutcome::Rejected("offline".to_string());
         }
-        if !target.paging.is_empty() {
-            return PageOutcome::Rejected("busy".to_string());
+        // Not rung, but told: who looked for them is worth knowing once the
+        // focus or the call is over.
+        let unavailable = if target.dnd {
+            Some("dnd")
+        } else if !target.paging.is_empty() {
+            Some("busy")
+        } else {
+            None
+        };
+        if let Some(reason) = unavailable {
+            target.tx.send(ServerMsg::PageMissed {
+                from: from.to_string(),
+            });
+            return PageOutcome::Rejected(reason.to_string());
         }
         let Some(caller) = guard.members.get(from) else {
             return PageOutcome::Rejected("offline".to_string());
