@@ -2458,9 +2458,10 @@ export class UIManager {
     picker.append(group);
 
     // Locking needs an account to own the space (a guest's is new each visit).
+    // Out of the page's tab order: Tab in the input reaches it (below).
     let locked = false;
-    if (this.lastAuth && this.lastAuth.role !== "guest") {
-      const lock = document.createElement("button");
+    const lock = this.lastAuth && this.lastAuth.role !== "guest" ? document.createElement("button") : null;
+    if (lock) {
       lock.type = "button";
       lock.className = "layout-lock";
       lock.tabIndex = -1;
@@ -2534,9 +2535,32 @@ export class UIManager {
         const step = e.key === "ArrowDown" ? 1 : -1;
         const i = TEAM_LAYOUTS.indexOf(layout);
         pick(TEAM_LAYOUTS[(i + step + TEAM_LAYOUTS.length) % TEAM_LAYOUTS.length]);
+      } else if (e.key === "Tab" && !e.shiftKey && lock) {
+        e.preventDefault();
+        lock.focus();
       }
     });
-    input.addEventListener("blur", close);
+    // Focus moving between the input and the lock switch stays in the picker;
+    // anywhere else cancels.
+    const blur = (e: FocusEvent) => {
+      if (e.relatedTarget !== input && e.relatedTarget !== lock) close();
+    };
+    input.addEventListener("blur", blur);
+    if (lock) {
+      // Space toggles it (a button's own click); Enter creates, as in the input.
+      lock.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit();
+        } else if (e.key === "Escape") {
+          close();
+        } else if (e.key === "Tab") {
+          e.preventDefault();
+          input.focus();
+        }
+      });
+      lock.addEventListener("blur", blur);
+    }
     this.cancelCreateSpace = close;
     addBtn.replaceWith(input);
 
