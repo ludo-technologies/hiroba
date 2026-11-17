@@ -181,6 +181,19 @@ const elHudGetApp = $<HTMLAnchorElement>("hud-get-app");
 /** Where "get the desktop app" goes when the session has nowhere better: the
  *  site's download section. */
 const GET_APP_DEFAULT_HREF = elHudGetApp.href;
+
+/** What this browser can run in place of the tab: the desktop app where there
+ *  is an installer for the OS, this page installed as an app on Android, and
+ *  nothing on iOS (Safari has no install to call) or Linux (no installer). */
+const APP_FOR_THIS_OS: "desktop" | "install" | null = (() => {
+  const ua = navigator.userAgent;
+  const touch = navigator.maxTouchPoints > 0;
+  // "Desktop site" on Android reports a desktop Linux, and an iPad a Mac;
+  // only the touch screen gives either away.
+  if (/Android/i.test(ua) || (/Linux/i.test(ua) && touch)) return "install";
+  if (/iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && touch)) return null;
+  return /Windows|Macintosh/i.test(ua) ? "desktop" : null;
+})();
 const elAuthBlock = $<HTMLDivElement>("auth-block");
 const elAuthActions = $<HTMLDivElement>("auth-actions");
 const elAuthRestoring = $<HTMLDivElement>("auth-restoring");
@@ -917,7 +930,12 @@ export class UIManager {
     if (this.tauri) this.setAuthRestoring(true);
     else {
       elAuthBlock.setAttribute("hidden", "");
-      elHudGetApp.removeAttribute("hidden");
+      elHudGetApp.addEventListener("click", (e) => {
+        if (this.memberPath || APP_FOR_THIS_OS !== "install") return;
+        e.preventDefault();
+        void this._install();
+      });
+      this._renderGetApp();
     }
   }
 
@@ -926,9 +944,19 @@ export class UIManager {
    *  `null`, back at the site's download section. */
   setGetAppLink(url: string | null): void {
     this.memberPath = url;
+    if (!this.tauri) this._renderGetApp();
+  }
+
+  /** The pill a browser guest gets: the invite page under a label that says it
+   *  opens on a sign-in, else whatever this OS can run instead of the tab —
+   *  the download section, Chrome's install once it has offered one, or no
+   *  pill at all. */
+  private _renderGetApp(): void {
+    const url = this.memberPath;
+    const install = APP_FOR_THIS_OS === "install";
     elHudGetApp.href = url ?? GET_APP_DEFAULT_HREF;
-    // The invite page opens on a sign-in, not a download: say so up front.
-    elHudGetApp.textContent = url ? t.guestBecomeMember : t.guestGetApp;
+    elHudGetApp.textContent = url ? t.guestBecomeMember : install ? t.guestInstallApp : t.guestGetApp;
+    elHudGetApp.hidden = !url && (install ? !this.installPrompt : APP_FOR_THIS_OS === null);
   }
 
   /** Browser guest entry (web build opened from an invite link): a hint says
@@ -3066,6 +3094,7 @@ export class UIManager {
    *  it to Chrome's own install button. */
   offerInstall(prompt: BeforeInstallPromptEvent): void {
     this.installPrompt = prompt;
+    this._renderGetApp();
     this._maybeOfferInstall();
   }
 
@@ -3087,6 +3116,7 @@ export class UIManager {
   private _closeInstallOffer(): void {
     this.installPrompt = null;
     elInstallOffer.setAttribute("hidden", "");
+    this._renderGetApp();
   }
 
   private _showPhoneTab(tab: MobileTab): void {

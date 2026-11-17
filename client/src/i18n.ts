@@ -263,6 +263,7 @@ const EN = {
   // Browser guest (web build opened from an invite link)
   guestJoinHint: "You're joining as a guest from an invite link. Enter a name and you're in.",
   guestGetApp: "Get the desktop app",
+  guestInstallApp: "Add to home screen",
   guestBecomeMember: "Become a member and get the app",
   errGuestInvite: "This invite link has expired or was revoked. Ask your teammate for a new one.",
 
@@ -657,6 +658,7 @@ const JA: typeof EN = {
   // Browser guest (web build opened from an invite link)
   guestJoinHint: "招待リンクからゲストとして参加します。名前を入れるだけで入室できます。",
   guestGetApp: "デスクトップ版を入手",
+  guestInstallApp: "ホーム画面に追加",
   guestBecomeMember: "メンバーになってアプリを使う",
   errGuestInvite: "この招待リンクは期限切れか取り消されています。招待した人に新しいリンクをもらってください。",
 
@@ -1050,6 +1052,7 @@ const ES: typeof EN = {
   // Browser guest (web build opened from an invite link)
   guestJoinHint: "Entras con un enlace de invitación, sin cuenta. Escribe un nombre y listo.",
   guestGetApp: "Descargar la app",
+  guestInstallApp: "Añadir a la pantalla de inicio",
   guestBecomeMember: "Hazte miembro y usa la app",
   errGuestInvite: "Este enlace de invitación caducó o fue revocado. Pide uno nuevo a quien te lo envió.",
 
@@ -1444,6 +1447,7 @@ const FR: typeof EN = {
   // Browser guest (web build opened from an invite link)
   guestJoinHint: "Vous entrez via un lien d'invitation, sans compte. Saisissez un nom et c'est parti.",
   guestGetApp: "Télécharger l'app",
+  guestInstallApp: "Ajouter à l'écran d'accueil",
   guestBecomeMember: "Devenir membre et utiliser l'app",
   errGuestInvite: "Ce lien d'invitation a expiré ou a été révoqué. Demandez-en un nouveau à la personne qui vous l'a envoyé.",
 
@@ -1838,6 +1842,7 @@ const PT: typeof EN = {
   // Browser guest (web build opened from an invite link)
   guestJoinHint: "Você está entrando como convidado por um link de convite. Digite um nome e pronto.",
   guestGetApp: "Baixar o app",
+  guestInstallApp: "Adicionar à tela inicial",
   guestBecomeMember: "Vire membro e use o app",
   errGuestInvite: "Este link de convite expirou ou foi revogado. Peça um novo a quem enviou.",
 
