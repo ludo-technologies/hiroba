@@ -585,13 +585,28 @@ export interface CandidateData {
   };
 }
 
-/** Which purpose (if any) the sender's outgoing video track currently serves.
- *  Sent alongside track add/remove so the receiver can label the panel —
- *  WebRTC track events alone can't distinguish screen-share from camera. */
+/** What a video shows: someone's screen share, or their camera. */
+export type VideoKind = "screen" | "camera";
+
+/** Which of the sender's outgoing videos is which. Sent alongside track
+ *  add/remove so the receiver can label the panel — WebRTC track events alone
+ *  can't distinguish screen-share from camera. */
 export interface VideoModeData {
   kind: "video-mode";
-  mode: "screen" | "camera" | null;
+  /** What the first video is (the screen when both are on), null when none
+   *  is. All that a receiver showing a single video reads. */
+  mode: VideoKind | null;
+  /** The id of the stream each video arrives under, null while it is off.
+   *  Absent from a sender on a version that sends a single video: `mode`
+   *  then labels its one track. */
+  streams?: Record<VideoKind, string | null>;
+}
+
+/** "I can show your screen and your camera at once", sent once when a link
+ *  opens. A peer that never says so is sent a single video. */
+export interface TwoVideosData {
+  kind: "two-videos";
 }
 
 /** Discriminated union for all WebRTC signal payloads. */
-export type SignalData = OfferData | AnswerData | CandidateData | VideoModeData;
+export type SignalData = OfferData | AnswerData | CandidateData | VideoModeData | TwoVideosData;

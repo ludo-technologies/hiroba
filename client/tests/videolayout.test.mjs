@@ -4,7 +4,9 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { LOCAL_VIDEO, layoutVideos } from "../.test-build/videolayout.js";
+import { layoutVideos } from "../.test-build/videolayout.js";
+
+const LOCAL_VIDEO = "me";
 
 const cam = (key) => ({ key, local: false, mode: "camera" });
 const screen = (key) => ({ key, local: false, mode: "screen" });
@@ -46,6 +48,22 @@ test("our own screen takes the stage over peers' cameras", () => {
   const l = layoutVideos([cam("bob"), cam("carol"), me("screen")], null);
   assert.equal(l.stage.key, LOCAL_VIDEO);
   assert.deepEqual(keys(l.tiles), ["bob", "carol"]);
+});
+
+test("someone sharing with their camera on has the screen large and the face in the corner", () => {
+  const theirs = [{ ...screen("carol/screen") }, { ...cam("carol/camera") }];
+  const l = layoutVideos(theirs, null);
+  assert.equal(l.stage.key, "carol/screen");
+  assert.equal(l.pip.key, "carol/camera");
+
+  const ours = [{ key: "me/screen", local: true, mode: "screen" }, { key: "me/camera", local: true, mode: "camera" }];
+  const own = layoutVideos(ours, null);
+  assert.equal(own.stage.key, "me/screen");
+  assert.equal(own.pip.key, "me/camera");
+
+  const both = layoutVideos([...theirs, ...ours], null);
+  assert.equal(both.stage.key, "carol/screen", "a peer's screen still beats our own");
+  assert.deepEqual(keys(both.tiles), ["carol/camera", "me/screen", "me/camera"]);
 });
 
 test("the picked video takes the stage; a pick that is gone is ignored", () => {

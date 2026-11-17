@@ -45,7 +45,7 @@ import {
   shouldKeepAwake,
 } from "./loop.js";
 import { startUpdateChecks } from "./updater.js";
-import { layoutVideos, LOCAL_VIDEO, type LaidOutVideo } from "./videolayout.js";
+import { layoutVideos, type LaidOutVideo } from "./videolayout.js";
 import {
   installedAppInvite,
   inviteFromLocation,
@@ -101,6 +101,7 @@ import {
   type SpaceDescriptor,
   type Status,
   type TeamLayout,
+  type VideoKind,
   type WelcomeMsg,
 } from "./protocol.js";
 
@@ -159,12 +160,11 @@ interface Session {
   knocksIn: Map<string, string>;
   /** The locked space we are knocking on, waiting to be let in. */
   knockingAt: string | null;
-  /** Remote video (screen share or camera) streams keyed by peer id. Mode is
-   *  null for the brief window before the peer's "video-mode" label arrives. */
-  remoteVideos: Map<string, { stream: MediaStream; mode: "screen" | "camera" | null }>;
+  /** Each peer's live screen share and camera, keyed by peer id. */
+  remoteVideos: Map<string, Record<VideoKind, MediaStream | null>>;
   /** True when the user dismissed the remote video panel (minimize). */
   screenDismissed: boolean;
-  /** The video the user clicked onto the stage (peer id or LOCAL_VIDEO),
+  /** The video the user clicked onto the stage (a ShownVideo key),
    *  overriding videolayout.ts's default; cleared once it goes away. */
   pickedVideo: string | null;
 
@@ -2838,37 +2838,36 @@ async function setAppBadge(count: number): Promise<void> {
   }
 }
 
-/** Title for a remote peer's video panel. `mode` is briefly null right after
- *  the track attaches, before the peer's "video-mode" label arrives. */
-function videoTitle(mode: "screen" | "camera" | null, peerName: string): string {
-  if (mode === "camera") return t.peerCamera(peerName);
-  if (mode === "screen") return t.sharedScreen(peerName);
-  return t.peerVideo(peerName);
-}
-
-function handleRemoteVideo(peerId: string, stream: MediaStream | null, mode: "screen" | "camera" | null): void {
+function handleRemoteVideo(peerId: string, videos: Record<VideoKind, MediaStream | null>): void {
   if (!session) return;
-
-  if (stream) {
-    session.remoteVideos.set(peerId, { stream, mode });
-  } else {
-    session.remoteVideos.delete(peerId);
-  }
+  session.remoteVideos.set(peerId, videos);
   syncVideoViews();
 }
 
-function handleLocalVideo(stream: MediaStream | null, mode: "screen" | "camera" | null): void {
+function handleLocalVideo(started: boolean): void {
   if (!session) return;
-  ui.setScreenSharing(mode === "screen");
-  ui.setCameraOn(mode === "camera");
+  ui.setScreenSharing(session.audio.isScreenSharing);
+  ui.setCameraOn(session.audio.isCameraOn);
   // Starting local video is an explicit gesture — bring a dismissed panel back.
-  if (stream && mode) session.screenDismissed = false;
+  if (started) session.screenDismissed = false;
   syncVideoViews();
 }
 
 /** A live video with what the panel needs to show it. */
 interface ShownVideo extends LaidOutVideo {
+  /** Whose it is; null for our own. */
+  peer: string | null;
   stream: MediaStream;
+}
+
+const VIDEO_KINDS: readonly VideoKind[] = ["screen", "camera"];
+
+/** One person's live videos, their screen before their camera. */
+function videosOf(peer: string | null, streams: Record<VideoKind, MediaStream | null>): ShownVideo[] {
+  return VIDEO_KINDS.flatMap((mode) => {
+    const stream = streams[mode];
+    return stream ? [{ key: `${peer ?? ""}/${mode}`, local: peer === null, peer, stream, mode }] : [];
+  });
 }
 
 /**
@@ -2877,12 +2876,10 @@ interface ShownVideo extends LaidOutVideo {
  * otherwise the group place's; then our own.
  */
 function shownVideos(s: Session): ShownVideo[] {
-  const remote: ShownVideo[] = [...s.remoteVideos].map(([key, v]) => ({ key, local: false, ...v }));
-  const call = remote.filter((v) => s.pages.has(v.key));
+  const remote = [...s.remoteVideos].flatMap(([peer, streams]) => videosOf(peer, streams));
+  const call = remote.filter((v) => s.pages.has(v.peer!));
   const shown = call.length > 0 ? call : remote;
-  const local = s.audio.screenShareStream ?? s.audio.cameraStream;
-  if (local) shown.push({ key: LOCAL_VIDEO, local: true, stream: local, mode: s.audio.isCameraOn ? "camera" : "screen" });
-  return shown;
+  return [...shown, ...videosOf(null, { screen: s.audio.screenShareStream, camera: s.audio.cameraStream })];
 }
 
 /**
@@ -2904,21 +2901,23 @@ function syncVideoViews(): void {
     return;
   }
 
-  const name = (v: ShownVideo): string => s.roster.get(v.key)?.name ?? v.key;
+  const name = (peer: string): string => s.roster.get(peer)?.name ?? peer;
   const panelVideo = (v: ShownVideo): PanelVideo => ({
     key: v.key,
     stream: v.stream,
-    label: v.local ? t.youName(s.self.name) : name(v),
+    label: v.peer === null ? t.youName(s.self.name) : name(v.peer),
   });
   const dock = ui.videoDock();
   const { stage, pip, tiles } = layoutVideos(videos, s.pickedVideo, dock !== "corner");
   const title = !stage
     ? t.camerasTitle
-    : stage.local
+    : stage.peer === null
       ? stage.mode === "camera"
         ? t.yourCamera
         : t.yourScreen
-      : videoTitle(stage.mode, name(stage));
+      : stage.mode === "camera"
+        ? t.peerCamera(name(stage.peer))
+        : t.sharedScreen(name(stage.peer));
   ui.setVideoPanel({
     title,
     stage: stage && panelVideo(stage),
@@ -2934,12 +2933,12 @@ function syncVideoViews(): void {
 // exactly the case an `isScreenSharing` guard here would hide).
 function stopScreenShare(): void {
   if (!session) return;
-  session.audio.stopScreenShare(); // fires handleLocalVideo(null), which re-syncs
+  session.audio.stopScreenShare(); // fires handleLocalVideo, which re-syncs
 }
 
 function stopCamera(): void {
   if (!session) return;
-  session.audio.stopCamera(); // fires handleLocalVideo(null), which re-syncs
+  session.audio.stopCamera(); // fires handleLocalVideo, which re-syncs
 }
 
 /**
@@ -3298,8 +3297,8 @@ function handleCloseScreenShare(): void {
   if (!session) return;
   if (!shownVideos(session).some((v) => !v.local)) {
     // Closing a panel of only our own video means stop sending it.
-    if (session.audio.isScreenSharing) stopScreenShare();
-    else stopCamera();
+    stopScreenShare();
+    stopCamera();
     return;
   }
   session.screenDismissed = true;

@@ -13,15 +13,15 @@
  *    tile; only a screen share, which wants room, keeps the stage layout.
  */
 
+import type { VideoKind } from "./protocol.js";
+
 export interface LaidOutVideo {
-  /** Peer id, or LOCAL_VIDEO for our own. */
+  /** Unique among the videos shown: one person can have a screen and a
+   *  camera up at once. */
   key: string;
   local: boolean;
-  /** Null for the brief window before a peer's "video-mode" label arrives. */
-  mode: "screen" | "camera" | null;
+  mode: VideoKind;
 }
-
-export const LOCAL_VIDEO = "local";
 
 /** Where the video panel sits: in the corner, a window over the room, or
  *  docked along the top or down the side, where the room makes way for it. */
@@ -40,12 +40,11 @@ export interface VideoLayout<T> {
 export function layoutVideos<T extends LaidOutVideo>(videos: readonly T[], picked: string | null, docked = false): VideoLayout<T> {
   if (docked && !videos.some((v) => v.mode === "screen")) return { stage: null, pip: null, tiles: [...videos] };
   const remote = videos.filter((v) => !v.local);
-  const local = videos.find((v) => v.local) ?? null;
   const stage =
     videos.find((v) => v.key === picked) ??
     remote.find((v) => v.mode === "screen") ??
-    (local?.mode === "screen" ? local : undefined) ??
-    (remote.length <= 1 ? (remote[0] ?? local) : null);
+    videos.find((v) => v.mode === "screen") ??
+    (remote.length <= 1 ? (remote[0] ?? videos[0] ?? null) : null);
   if (!stage) return { stage: null, pip: null, tiles: [...videos] };
   const rest = videos.filter((v) => v !== stage);
   if (rest.length === 1) return { stage, pip: rest[0], tiles: [] };

@@ -99,6 +99,7 @@ FakeAudio.instances = [];
 class FakeMediaStream {
   constructor(tracks = []) {
     this._tracks = tracks;
+    this.id = `stream-${++FakeMediaStream.count}`;
   }
   getTracks() {
     return this._tracks;
@@ -110,6 +111,8 @@ class FakeMediaStream {
     return this._tracks.filter((t) => t.kind === "video");
   }
 }
+
+FakeMediaStream.count = 0;
 
 /** A video track that records whether anything stopped it. */
 function fakeVideoTrack() {
@@ -172,7 +175,9 @@ class FakePC {
     sender.track = track;
     return sender;
   }
-  removeTrack() {}
+  removeTrack(sender) {
+    (this.removed ||= []).push(sender.track);
+  }
   getTransceivers() {
     return [];
   }
@@ -662,7 +667,7 @@ test("an uninterrupted screen share still starts normally", async () => {
 
   const local = [];
   const eng = new AudioEngine();
-  eng.init(TEAM, () => {}, () => {}, undefined, () => {}, (stream, mode) => local.push(mode));
+  eng.init(TEAM, () => {}, () => {}, undefined, () => {}, (started) => local.push(started));
   eng.updateGains({ x: 100, y: 100 }, new Map()); // standing in the team space
 
   const sharing = eng.startScreenShare();
@@ -672,36 +677,66 @@ test("an uninterrupted screen share still starts normally", async () => {
   assert.equal(capture.track.stopped, false, "the capture is live");
   assert.equal(eng.isScreenSharing, true, "sharing is active");
   assert.equal(eng.screenShareStream, capture.stream, "the stream is the local preview");
-  assert.deepEqual(local, ["screen"], "the UI was told sharing started");
+  assert.deepEqual(local, [true], "the UI was told sharing started");
 });
 
 test('a peer\'s "video stopped" clears their panel instead of freezing the last frame', async () => {
   installMocks();
   const seen = [];
   const eng = new AudioEngine();
-  eng.init(SPACE, () => {}, () => {}, undefined, (peerId, stream, mode) => seen.push({ peerId, stream, mode }));
+  eng.init(SPACE, () => {}, () => {}, undefined, (peerId, videos) => seen.push({ peerId, ...videos }));
 
+  // A peer on a version that sends a single video and names no streams.
   await eng.connect("9", true, "page");
   const pc = FakePC.instances.at(-1);
   const track = fakeVideoTrack();
   const stream = new FakeMediaStream([track]);
   pc.fire("track", { streams: [stream], track });
   await eng.handleSignal("9", { kind: "video-mode", mode: "screen" });
-  assert.deepEqual(seen.at(-1), { peerId: "9", stream, mode: "screen" }, "panel shows their screen");
+  assert.deepEqual(seen.at(-1), { peerId: "9", screen: stream, camera: null }, "panel shows their screen");
 
   // The peer stops sharing. `removeTrack()` on their side leaves our receiver
   // muted, not ended, so this signal is the only notice we get.
   await eng.handleSignal("9", { kind: "video-mode", mode: null });
   assert.deepEqual(
     seen.at(-1),
-    { peerId: "9", stream: null, mode: null },
+    { peerId: "9", screen: null, camera: null },
     "the viewer is told to drop the panel, not to keep a dead stream",
   );
 
   // Starting again re-shows it even if the transceiver is recycled silently
   // (no second `track` event).
   await eng.handleSignal("9", { kind: "video-mode", mode: "camera" });
-  assert.deepEqual(seen.at(-1), { peerId: "9", stream, mode: "camera" }, "restart re-shows the video");
+  assert.deepEqual(seen.at(-1), { peerId: "9", screen: null, camera: stream }, "restart re-shows the video");
+});
+
+test("a peer's screen and camera, on at once, are told apart by their streams", async () => {
+  installMocks();
+  const seen = [];
+  const eng = new AudioEngine();
+  eng.init(SPACE, () => {}, () => {}, undefined, (peerId, videos) => seen.push({ peerId, ...videos }));
+  await eng.connect("9", true, "page");
+  const pc = FakePC.instances.at(-1);
+
+  const camera = new FakeMediaStream([fakeVideoTrack()]);
+  const screen = new FakeMediaStream([fakeVideoTrack()]);
+  // The label can come before the tracks: nothing shows until both are here.
+  await eng.handleSignal("9", {
+    kind: "video-mode",
+    mode: "screen",
+    streams: { screen: screen.id, camera: camera.id },
+  });
+  assert.deepEqual(seen.at(-1), { peerId: "9", screen: null, camera: null });
+  pc.fire("track", { streams: [screen], track: screen.getVideoTracks()[0] });
+  pc.fire("track", { streams: [camera], track: camera.getVideoTracks()[0] });
+  assert.deepEqual(seen.at(-1), { peerId: "9", screen, camera });
+
+  await eng.handleSignal("9", {
+    kind: "video-mode",
+    mode: "camera",
+    streams: { screen: null, camera: camera.id },
+  });
+  assert.deepEqual(seen.at(-1), { peerId: "9", screen: null, camera }, "the screen stopped, the face stays");
 });
 
 test("toggleMute acquires the mic and enables the track (the barge-in path)", async () => {
@@ -828,48 +863,69 @@ test("muting with nobody around also lets the mic go, and unmuting re-acquires i
 /** Let queued microtasks (the sender update chain) run. */
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
-test("video sender updates are serialised and a superseded switch is dropped", async () => {
+/** An engine in a call with peer "9", recording the signals it sends. */
+async function inCall(twoVideos) {
   installMocks();
-  const log = [];
-  FakePC.makeSender = () => fakeSender(log);
+  const signals = [];
   const eng = new AudioEngine();
-  eng.init(SPACE, () => {}, () => {}, undefined, () => {});
+  eng.init(SPACE, (to, data) => signals.push(data), () => {});
   await eng.connect("9", true, "page");
+  if (twoVideos) await eng.handleSignal("9", { kind: "two-videos" });
+  return { eng, pc: FakePC.instances.at(-1), signals };
+}
 
-  const screen = deferredCapture();
-  navigator.mediaDevices.getDisplayMedia = screen.request;
-  const sharing = eng.startScreenShare();
-  screen.release();
-  await sharing;
-  await tick();
-  assert.deepEqual(log.map((e) => e.op), ["setParameters"], "a fresh sender gets its encoder settings");
-  assert.equal(log[0].mode, "maintain-resolution");
+test("a link opens by saying we can show a screen and a camera at once", async () => {
+  const { signals } = await inCall(false);
+  assert.deepEqual(signals, [{ kind: "two-videos" }]);
+});
 
-  // Flip to the camera, then straight back to a new screen capture while the
-  // camera's replaceTrack is still pending.
-  const camera = deferredCapture();
-  navigator.mediaDevices.getUserMedia = camera.request;
-  const camStart = eng.startCamera();
-  camera.release();
-  await camStart;
-  const screen2 = deferredCapture();
-  navigator.mediaDevices.getDisplayMedia = screen2.request;
-  const sharing2 = eng.startScreenShare();
-  screen2.release();
-  await sharing2;
-  await tick();
+test("the camera stays on through a screen share, and both reach a peer that shows both", async () => {
+  const { eng, pc, signals } = await inCall(true);
 
-  assert.deepEqual(log.slice(1).map((e) => e.op), ["replaceTrack"], "the second switch waits for the first replaceTrack");
-  assert.equal(log[1].track, camera.track);
+  const camera = await startCamera(eng);
+  const screen = await shareScreen(eng);
+  assert.equal(eng.isCameraOn, true, "starting the share left the camera on");
+  assert.equal(eng.isScreenSharing, true);
+  assert.equal(camera.track.stopped, false);
+  assert.deepEqual(pc.added, [camera.track, screen.track]);
+  assert.equal(pc.removed, undefined, "neither was taken away for the other");
+  const label = signals.at(-1);
+  assert.equal(label.kind, "video-mode");
+  assert.equal(label.mode, "screen");
+  assert.ok(label.streams.screen && label.streams.camera, "each video is named");
+  assert.notEqual(label.streams.screen, label.streams.camera);
 
-  log[1].release();
-  await tick();
-  assert.deepEqual(log.slice(2).map((e) => e.op), ["replaceTrack"], "the superseded camera switch applies no encoder settings");
-  assert.equal(log[2].track, screen2.track);
+  eng.stopScreenShare();
+  assert.equal(screen.track.stopped, true);
+  assert.equal(eng.isCameraOn, true, "stopping the share left the camera on");
+  assert.deepEqual(pc.removed, [screen.track]);
+  assert.deepEqual(signals.at(-1), {
+    kind: "video-mode",
+    mode: "camera",
+    streams: { screen: null, camera: label.streams.camera },
+  });
+});
 
-  log[2].release();
-  await tick();
-  assert.deepEqual(log.slice(3).map((e) => e.mode), ["maintain-resolution"], "the current mode's settings land last");
+test("a peer that shows a single video gets the screen, and the camera back once the share stops", async () => {
+  const { eng, pc, signals } = await inCall(false);
+
+  const camera = await startCamera(eng);
+  assert.deepEqual(pc.added, [camera.track]);
+  const screen = await shareScreen(eng);
+  assert.deepEqual(pc.added, [camera.track, screen.track]);
+  assert.deepEqual(pc.removed, [camera.track], "the screen took the camera's place");
+  assert.equal(signals.at(-1).mode, "screen");
+  assert.equal(eng.isCameraOn, true, "the camera itself stays on, for our preview and other peers");
+
+  eng.stopScreenShare();
+  assert.deepEqual(pc.added, [camera.track, screen.track, camera.track], "the camera is sent again");
+  assert.equal(signals.at(-1).mode, "camera");
+
+  // It turns out to show both after all (its hello was late).
+  const screen2 = await shareScreen(eng);
+  assert.deepEqual(pc.removed, [camera.track, screen.track, camera.track]);
+  await eng.handleSignal("9", { kind: "two-videos" });
+  assert.deepEqual(pc.added.slice(-2), [screen2.track, camera.track], "the camera joins the screen");
 });
 
 // --- spatialGain: the one rule for gain nodes and the nearby nudge ----------
@@ -1094,12 +1150,12 @@ test("a room peer's screen reaches the viewer, not only a caller's", async () =>
   installMocks();
   const seen = [];
   const eng = new AudioEngine();
-  eng.init(TEAM, () => {}, () => {}, undefined, (peerId, stream, mode) => seen.push({ peerId, stream, mode }));
+  eng.init(TEAM, () => {}, () => {}, undefined, (peerId, videos) => seen.push({ peerId, ...videos }));
   const pc = (await connectAll(eng, ["mate"]))["mate"];
 
   const track = fakeVideoTrack();
   const stream = new FakeMediaStream([track]);
   pc.fire("track", { streams: [stream], track });
   await eng.handleSignal("mate", { kind: "video-mode", mode: "screen" });
-  assert.deepEqual(seen.at(-1), { peerId: "mate", stream, mode: "screen" });
+  assert.deepEqual(seen.at(-1), { peerId: "mate", screen: stream, camera: null });
 });

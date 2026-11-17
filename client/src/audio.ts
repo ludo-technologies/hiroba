@@ -27,7 +27,7 @@
  */
 
 import type { BackgroundEffect, BackgroundEffectKind, CameraBackground } from "./background.js";
-import { rectContains, type SignalData, type SpaceDescriptor } from "./protocol.js";
+import { rectContains, type SignalData, type SpaceDescriptor, type VideoKind, type VideoModeData } from "./protocol.js";
 
 /**
  * How loud `b` sounds from `a` in this space, 0..1 — the one rule for both the
@@ -100,6 +100,40 @@ export type LinkKind = "proximity" | "page";
  */
 type VideoScope = "call" | "place";
 
+/** Screen first: the one a peer that shows a single video gets when both are on. */
+const VIDEO_KINDS: readonly VideoKind[] = ["screen", "camera"];
+
+/** One of our two local videos: the screen share, or the camera. Both can be
+ *  on at once, each started, sent and stopped on its own. */
+interface LocalVideo {
+  /** The stream every peer receives this video under. It lasts as long as the
+   *  engine and holds no track: its id is what tells a peer our screen from
+   *  our camera (see VideoModeData). */
+  readonly tag: MediaStream;
+  /** The stream and track being sent, null while this video is off. */
+  live: { stream: MediaStream; track: MediaStreamTrack } | null;
+  /** What the current (or in-flight) video is for — see VideoScope. */
+  scope: VideoScope;
+  /** Epoch for an in-flight acquisition (same discipline as `micEpoch`), and
+   *  whether one is open. Acquiring is slow and user-paced — the screen picker
+   *  or a camera permission prompt can stay open for minutes — so the call, or
+   *  the whole session, can end before it resolves. Anything that ends this
+   *  video bumps the epoch, and a capture that lands on a stale one stops
+   *  itself instead of arming an engine nobody can reach. Without this,
+   *  `destroy()` cannot stop a stream that is not assigned yet, and the OS
+   *  keeps recording the screen after the user left. */
+  epoch: number;
+  acquiring: boolean;
+}
+
+const newLocalVideo = (): LocalVideo => ({
+  tag: new MediaStream(),
+  live: null,
+  scope: "call",
+  epoch: 0,
+  acquiring: false,
+});
+
 /** The camera background effect could not start; the camera keeps sending
  *  what it sent before (or, if it was off, stays off). */
 export class BackgroundEffectError extends Error {}
@@ -141,14 +175,20 @@ interface PeerConn {
   level: number;
   /** Sender for our microphone on this link — see {@link _syncMicSenders}. */
   audioSender: RTCRtpSender | null;
-  /** Sender carrying our local video (screen or camera) to this peer, if any. */
-  videoSender: RTCRtpSender | null;
-  /** Remote video stream from this peer, if currently present. */
-  remoteVideoStream: MediaStream | null;
-  /** The attached remote video track (for dedup on renegotiation). */
-  remoteVideoTrack: MediaStreamTrack | null;
-  /** Purpose of the remote video track, from the last "video-mode" signal. */
-  remoteVideoMode: "screen" | "camera" | null;
+  /** Senders carrying our screen and our camera to this peer, if any. */
+  videoSenders: Record<VideoKind, RTCRtpSender | null>;
+  /** Whether the peer said it shows a screen and a camera at once ("two-videos").
+   *  One that has not gets a single video: the screen when both are on. */
+  twoVideos: boolean;
+  /** Remote video streams from this peer by id, kept from the moment their
+   *  track arrives. */
+  remoteVideoStreams: Map<string, MediaStream>;
+  /** The stream whose track arrived last — the one a peer that sends a single
+   *  video means by its "video-mode". */
+  latestRemoteVideo: string | null;
+  /** Which of those streams is the peer's screen and which its camera: its
+   *  last "video-mode" signal. */
+  remoteVideoLabel: VideoModeData | null;
 }
 
 /**
@@ -255,35 +295,16 @@ export class AudioEngine {
   /** Wakes the render loop when remote audio becomes available to poll. */
   private onWake: (() => void) | null = null;
 
-  /** Notifies main/UI when a remote peer starts, stops, or relabels their video. */
+  /** Tells main/UI what a remote peer's screen and camera are now, after
+   *  either starts or stops. */
   private onRemoteVideo:
-    | ((peerId: string, stream: MediaStream | null, mode: "screen" | "camera" | null) => void)
+    | ((peerId: string, videos: Record<VideoKind, MediaStream | null>) => void)
     | null = null;
 
-  /** Notifies main/UI when local video (screen or camera) starts or stops. */
-  private onLocalVideo:
-    | ((stream: MediaStream | null, mode: "screen" | "camera" | null) => void)
-    | null = null;
+  /** Notifies main/UI when a local video (screen or camera) starts or stops. */
+  private onLocalVideo: ((started: boolean) => void) | null = null;
 
-  /** Local video stream + track while screen share or camera is active.
-   *  Screen share and camera are mutually exclusive — starting one stops
-   *  the other — so a single slot suffices. */
-  private videoStream: MediaStream | null = null;
-  private videoTrack: MediaStreamTrack | null = null;
-  private videoMode: "screen" | "camera" | null = null;
-
-  /** Epoch for in-flight local video acquisition (same discipline as
-   *  `micEpoch`), plus what that acquisition is trying to start. Acquiring is
-   *  slow and user-paced — the screen picker or a camera permission prompt can
-   *  stay open for minutes — so the call, or the whole session, can end before
-   *  it resolves. Anything that ends local video bumps the epoch, and a capture
-   *  that lands on a stale one stops itself instead of arming an engine nobody
-   *  can reach. Without this, `destroy()` cannot stop a stream that is not
-   *  assigned yet, and the OS keeps recording the screen after the user left. */
-  private videoEpoch = 0;
-  private pendingVideoMode: "screen" | "camera" | null = null;
-  /** What the current (or in-flight) local video is for — see VideoScope. */
-  private videoScope: VideoScope = "call";
+  private readonly videos: Record<VideoKind, LocalVideo> = { screen: newLocalVideo(), camera: newLocalVideo() };
 
   /** What the user wants behind them on camera — see setCameraBackground. */
   private cameraBackground: CameraBackground = { kind: "none" };
@@ -326,8 +347,8 @@ export class AudioEngine {
     sendSignal: (to: string, data: SignalData) => void,
     onWake: () => void,
     iceServers?: RTCIceServer[],
-    onRemoteVideo?: (peerId: string, stream: MediaStream | null, mode: "screen" | "camera" | null) => void,
-    onLocalVideo?: (stream: MediaStream | null, mode: "screen" | "camera" | null) => void,
+    onRemoteVideo?: (peerId: string, videos: Record<VideoKind, MediaStream | null>) => void,
+    onLocalVideo?: (started: boolean) => void,
   ): void {
     this.space = space;
     this.sendSignal = sendSignal;
@@ -376,6 +397,7 @@ export class AudioEngine {
     } else {
       // initiator == impolite, so polite = !initiator
       this._ensurePeer(peerId, /* polite */ !initiator, kind);
+      this.sendSignal?.(peerId, { kind: "two-videos" });
       // No manual offer here: adding the track (now or on unmute) triggers
       // onnegotiationneeded, which drives the offer through perfect negotiation.
     }
@@ -431,7 +453,9 @@ export class AudioEngine {
     // A place share belongs to the space we are leaving. Ended here, not on the
     // next frame: until then the positions are the old space's, and anywhere
     // in a team space counts as the place.
-    if (this.videoScope === "place") this._endVideo();
+    for (const kind of VIDEO_KINDS) {
+      if (this.videos[kind].scope === "place") this._endVideo(kind);
+    }
     for (const entry of this.peers.values()) {
       entry.proximity = false;
       if (!entry.page) this._dropPeer(entry);
@@ -582,22 +606,20 @@ export class AudioEngine {
           entry.pendingCandidates.push(data.candidate);
         }
       } else if (data.kind === "video-mode") {
-        // Labels the peer's outgoing video track (screen vs camera); track
-        // events alone can't tell them apart. May arrive before or after the
-        // track itself — re-notify if the stream is already attached.
-        entry.remoteVideoMode = data.mode;
-        if (data.mode === null) {
-          // The peer stopped sharing. This signal is the only reliable notice
-          // we get: their `removeTrack()` leaves our receiver's track *muted*,
-          // not "ended" (that fires on transceiver stop / close), so waiting
-          // for the track event would pin their frozen last frame — or a black
-          // rectangle — in the viewer for the rest of the call. The cached
-          // stream/track stay put: a restart may recycle the transceiver
-          // without a fresh `track` event, and the next label re-shows them.
-          if (entry.remoteVideoStream) this.onRemoteVideo?.(fromId, null, null);
-        } else if (entry.remoteVideoStream) {
-          this.onRemoteVideo?.(fromId, entry.remoteVideoStream, data.mode);
-        }
+        // Labels the peer's outgoing video (screen vs camera); track events
+        // alone can't tell them apart. May arrive before or after the tracks.
+        // It is also the only reliable notice that a video stopped: the
+        // peer's `removeTrack()` leaves our receiver's track *muted*, not
+        // "ended" (that fires on transceiver stop / close), so waiting for
+        // the track event would pin their frozen last frame — or a black
+        // rectangle — in the viewer for the rest of the call. The cached
+        // streams stay put: a restart may recycle the transceiver without a
+        // fresh `track` event, and the next label re-shows them.
+        entry.remoteVideoLabel = data;
+        this._notifyRemoteVideo(entry);
+      } else if (data.kind === "two-videos") {
+        entry.twoVideos = true;
+        this._syncVideoSenders(entry);
       }
     } catch (err) {
       console.error("[audio] handleSignal error:", err);
@@ -884,22 +906,22 @@ export class AudioEngine {
 
   /** Whether our local screen-share track is currently being sent. */
   get isScreenSharing(): boolean {
-    return this.videoMode === "screen";
+    return this.videos.screen.live !== null;
   }
 
   /** Whether our local camera track is currently being sent. */
   get isCameraOn(): boolean {
-    return this.videoMode === "camera";
+    return this.videos.camera.live !== null;
   }
 
   /** Local display stream for self-preview while sharing. */
   get screenShareStream(): MediaStream | null {
-    return this.videoMode === "screen" ? this.videoStream : null;
+    return this.videos.screen.live?.stream ?? null;
   }
 
   /** Local camera stream for self-preview while the camera is on. */
   get cameraStream(): MediaStream | null {
-    return this.videoMode === "camera" ? this.videoStream : null;
+    return this.videos.camera.live?.stream ?? null;
   }
 
   /**
@@ -907,18 +929,17 @@ export class AudioEngine {
    * otherwise to the group place we stand in (see VideoScope). The browser
    * picker must be launched from a user gesture, so UI calls this directly
    * from the share button. Adding/removing the video track relies on the same
-   * perfect-negotiation path as mic changes. Mutually exclusive with the
-   * camera — starting this stops any active camera first.
+   * perfect-negotiation path as mic changes. The camera, if on, stays on.
    */
   async startScreenShare(): Promise<void> {
-    if (this.videoMode === "screen") return;
-    const epoch = this._beginVideoAcquire("screen", this.hasPage() ? "call" : "place");
+    if (this.isScreenSharing) return;
+    const epoch = this._beginVideoAcquire("screen");
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
         audio: false,
       });
-      if (this._acquireIsStale(epoch, stream)) return;
+      if (this._acquireIsStale("screen", epoch, stream)) return;
       const [track] = stream.getVideoTracks();
       if (!track) {
         stream.getTracks().forEach((t) => t.stop());
@@ -933,40 +954,48 @@ export class AudioEngine {
         stream.getTracks().forEach((t) => t.stop());
         throw err;
       }
-      if (this._acquireIsStale(epoch, stream)) return;
+      if (this._acquireIsStale("screen", epoch, stream)) return;
       this._startVideo("screen", stream, track);
       track.addEventListener("ended", () => this.stopScreenShare(), { once: true });
     } finally {
-      if (this.videoEpoch === epoch) this.pendingVideoMode = null;
+      this._finishVideoAcquire("screen", epoch);
     }
   }
 
-  /** Open an acquisition window for `mode`; any earlier one goes stale. */
-  private _beginVideoAcquire(mode: "screen" | "camera", scope: VideoScope): number {
-    this.pendingVideoMode = mode;
-    this.videoScope = scope;
-    return ++this.videoEpoch;
+  /** Open an acquisition window for `kind`, for the call if one is live and
+   *  otherwise for the place we stand in; any earlier one goes stale. */
+  private _beginVideoAcquire(kind: VideoKind): number {
+    const video = this.videos[kind];
+    video.acquiring = true;
+    video.scope = this.hasPage() ? "call" : "place";
+    return ++video.epoch;
+  }
+
+  /** Close the window opened at `epoch`, unless a later one replaced it. */
+  private _finishVideoAcquire(kind: VideoKind, epoch: number): void {
+    const video = this.videos[kind];
+    if (video.epoch === epoch) video.acquiring = false;
   }
 
   /**
    * Whether the acquisition that started at `epoch` has been superseded — the
-   * call ended, the session was torn down, or the user started other video
+   * call ended, the session was torn down, or the user stopped this video
    * while the picker/prompt was open. Stops `stream` on the way out: nothing
    * else holds a reference to it, so this is the only chance to release the
    * camera light or the OS screen-recording indicator.
    */
-  private _acquireIsStale(epoch: number, stream: MediaStream): boolean {
-    if (this.videoEpoch === epoch) return false;
+  private _acquireIsStale(kind: VideoKind, epoch: number, stream: MediaStream): boolean {
+    if (this.videos[kind].epoch === epoch) return false;
     stream.getTracks().forEach((t) => t.stop());
     return true;
   }
 
-  /** Invalidate an in-flight acquisition of `mode` (or of any mode, if null). */
-  private _cancelVideoAcquire(mode: "screen" | "camera" | null): void {
-    if (this.pendingVideoMode === null) return;
-    if (mode !== null && this.pendingVideoMode !== mode) return;
-    this.pendingVideoMode = null;
-    this.videoEpoch++;
+  /** Invalidate an in-flight acquisition of `kind`. */
+  private _cancelVideoAcquire(kind: VideoKind): void {
+    const video = this.videos[kind];
+    if (!video.acquiring) return;
+    video.acquiring = false;
+    video.epoch++;
   }
 
   /**
@@ -1005,30 +1034,27 @@ export class AudioEngine {
    *  last page ending) means "no screen share", and by then the engine may
    *  have no way to reach the capture once it lands. */
   stopScreenShare(): void {
-    this._cancelVideoAcquire("screen");
-    if (this.videoMode !== "screen") return;
-    this._stopVideo();
+    this._endVideo("screen");
   }
 
   /**
    * Start sending the user's camera: to the call while one is live, otherwise
    * to the group place we stand in (see VideoScope) — the same rule as
-   * screen share. Mutually exclusive with screen share — starting this stops
-   * any active screen share first. Same perfect-negotiation renegotiation
-   * path as mic and screen-share changes. With a background chosen, the
+   * screen share, which stays on if it is. Same perfect-negotiation
+   * renegotiation path as mic and screen-share changes. With a background chosen, the
    * effect is in place before the first frame leaves — the raw room is never
    * sent — and if it cannot start, neither does the camera
    * (BackgroundEffectError).
    */
   async startCamera(): Promise<void> {
-    if (this.videoMode === "camera") return;
-    const epoch = this._beginVideoAcquire("camera", this.hasPage() ? "call" : "place");
+    if (this.isCameraOn) return;
+    const epoch = this._beginVideoAcquire("camera");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: true,
         audio: false,
       });
-      if (this._acquireIsStale(epoch, stream)) return;
+      if (this._acquireIsStale("camera", epoch, stream)) return;
       const [track] = stream.getVideoTracks();
       if (!track) {
         stream.getTracks().forEach((t) => t.stop());
@@ -1043,7 +1069,7 @@ export class AudioEngine {
           stream.getTracks().forEach((t) => t.stop());
           throw err;
         }
-        if (this.videoEpoch !== epoch) {
+        if (this.videos.camera.epoch !== epoch) {
           effect.stop();
           stream.getTracks().forEach((t) => t.stop());
           return;
@@ -1056,7 +1082,7 @@ export class AudioEngine {
       // Picked while the camera was starting.
       if (this.cameraBackground !== background) await this._applyCameraBackground();
     } finally {
-      if (this.videoEpoch === epoch) this.pendingVideoMode = null;
+      this._finishVideoAcquire("camera", epoch);
     }
   }
 
@@ -1133,41 +1159,32 @@ export class AudioEngine {
   /** Stop the local camera and renegotiate every live peer connection.
    *  Cancels an in-flight acquisition too — see {@link stopScreenShare}. */
   stopCamera(): void {
-    this._cancelVideoAcquire("camera");
-    if (this.videoMode !== "camera") return;
-    this._stopVideo();
+    this._endVideo("camera");
   }
 
   /**
-   * Assign a newly-acquired video track/stream as the active local video and
-   * push it to its audience (see _videoAudience). If switching modes (e.g.
-   * screen → camera) while a peer already holds a sender from the previous
-   * track, swap it in place via `replaceTrack` — no renegotiation, no gap in
-   * the local preview, and a single "video-mode" signal per peer instead of a
-   * remove-then-add pair that would briefly tell the peer "video stopped"
-   * mid-switch.
+   * Make a newly-acquired track/stream the live `kind` video and push it to
+   * its audience (see _videoAudience). A peer that already holds a sender for
+   * this kind — a camera whose background changed — gets the new track swapped
+   * in place via `replaceTrack`: no renegotiation, and nothing to relabel.
    */
-  private _startVideo(mode: "screen" | "camera", stream: MediaStream, track: MediaStreamTrack): void {
-    const previousTrack = this.videoTrack;
-    this.videoStream = stream;
-    this.videoTrack = track;
-    this.videoMode = mode;
+  private _startVideo(kind: VideoKind, stream: MediaStream, track: MediaStreamTrack): void {
+    const video = this.videos[kind];
+    const previousTrack = video.live?.track;
+    video.live = { stream, track };
 
     for (const entry of this.peers.values()) {
-      const sender = entry.videoSender;
-      if (!sender || !this._videoAudience(entry)) continue;
+      const sender = entry.videoSenders[kind];
+      if (!sender) continue;
       this._queueVideoUpdate(entry, async () => {
-        if (entry.videoSender !== sender || this.videoTrack !== track) return;
+        if (entry.videoSenders[kind] !== sender || video.live?.track !== track) return;
         await sender.replaceTrack(track);
-        if (entry.videoSender !== sender || this.videoTrack !== track) return;
-        await this._applyVideoEncoding(sender, mode);
+        if (entry.videoSenders[kind] !== sender || video.live?.track !== track) return;
+        await this._applyVideoEncoding(sender, kind);
       });
-      this.sendSignal?.(entry.id, { kind: "video-mode", mode });
     }
 
-    // A background swap keeps the raw camera running under the new track;
-    // whatever else the new video replaces is done.
-    if (mode !== "camera") this._releaseCamera();
+    // A background swap keeps the raw camera running under the new track.
     if (
       previousTrack &&
       previousTrack !== track &&
@@ -1176,45 +1193,34 @@ export class AudioEngine {
     ) {
       previousTrack.stop();
     }
-    this.onLocalVideo?.(stream, mode);
+    this.onLocalVideo?.(true);
     // Adds a sender for everyone in the audience who has none yet.
     this._syncVideoLinks();
   }
 
-  /** Tear down whatever local video (screen or camera) is currently active. */
-  private _stopVideo(): void {
-    const track = this.videoTrack;
-    this.videoTrack = null;
-    this.videoMode = null;
+  /** End the `kind` video, live or still being acquired. */
+  private _endVideo(kind: VideoKind): void {
+    this._cancelVideoAcquire(kind);
+    const video = this.videos[kind];
+    const live = video.live;
+    if (!live) return;
+    video.live = null;
+    for (const entry of this.peers.values()) this._syncVideoSenders(entry);
 
-    for (const entry of this.peers.values()) {
-      this._removeVideoTrack(entry);
+    for (const t of new Set([live.track, ...live.stream.getTracks()])) {
+      if (t.readyState !== "ended") t.stop();
     }
-
-    if (track && track.readyState !== "ended") track.stop();
-    if (this.videoStream) {
-      this.videoStream.getTracks().forEach((t) => {
-        if (t !== track && t.readyState !== "ended") t.stop();
-      });
-    }
-    this.videoStream = null;
-    this._releaseCamera();
-    this.onLocalVideo?.(null, null);
-  }
-
-  /** End local video, live or still being acquired. */
-  private _endVideo(): void {
-    this._cancelVideoAcquire(null);
-    if (this.videoMode !== null) this._stopVideo();
+    if (kind === "camera") this._releaseCamera();
+    this.onLocalVideo?.(false);
   }
 
   /**
-   * Whether our local video should reach this peer, by what it was started
-   * for: a call's video goes to call peers only, a place share to every
-   * proximity peer standing in the same group place as us.
+   * Whether a local video started for `scope` should reach this peer: a
+   * call's video goes to call peers only, a place share to every proximity
+   * peer standing in the same group place as us.
    */
-  private _videoAudience(entry: PeerConn): boolean {
-    if (this.videoScope === "call") return entry.page;
+  private _videoAudience(entry: PeerConn, scope: VideoScope): boolean {
+    if (scope === "call") return entry.page;
     const pos = this.peerPositions.get(entry.id);
     return entry.proximity && pos !== undefined && this._inPlace() && inGroupPlace(this.space!, pos);
   }
@@ -1233,11 +1239,35 @@ export class AudioEngine {
    */
   private _syncVideoLinks(): void {
     const paging = this.hasPage();
-    if (this.videoScope === "call" ? !paging : paging || !this._inPlace()) this._endVideo();
-    for (const entry of this.peers.values()) {
-      if (this._videoAudience(entry)) this._addVideoTrack(entry);
-      else this._removeVideoTrack(entry);
+    for (const kind of VIDEO_KINDS) {
+      if (this.videos[kind].scope === "call" ? !paging : paging || !this._inPlace()) this._endVideo(kind);
     }
+    for (const entry of this.peers.values()) this._syncVideoSenders(entry);
+  }
+
+  /**
+   * Give this peer a sender for each live video it is in the audience of, and
+   * take away the rest — then tell it which is which. A peer that shows a
+   * single video (see PeerConn.twoVideos) gets the first of them only.
+   */
+  private _syncVideoSenders(entry: PeerConn): void {
+    const wanted = VIDEO_KINDS.filter((kind) => {
+      const video = this.videos[kind];
+      return video.live !== null && this._videoAudience(entry, video.scope);
+    });
+    if (!entry.twoVideos) wanted.splice(1);
+    let changed = false;
+    for (const kind of VIDEO_KINDS) {
+      const done = wanted.includes(kind) ? this._addVideoTrack(entry, kind) : this._removeVideoTrack(entry, kind);
+      changed ||= done;
+    }
+    if (!changed) return;
+    const tag = (kind: VideoKind): string | null => (entry.videoSenders[kind] ? this.videos[kind].tag.id : null);
+    this.sendSignal?.(entry.id, {
+      kind: "video-mode",
+      mode: VIDEO_KINDS.find((kind) => entry.videoSenders[kind]) ?? null,
+      streams: { screen: tag("screen"), camera: tag("camera") },
+    });
   }
 
   /**
@@ -1261,11 +1291,10 @@ export class AudioEngine {
     this.stopMicPreview();
     this._cancelMicIdleRelease();
     this._releaseMic();
-    // Cancel before stopping: a capture still in the picker is not in
-    // `videoStream` yet, so `_stopVideo` cannot reach it — it must stop itself
-    // when it lands, or the OS keeps recording after the user has left.
-    this._cancelVideoAcquire(null);
-    this._stopVideo();
+    // Ending cancels too: a capture still in the picker is not live yet, so
+    // nothing here can reach it — it must stop itself when it lands, or the
+    // OS keeps recording after the user has left.
+    for (const kind of VIDEO_KINDS) this._endVideo(kind);
 
     if (this.audioCtx && this.audioCtx.state !== "closed") {
       void this.audioCtx.close();
@@ -1307,10 +1336,11 @@ export class AudioEngine {
       sink: null,
       level: 0,
       audioSender: null,
-      videoSender: null,
-      remoteVideoStream: null,
-      remoteVideoTrack: null,
-      remoteVideoMode: null,
+      videoSenders: { screen: null, camera: null },
+      twoVideos: false,
+      remoteVideoStreams: new Map(),
+      latestRemoteVideo: null,
+      remoteVideoLabel: null,
     };
     this.peers.set(peerId, entry);
     this._updateMicHold();
@@ -1398,29 +1428,33 @@ export class AudioEngine {
     return Promise.all(swaps).then(() => undefined);
   }
 
-  private _addVideoTrack(entry: PeerConn): void {
-    const { videoTrack: track, videoStream: stream, videoMode: mode } = this;
-    if (!track || !stream || !mode || entry.videoSender) return;
+  /** Start sending the live `kind` video to this peer. Returns whether a
+   *  sender was added. */
+  private _addVideoTrack(entry: PeerConn, kind: VideoKind): boolean {
+    const video = this.videos[kind];
+    if (!video.live || entry.videoSenders[kind]) return false;
+    const { track } = video.live;
     try {
-      const sender = entry.pc.addTrack(track, stream);
-      entry.videoSender = sender;
-      this._preferVideoCodecs(entry);
+      const sender = entry.pc.addTrack(track, video.tag);
+      entry.videoSenders[kind] = sender;
+      this._preferVideoCodecs(entry, sender);
       this._queueVideoUpdate(entry, async () => {
-        if (entry.videoSender !== sender || this.videoTrack !== track) return;
-        await this._applyVideoEncoding(sender, mode);
+        if (entry.videoSenders[kind] !== sender || video.live?.track !== track) return;
+        await this._applyVideoEncoding(sender, kind);
       });
-      this.sendSignal?.(entry.id, { kind: "video-mode", mode });
+      return true;
     } catch (err) {
       console.error("[audio] add video track error:", err);
+      return false;
     }
   }
 
   /**
    * Run a change to a peer's video sender after whatever change is already in
    * flight for it. replaceTrack and setParameters are both async and neither
-   * queues: a quick screen → camera → screen flip would otherwise let the
-   * older call finish last (the new track with stale encoder settings) or
-   * fail setParameters' transaction check outright. Each update re-checks
+   * queues: two quick background changes would otherwise let the older call
+   * finish last (the new track with stale encoder settings) or fail
+   * setParameters' transaction check outright. Each update re-checks
    * that its sender and track are still current before touching anything, so
    * a superseded switch is dropped rather than replayed.
    */
@@ -1436,8 +1470,8 @@ export class AudioEngine {
    * smears fine detail at any bitrate. Takes effect at the next negotiation,
    * which addTrack triggers anyway.
    */
-  private _preferVideoCodecs(entry: PeerConn): void {
-    const transceiver = entry.pc.getTransceivers().find((t) => t.sender === entry.videoSender);
+  private _preferVideoCodecs(entry: PeerConn, sender: RTCRtpSender): void {
+    const transceiver = entry.pc.getTransceivers().find((t) => t.sender === sender);
     const capabilities = RTCRtpSender.getCapabilities("video");
     if (!transceiver || !capabilities) return;
     const rank = (c: RTCRtpCodec): number =>
@@ -1446,20 +1480,20 @@ export class AudioEngine {
   }
 
   /**
-   * Tune the sender's encoder for the current video mode. Engine defaults
+   * Tune the sender's encoder for the video it carries. Engine defaults
    * are sized for camera video: a Retina/4K screen at that bitrate is soft
    * even on a good link, and under congestion the encoder shrinks the picture
    * first. For screen share we raise the cap and ask it to sacrifice frame
    * rate before resolution; camera goes back to balanced defaults, capped
    * when it fans out to a group place.
    */
-  private async _applyVideoEncoding(sender: RTCRtpSender, mode: "screen" | "camera"): Promise<void> {
+  private async _applyVideoEncoding(sender: RTCRtpSender, kind: VideoKind): Promise<void> {
     const params = sender.getParameters();
-    const screen = mode === "screen";
+    const screen = kind === "screen";
     for (const encoding of params.encodings) {
       encoding.maxBitrate = screen
         ? SCREEN_SHARE_MAX_BITRATE
-        : this.videoScope === "place"
+        : this.videos.camera.scope === "place"
           ? PLACE_CAMERA_MAX_BITRATE
           : undefined;
     }
@@ -1471,15 +1505,18 @@ export class AudioEngine {
     }
   }
 
-  private _removeVideoTrack(entry: PeerConn): void {
-    if (!entry.videoSender) return;
+  /** Stop sending the `kind` video to this peer. Returns whether a sender
+   *  was removed. */
+  private _removeVideoTrack(entry: PeerConn, kind: VideoKind): boolean {
+    const sender = entry.videoSenders[kind];
+    if (!sender) return false;
     try {
-      entry.pc.removeTrack(entry.videoSender);
+      entry.pc.removeTrack(sender);
     } catch {
       /* PC may already be closed. */
     }
-    entry.videoSender = null;
-    this.sendSignal?.(entry.id, { kind: "video-mode", mode: null });
+    entry.videoSenders[kind] = null;
+    return true;
   }
 
   /** Add any buffered ICE candidates now that the remote description is set. */
@@ -1543,30 +1580,38 @@ export class AudioEngine {
     this.onWake?.();
   }
 
-  /** Surface a remote video stream (screen share or camera) to the UI layer. */
+  /** Keep a remote video stream (screen share or camera) for the UI layer. */
   private _attachRemoteVideoStream(
     entry: PeerConn,
     stream: MediaStream,
     track: MediaStreamTrack,
   ): void {
-    if (entry.remoteVideoTrack === track) return;
-    entry.remoteVideoTrack = track;
-    entry.remoteVideoStream = stream;
-    // The "video-mode" signal usually arrives alongside the offer, before the
-    // track itself finishes negotiating — but it's a separate message, so
-    // pass along whatever we have now (possibly still null/unresolved); the
-    // handleSignal video-mode branch re-notifies once it lands.
-    this.onRemoteVideo?.(entry.id, stream, entry.remoteVideoMode);
+    entry.remoteVideoStreams.set(stream.id, stream);
+    entry.latestRemoteVideo = stream.id;
+    this._notifyRemoteVideo(entry);
     track.addEventListener(
       "ended",
       () => {
-        if (entry.remoteVideoTrack !== track) return;
-        entry.remoteVideoTrack = null;
-        entry.remoteVideoStream = null;
-        this.onRemoteVideo?.(entry.id, null, null);
+        if (entry.remoteVideoStreams.get(stream.id) !== stream) return;
+        entry.remoteVideoStreams.delete(stream.id);
+        this._notifyRemoteVideo(entry);
       },
       { once: true },
     );
+  }
+
+  /** Tell the UI layer which stream is the peer's screen and which its camera
+   *  — each only once both its label and its track are here. */
+  private _notifyRemoteVideo(entry: PeerConn): void {
+    const label = entry.remoteVideoLabel;
+    const of = (kind: VideoKind): MediaStream | null => {
+      if (!label) return null;
+      // A peer on a version that sends a single video names no streams: its
+      // mode is for the one that arrived last.
+      const id = label.streams ? label.streams[kind] : label.mode === kind ? entry.latestRemoteVideo : null;
+      return id === null ? null : (entry.remoteVideoStreams.get(id) ?? null);
+    };
+    this.onRemoteVideo?.(entry.id, { screen: of("screen"), camera: of("camera") });
   }
 
   /** Lazily create the AudioContext (browsers require a user gesture first). */
@@ -1752,10 +1797,9 @@ export class AudioEngine {
       try { entry.sink.pause(); } catch { /* ignore */ }
       entry.sink.srcObject = null;
     }
-    if (entry.remoteVideoStream) {
-      this.onRemoteVideo?.(entry.id, null, null);
-      entry.remoteVideoStream = null;
-      entry.remoteVideoTrack = null;
+    if (entry.remoteVideoStreams.size > 0) {
+      entry.remoteVideoStreams.clear();
+      this._notifyRemoteVideo(entry);
     }
     entry.source = null;
     entry.gainNode = null;
@@ -1763,7 +1807,7 @@ export class AudioEngine {
     entry.sink = null;
     entry.level = 0;
     entry.audioSender = null;
-    entry.videoSender = null;
+    entry.videoSenders = { screen: null, camera: null };
     try {
       entry.pc.close();
     } catch { /* already closed */ }

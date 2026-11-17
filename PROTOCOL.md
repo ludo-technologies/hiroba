@@ -694,12 +694,22 @@ Produced and consumed only by clients; opaque to the server. Convention:
 { "kind": "offer",     "sdp": "..." }
 { "kind": "answer",    "sdp": "..." }
 { "kind": "candidate", "candidate": { "candidate": "...", "sdpMid": "...", "sdpMLineIndex": 0 } }
-{ "kind": "video-mode", "mode": "screen" | "camera" | null }
+{ "kind": "video-mode", "mode": "screen" | "camera" | null,
+  "streams": { "screen": "<stream id>" | null, "camera": "<stream id>" | null } }
+{ "kind": "two-videos" }
 ```
-`video-mode` labels the sender's outgoing video track (screen share vs.
-camera; `null` = video stopped) — sent alongside `addTrack`/`removeTrack`
-renegotiation, since a bare WebRTC `track` event can't tell the two apart.
-Screen share and camera are mutually exclusive on one sender.
+`video-mode` labels the sender's outgoing video (screen share vs. camera) —
+sent alongside `addTrack`/`removeTrack` renegotiation, since a bare WebRTC
+`track` event can't tell the two apart. A sender can have both on at once:
+`streams` gives the id of the media stream each one arrives under (`null` =
+that video is off).
+
+`two-videos` is sent once when a link opens, by a client that can show a
+peer's screen and camera together. A peer that has not sent it (a client
+before this signal existed) gets a single video — the screen when both are on
+— and reads only `mode`, which says what that one video is (`null` = video
+stopped). Such a client sends `video-mode` without `streams`; `mode` then
+labels its one track.
 
 Who receives video is decided by the sender, by what the video was started
 for:
