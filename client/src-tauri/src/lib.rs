@@ -8,8 +8,11 @@
 //!   - auto-update: signature-verified installs + relaunch (updater/process
 //!     plugins; the frontend drives them from updater.ts), and
 //!   - hiroba:// deep links (invite links; deep-link + single-instance
-//!     plugins; the frontend consumes them in deeplink.ts).
+//!     plugins; the frontend consumes them in deeplink.ts), and
+//!   - opening at login (autostart.rs).
 
+#[cfg(desktop)]
+mod autostart;
 mod oauth;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -164,6 +167,18 @@ pub fn run() {
                         }
                     })
                     .build(app)?;
+
+                // Started by the OS at login: nobody asked for a window, so it
+                // waits minimised — still open, which is what keeps the user
+                // in the office (closing it is how one leaves).
+                use tauri::Manager;
+                let at_login = autostart::at_login();
+                if at_login {
+                    if let Some(window) = app.get_webview_window("main") {
+                        window.minimize()?;
+                    }
+                }
+                app.manage(autostart::LaunchedAtLogin(at_login));
             }
 
             // Windows/Linux resolve hiroba:// via a registry/.desktop entry
@@ -204,6 +219,12 @@ pub fn run() {
             screen_capture_permission,
             open_screen_recording_settings,
             store_managed,
+            #[cfg(desktop)]
+            autostart::launched_at_login,
+            #[cfg(desktop)]
+            autostart::autostart_enabled,
+            #[cfg(desktop)]
+            autostart::set_autostart,
         ])
         .build(tauri::generate_context!())
         .expect("error while running Hiroba")

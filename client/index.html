@@ -960,6 +960,11 @@
             <button type="button" data-lang="pt" lang="pt-BR">PT</button>
           </div>
         </div>
+        <!-- Desktop app only (main.ts reveals it once it knows the state). -->
+        <label id="autostart-field" class="check-field" hidden>
+          <input id="autostart-toggle" type="checkbox" />
+          <span data-i18n="autostartOption">Open Hiroba when I sign in to this computer</span>
+        </label>
         <!-- Members only, and only where the auth backend has a support
              address (`support` in GET /providers). -->
         <button id="support-open" type="button" class="ghost-btn" data-i18n="supportTitle" hidden>Help &amp; feedback</button>

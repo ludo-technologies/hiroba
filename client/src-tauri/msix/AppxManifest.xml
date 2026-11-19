@@ -13,8 +13,9 @@
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-  IgnorableNamespaces="uap rescap">
+  IgnorableNamespaces="uap desktop rescap">
 
   <!-- Name and Publisher are assigned by Partner Center when the app name is
        reserved (Product management → Product identity) and must match it
@@ -77,6 +78,16 @@
             <uap:DisplayName>Hiroba</uap:DisplayName>
           </uap:Protocol>
         </uap:Extension>
+        <!-- Opening at login. A package cannot use the Run key the MSI's
+             build writes, so the task is declared here and switched from the
+             app (autostart.rs, which knows it by this TaskId): off until the
+             user first enters an office signed in, then theirs to turn off in
+             the app's settings or under Startup apps in Windows. Windows
+             starts Hiroba.exe without arguments; the app tells by its
+             activation kind. -->
+        <desktop:Extension Category="windows.startupTask" Executable="Hiroba.exe" EntryPoint="Windows.FullTrustApplication">
+          <desktop:StartupTask TaskId="HirobaStartup" Enabled="false" DisplayName="Hiroba Office" />
+        </desktop:Extension>
       </Extensions>
     </Application>
   </Applications>

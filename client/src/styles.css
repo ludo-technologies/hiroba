@@ -1672,6 +1672,19 @@ a.hud-pill {
 }
 
 /* "Lock it" switch under the layouts (members with an account only). */
+.check-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.check-field[hidden] {
+  display: none;
+}
+
 .layout-lock {
   display: flex;
   align-items: center;

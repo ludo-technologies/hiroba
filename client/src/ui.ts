@@ -338,6 +338,8 @@ const elRenameOrgClose = $<HTMLButtonElement>("rename-org-close");
 const elRenameOrgName = $<HTMLInputElement>("rename-org-name");
 const elRenameOrgSave = $<HTMLButtonElement>("rename-org-save");
 const elRenameOrgError = $<HTMLParagraphElement>("rename-org-error");
+const elAutostartField = $<HTMLLabelElement>("autostart-field");
+const elAutostartToggle = $<HTMLInputElement>("autostart-toggle");
 const elSupportOpen = $<HTMLButtonElement>("support-open");
 const elSupportPanel = $<HTMLDivElement>("support-panel");
 const elSupportClose = $<HTMLButtonElement>("support-close");
@@ -586,6 +588,8 @@ export interface UICallbacks {
   /** Admin opens the Stripe Customer Portal (add card / change plan / cancel). */
   onOpenBilling(): void;
   onMicToggle(): void;
+  /** The settings panel's "open at login" box was ticked or cleared. */
+  onSetAutostart(enabled: boolean): void;
   /** The settings panel's audio tab came up: list the devices (see
    *  `setAudioDevices`) and start the mic preview. */
   onOpenAudioSettings(): void;
@@ -1086,6 +1090,14 @@ export class UIManager {
   ): void {
     this._fillDeviceSelect(this.micSelect, inputs, t.fieldMicrophone, selectedMic);
     this._fillDeviceSelect(this.speakerSelect, outputs, t.fieldSpeaker, selectedSpeaker);
+  }
+
+  /** Whether the app opens at login, as the OS has it: shows the settings
+   *  panel's box (absent until this is called — the browser build never
+   *  does) and sets it. */
+  setAutostart(enabled: boolean): void {
+    elAutostartField.hidden = false;
+    elAutostartToggle.checked = enabled;
   }
 
   /** The audio tab is the one showing. */
@@ -3667,6 +3679,9 @@ export class UIManager {
       if (file) void this._setBackgroundFromFile(file);
     });
     elSettingsClose.addEventListener("click", () => this._closeSettings());
+    elAutostartToggle.addEventListener("change", () => {
+      this.callbacks.onSetAutostart(elAutostartToggle.checked);
+    });
     bindOverlayDismiss(elSettings, () => this._closeSettings());
   }
 

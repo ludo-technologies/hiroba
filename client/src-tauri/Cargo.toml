@@ -41,8 +41,15 @@ tauri-plugin-deep-link = "2"
 # Package-identity probe (store_managed): a Microsoft Store install is updated
 # by the Store and registers hiroba:// through its manifest (msix/).
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Storage_Packaging_Appx"] }
+# A Store install opens at login through its package's startup task, and
+# learns from its activation kind that it was started that way (autostart.rs).
+windows = { version = "0.61", features = ["ApplicationModel", "ApplicationModel_Activation"] }
 
 [target."cfg(any(target_os = \"macos\", windows, target_os = \"linux\"))".dependencies]
+# Open at login on a direct install (autostart.rs): Launch Agent, Run key or
+# XDG autostart entry. Used directly rather than through tauri-plugin-autostart,
+# whose releases require a newer tauri (and with it a newer webview stack).
+auto-launch = "0.6"
 # A second launch (Windows/Linux hand a hiroba:// URL to a fresh process)
 # forwards to the running instance; the deep-link feature re-emits its URL.
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }

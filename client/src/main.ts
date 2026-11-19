@@ -361,6 +361,7 @@ const ui = new UIManager(
     onSendSupport: handleSendSupport,
     onOpenBilling: handleOpenBilling,
     onMicToggle: handleMicToggle,
+    onSetAutostart: (enabled) => void handleSetAutostart(enabled),
     onOpenAudioSettings: handleOpenAudioSettings,
     onCloseAudioSettings: handleCloseAudioSettings,
     onMicDeviceChange: handleMicDeviceChange,
@@ -733,6 +734,69 @@ async function restoreAuthSession(): Promise<void> {
   if (problem === "keychain") ui.showError(session ? t.errSessionNotSaved : t.errKeychain);
   if (problem === "network") scheduleRestoreRetry();
   else cancelRestoreRetry();
+  enterAtLogin();
+}
+
+// ---------------------------------------------------------------------------
+// Open at login
+// ---------------------------------------------------------------------------
+// An office has people in it only while their apps are open, so the desktop
+// app starts with the computer (src-tauri/src/autostart.rs): on from the first
+// signed-in entry, off again from the settings panel. A launch at login comes
+// up minimised and walks into the office by itself — muted like every entry,
+// and away after the usual idle minutes if nobody is at the keyboard.
+
+/** Set once opening at login has been decided on this device, by the first
+ *  signed-in entry or by the user's own hand in settings — so it is turned on
+ *  once, and never back on after they turned it off. */
+const LS_AUTOSTART_SET = "hiroba_autostart_set";
+
+/** The OS started this launch at login and it has yet to enter the office. */
+let enterAtLoginPending = false;
+
+if (isTauri()) {
+  void invoke<boolean>("autostart_enabled").then((on) => ui.setAutostart(on));
+  void invoke<boolean>("launched_at_login").then((atLogin) => {
+    enterAtLoginPending = atLogin;
+    enterAtLogin();
+  });
+  // Login often beats the network: the entry waits for it.
+  window.addEventListener("online", enterAtLogin);
+}
+
+/** Enter the office on a launch at login, once: when the restored session is
+ *  in hand and the network is up. Without a session the sign-in form waits
+ *  in the minimised window, as on any launch. */
+function enterAtLogin(): void {
+  if (!enterAtLoginPending || session || !navigator.onLine) return;
+  if (!authSession || !isLive(authSession.claims)) return;
+  enterAtLoginPending = false;
+  ui.submitJoin();
+}
+
+/** The first signed-in entry on this device turns opening at login on and
+ *  says so. Not under `tauri dev`, which would register the debug binary. */
+async function enableAutostartOnce(): Promise<void> {
+  if (!isTauri() || import.meta.env.DEV || !authSession) return;
+  if (localStorage.getItem(LS_AUTOSTART_SET)) return;
+  localStorage.setItem(LS_AUTOSTART_SET, "1");
+  const on = await invoke<boolean>("set_autostart", { enabled: true });
+  ui.setAutostart(on);
+  if (on) ui.showToast(t.autostartEnabled);
+}
+
+async function handleSetAutostart(enabled: boolean): Promise<void> {
+  localStorage.setItem(LS_AUTOSTART_SET, "1");
+  let on: boolean;
+  try {
+    on = await invoke<boolean>("set_autostart", { enabled });
+  } catch (err) {
+    console.error("[autostart]", err);
+    on = !enabled;
+  }
+  ui.setAutostart(on);
+  // Windows keeps a startup entry the user disabled there disabled.
+  if (on !== enabled) ui.showToast(t.autostartFailed, "error");
 }
 
 // ---------------------------------------------------------------------------
@@ -1731,6 +1795,7 @@ async function handleJoin(values: JoinFormValues): Promise<void> {
       return;
     }
     startSession(net, msg, ice, token);
+    void enableAutostartOnce().catch((err) => console.error("[autostart]", err));
     if (!localStorage.getItem(LS_MOVE_HINT_SEEN)) {
       moveHintActive = true;
       ui.showMoveHint();
