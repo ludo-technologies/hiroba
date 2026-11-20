@@ -412,11 +412,17 @@ mod tests {
     use super::*;
 
     /// Captures a second of system audio on this Mac and prints what came.
-    /// Needs the Screen Recording grant for the process running it, so it is
+    /// Needs the Screen Recording grant for the terminal running it, so it is
     /// run by hand: `cargo test -- --ignored --nocapture captures_system_audio`.
+    /// The app's preflight goes first, as before a share: the first run puts
+    /// up the OS prompt, and a grant takes effect once the terminal relaunches.
     #[test]
     #[ignore]
     fn captures_system_audio() {
+        assert!(
+            crate::screen_capture_permission(),
+            "no Screen Recording grant: allow the terminal under System Settings › Privacy & Security › Screen & System Audio Recording, relaunch it, and run again"
+        );
         let captures = Mutex::new(None);
         let format = start(&captures).expect("start");
         assert_eq!((format.sample_rate, format.channels), (SAMPLE_RATE, CHANNELS));
