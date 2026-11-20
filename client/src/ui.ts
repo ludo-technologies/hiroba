@@ -3047,7 +3047,7 @@ export class UIManager {
    *  same `key` takes its place rather than piling up beside it. */
   showToast(
     message: string,
-    kind: "info" | "error" = "info",
+    kind: "info" | "error" | "wave" = "info",
     action?: { key: string; label: string; run: () => void },
   ): void {
     const el = document.createElement("div");

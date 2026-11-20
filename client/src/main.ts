@@ -2675,14 +2675,14 @@ function bindServerMessages(net: HirobaNet): void {
   net.on("waved", (e) => {
     if (!session) return;
     const { to } = e.detail;
-    ui.showToast(t.waveSent(session.roster.get(to)?.name ?? to));
+    ui.showToast(`👋 ${t.waveSent(session.roster.get(to)?.name ?? to)}`, "wave");
     renderer.wave(session.self.id);
   });
 
   net.on("wave", (e) => {
     if (!session) return;
     const { from } = e.detail;
-    ui.showToast(`👋 ${t.waveReceived(session.roster.get(from)?.name ?? from)}`, "info", {
+    ui.showToast(`👋 ${t.waveReceived(session.roster.get(from)?.name ?? from)}`, "wave", {
       key: `wave:${from}`,
       label: t.waveBackBtn,
       run: () => handleWave(from),
