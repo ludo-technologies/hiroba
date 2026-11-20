@@ -24,7 +24,12 @@ class FakeNode {
 }
 class FakeGain extends FakeNode {
   gain = { value: 0 };
+  constructor() {
+    super();
+    FakeGain.instances.push(this);
+  }
 }
+FakeGain.instances = [];
 class FakeAnalyser extends FakeNode {
   fftSize = 2048;
   smoothingTimeConstant = 0;
@@ -105,7 +110,10 @@ class FakeMediaStream {
     return this._tracks;
   }
   getAudioTracks() {
-    return this._tracks;
+    return this._tracks.filter((t) => t.kind === "audio");
+  }
+  addTrack(track) {
+    this._tracks.push(track);
   }
   getVideoTracks() {
     return this._tracks.filter((t) => t.kind === "video");
@@ -128,16 +136,23 @@ function fakeVideoTrack() {
   };
 }
 
+/** An audio track of a screen capture or the host's system-audio pipe. */
+function fakeAudioTrack() {
+  return { kind: "audio", readyState: "live", stopped: false, stop() { this.stopped = true; this.readyState = "ended"; }, addEventListener() {} };
+}
+
 /** getDisplayMedia/getUserMedia that resolves only when the test says so —
- *  stands in for the OS picker or permission prompt sitting open. */
-function deferredCapture() {
+ *  stands in for the OS picker or permission prompt sitting open. `withAudio`
+ *  is Chromium's picker with "share audio" ticked. */
+function deferredCapture(withAudio = false) {
   const track = fakeVideoTrack();
-  const stream = new FakeMediaStream([track]);
+  const audio = withAudio ? fakeAudioTrack() : null;
+  const stream = new FakeMediaStream(audio ? [track, audio] : [track]);
   let release;
   const pending = new Promise((resolve) => {
     release = () => resolve(stream);
   });
-  return { track, stream, request: () => pending, release };
+  return { track, audio, stream, request: () => pending, release };
 }
 
 function deferredMicCapture() {
@@ -257,6 +272,7 @@ function installMocks() {
   FakePC.makeSender = null;
   globalThis.RTCRtpSender = { getCapabilities: () => null };
   FakeAudio.instances = [];
+  FakeGain.instances = [];
   FakeOscillator.instances = [];
   FakeMic.lastTrack = null;
 }
@@ -1158,4 +1174,133 @@ test("a room peer's screen reaches the viewer, not only a caller's", async () =>
   pc.fire("track", { streams: [stream], track });
   await eng.handleSignal("mate", { kind: "video-mode", mode: "screen" });
   assert.deepEqual(seen.at(-1), { peerId: "mate", screen: stream, camera: null });
+});
+
+// --- Screen share audio ------------------------------------------------------
+
+test("a screen share with the picker's sound sends it to the call under the screen's stream, and stops it with the share", async () => {
+  const { eng, pc } = await inCall(false);
+
+  const capture = deferredCapture(true);
+  navigator.mediaDevices.getDisplayMedia = capture.request;
+  const sharing = eng.startScreenShare();
+  capture.release();
+  await sharing;
+  assert.deepEqual(pc.added, [capture.track, capture.audio], "the screen, then its sound");
+
+  eng.stopScreenShare();
+  assert.deepEqual(new Set(pc.removed), new Set([capture.track, capture.audio]), "both senders are taken off");
+  assert.ok(capture.audio.stopped, "the audio capture is released");
+});
+
+test("on a Mac the engine asks the host for the sound and sends it with the screen", async () => {
+  const { eng, pc } = await inCall(false);
+  const hostTrack = fakeAudioTrack();
+  let stops = 0;
+  eng.setSystemAudioSource(async () => ({ track: hostTrack, stop: () => { stops++; } }));
+
+  const capture = await shareScreen(eng);
+  assert.deepEqual(pc.added, [capture.track, hostTrack], "the host's sound goes with the screen");
+  assert.equal(stops, 0, "the capture runs with the share");
+
+  eng.stopScreenShare();
+  assert.equal(stops, 1, "ending the share ends the host's capture");
+  assert.ok(hostTrack.stopped, "and its track");
+});
+
+test("a host that has no sound to give leaves the share silent and on", async () => {
+  const { eng, pc } = await inCall(false);
+  eng.setSystemAudioSource(async () => null);
+
+  const capture = await shareScreen(eng);
+  assert.deepEqual(pc.added, [capture.track], "the screen alone");
+  assert.equal(eng.isScreenSharing, true);
+});
+
+test("a host capture that lands after hang-up is ended, not sent", async () => {
+  const { eng, pc } = await inCall(false);
+  let land;
+  let stops = 0;
+  eng.setSystemAudioSource(() => new Promise((resolve) => { land = resolve; }));
+
+  const capture = deferredCapture();
+  navigator.mediaDevices.getDisplayMedia = capture.request;
+  const sharing = eng.startScreenShare();
+  capture.release();
+  await tick(); // the picker lands; the host is asked
+  eng.endPage("9");
+  land({ track: fakeAudioTrack(), stop: () => { stops++; } });
+  await sharing;
+
+  assert.equal(stops, 1, "the capture was ended on arrival");
+  assert.ok(capture.track.stopped, "and the screen capture with it");
+  assert.equal(eng.isScreenSharing, false);
+  assert.equal(pc.added, undefined, "nothing was sent");
+});
+
+test("the sound follows the screen to a peer that shows a single video", async () => {
+  const { eng, pc } = await inCall(false);
+  const camera = await startCamera(eng);
+  const screen = (() => {
+    const capture = deferredCapture(true);
+    navigator.mediaDevices.getDisplayMedia = capture.request;
+    const sharing = eng.startScreenShare();
+    capture.release();
+    return sharing.then(() => capture);
+  })();
+  const capture = await screen;
+  assert.deepEqual(pc.added, [camera.track, capture.track, capture.audio]);
+  assert.deepEqual(pc.removed, [camera.track], "the screen and its sound took the camera's place");
+
+  eng.stopScreenShare();
+  assert.deepEqual(pc.removed, [camera.track, capture.track, capture.audio], "both go when the share does");
+  assert.deepEqual(pc.added.at(-1), camera.track, "the camera is sent again, without sound");
+});
+
+test("a peer's screen sound plays in full with no speaking ring, and the room's goes quiet during a call", async () => {
+  installMocks();
+  const eng = new AudioEngine();
+  eng.init(TEAM, () => {}, () => {});
+  const pcs = await connectAll(eng, ["mate"]);
+
+  // Their screen arrives as video + audio under one stream, video first.
+  const video = fakeVideoTrack();
+  const audio = fakeAudioTrack();
+  const stream = new FakeMediaStream([video, audio]);
+  pcs.mate.fire("track", { track: video, streams: [stream] });
+  pcs.mate.fire("track", { track: audio, streams: [stream] });
+  const gain = FakeGain.instances.at(-1);
+  const sink = FakeAudio.instances.at(-1);
+  assert.equal(sink.muted, true, "the pump sink is muted; the gain path plays");
+
+  eng.updateGains({ x: 100, y: 100 }, new Map([["mate", { x: 700, y: 500 }]]));
+  assert.equal(gain.gain.value, 1, "full, however far away they stand");
+  assert.equal(eng.pollLevels(), false, "a screen does not meter as a voice");
+  assert.equal(eng.getLevel("mate"), 0);
+
+  await connectAll(eng, ["9"], "page");
+  eng.updateGains({ x: 100, y: 100 }, new Map([["mate", { x: 700, y: 500 }]]));
+  assert.equal(gain.gain.value, 0, "a call of ours takes the ears");
+  eng.endPage("9");
+  eng.updateGains({ x: 100, y: 100 }, new Map([["mate", { x: 700, y: 500 }]]));
+  assert.equal(gain.gain.value, 1, "and gives them back");
+
+  eng.disconnect("mate");
+  assert.equal(sink.paused, true, "closing the peer releases the sink");
+});
+
+test("a screen's sound that arrives before its video is still told from a voice by the peer's label", async () => {
+  installMocks();
+  const eng = new AudioEngine();
+  eng.init(TEAM, () => {}, () => {});
+  const pc = (await connectAll(eng, ["mate"]))["mate"];
+
+  const stream = new FakeMediaStream([]);
+  await eng.handleSignal("mate", { kind: "video-mode", mode: "screen", streams: { screen: stream.id, camera: null } });
+  const audio = fakeAudioTrack();
+  stream.addTrack(audio);
+  pc.fire("track", { track: audio, streams: [stream] });
+  eng.updateGains({ x: 100, y: 100 }, new Map([["mate", { x: 700, y: 500 }]]));
+  assert.equal(FakeGain.instances.at(-1).gain.value, 1, "played as a screen's sound, not as a far-off voice");
+  assert.equal(eng.pollLevels(), false, "and not metered");
 });

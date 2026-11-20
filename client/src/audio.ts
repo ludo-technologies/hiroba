@@ -110,8 +110,10 @@ interface LocalVideo {
    *  engine and holds no track: its id is what tells a peer our screen from
    *  our camera (see VideoModeData). */
   readonly tag: MediaStream;
-  /** The stream and track being sent, null while this video is off. */
-  live: { stream: MediaStream; track: MediaStreamTrack } | null;
+  /** The stream and track being sent, null while this video is off. The
+   *  screen's stream may carry an audio track as well; `endAudio` then ends
+   *  the host's capture behind it, when that is where the audio came from. */
+  live: { stream: MediaStream; track: MediaStreamTrack; endAudio: (() => void) | null } | null;
   /** What the current (or in-flight) video is for — see VideoScope. */
   scope: VideoScope;
   /** Epoch for an in-flight acquisition (same discipline as `micEpoch`), and
@@ -137,6 +139,23 @@ const newLocalVideo = (): LocalVideo => ({
 /** The camera background effect could not start; the camera keeps sending
  *  what it sent before (or, if it was off, stays off). */
 export class BackgroundEffectError extends Error {}
+
+/**
+ * The host's system-audio capture for a screen share (sysaudio.ts on macOS,
+ * where the picker's stream never carries audio). Asked for once per share
+ * whose stream has no audio track; resolves null where the host cannot
+ * capture. `stop` ends the capture; the engine calls it when the share ends.
+ */
+export type SystemAudioSource = () => Promise<{ track: MediaStreamTrack; stop(): void } | null>;
+
+/** A peer's screen-share audio, played as is (see _attachRemoteScreenAudio). */
+interface ScreenAudio {
+  track: MediaStreamTrack;
+  source: MediaStreamAudioSourceNode;
+  gain: GainNode;
+  /** Muted media-element sink — the same Chromium pump as PeerConn.sink. */
+  sink: HTMLAudioElement;
+}
 
 // ---------------------------------------------------------------------------
 // Internal per-peer state
@@ -177,6 +196,10 @@ interface PeerConn {
   audioSender: RTCRtpSender | null;
   /** Senders carrying our screen and our camera to this peer, if any. */
   videoSenders: Record<VideoKind, RTCRtpSender | null>;
+  /** Sender carrying our screen share's audio to this peer, if any. */
+  screenAudioSender: RTCRtpSender | null;
+  /** The peer's screen-share audio, while they send one. */
+  screenAudio: ScreenAudio | null;
   /** Whether the peer said it shows a screen and a camera at once ("two-videos").
    *  One that has not gets a single video: the screen when both are on. */
   twoVideos: boolean;
@@ -208,6 +231,9 @@ const SCREEN_SHARE_MAX_BITRATE = 6_000_000;
  *  2.5 Mbps default would ask 10 Mbps of the uplink; this is plenty for a
  *  face at 640×480. */
 const PLACE_CAMERA_MAX_BITRATE = 800_000;
+/** Encoder cap for a screen share's audio (bps). Opus defaults to a voice
+ *  rate; what a screen plays is music, lessons, videos. */
+const SCREEN_AUDIO_MAX_BITRATE = 96_000;
 
 // Preserve the old 60Hz envelope after level sampling moves to 30Hz.
 const LEVEL_ATTACK = 1 - (1 - 0.6) ** 2;
@@ -305,6 +331,7 @@ export class AudioEngine {
   private onLocalVideo: ((started: boolean) => void) | null = null;
 
   private readonly videos: Record<VideoKind, LocalVideo> = { screen: newLocalVideo(), camera: newLocalVideo() };
+  private systemAudioSource: SystemAudioSource | null = null;
 
   /** What the user wants behind them on camera — see setCameraBackground. */
   private cameraBackground: CameraBackground = { kind: "none" };
@@ -356,6 +383,11 @@ export class AudioEngine {
     this.onRemoteVideo = onRemoteVideo ?? null;
     this.onLocalVideo = onLocalVideo ?? null;
     if (iceServers && iceServers.length > 0) this.iceServers = iceServers;
+  }
+
+  /** Where a screen share's sound comes from when the picker gives none. */
+  setSystemAudioSource(source: SystemAudioSource | null): void {
+    this.systemAudioSource = source;
   }
 
   /**
@@ -654,6 +686,9 @@ export class AudioEngine {
     this.peerPositions = peerPositions;
 
     for (const [id, entry] of this.peers) {
+      // A screen's sound is for whoever the sender chose; the only thing
+      // between us and it is a call of our own, which takes the ears.
+      if (entry.screenAudio) entry.screenAudio.gain.gain.value = this._screenAudioGain(entry);
       if (!entry.gainNode) continue;
       if (entry.page) {
         entry.gainNode.gain.value = 1; // 1:1 barge-in, always full-gain
@@ -937,8 +972,13 @@ export class AudioEngine {
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
-        audio: false,
-      });
+        // Chromium's picker offers the system's (or a tab's) audio with the
+        // screen, minus what this page plays: the people watching must not
+        // hear themselves back. WebKit returns video only; the host's capture
+        // fills in below.
+        audio: { restrictOwnAudio: true } as MediaTrackConstraints,
+        systemAudio: "include",
+      } as DisplayMediaStreamOptions);
       if (this._acquireIsStale("screen", epoch, stream)) return;
       const [track] = stream.getVideoTracks();
       if (!track) {
@@ -955,7 +995,19 @@ export class AudioEngine {
         throw err;
       }
       if (this._acquireIsStale("screen", epoch, stream)) return;
-      this._startVideo("screen", stream, track);
+      let endAudio: (() => void) | null = null;
+      if (stream.getAudioTracks().length === 0 && this.systemAudioSource) {
+        const capture = await this.systemAudioSource();
+        if (this._acquireIsStale("screen", epoch, stream)) {
+          capture?.stop();
+          return;
+        }
+        if (capture) {
+          stream.addTrack(capture.track);
+          endAudio = capture.stop;
+        }
+      }
+      this._startVideo("screen", stream, track, endAudio);
       track.addEventListener("ended", () => this.stopScreenShare(), { once: true });
     } finally {
       this._finishVideoAcquire("screen", epoch);
@@ -1168,10 +1220,15 @@ export class AudioEngine {
    * this kind — a camera whose background changed — gets the new track swapped
    * in place via `replaceTrack`: no renegotiation, and nothing to relabel.
    */
-  private _startVideo(kind: VideoKind, stream: MediaStream, track: MediaStreamTrack): void {
+  private _startVideo(
+    kind: VideoKind,
+    stream: MediaStream,
+    track: MediaStreamTrack,
+    endAudio: (() => void) | null = null,
+  ): void {
     const video = this.videos[kind];
     const previousTrack = video.live?.track;
-    video.live = { stream, track };
+    video.live = { stream, track, endAudio };
 
     for (const entry of this.peers.values()) {
       const sender = entry.videoSenders[kind];
@@ -1207,6 +1264,7 @@ export class AudioEngine {
     video.live = null;
     for (const entry of this.peers.values()) this._syncVideoSenders(entry);
 
+    live.endAudio?.();
     for (const t of new Set([live.track, ...live.stream.getTracks()])) {
       if (t.readyState !== "ended") t.stop();
     }
@@ -1261,6 +1319,7 @@ export class AudioEngine {
       const done = wanted.includes(kind) ? this._addVideoTrack(entry, kind) : this._removeVideoTrack(entry, kind);
       changed ||= done;
     }
+    this._syncScreenAudioSender(entry);
     if (!changed) return;
     const tag = (kind: VideoKind): string | null => (entry.videoSenders[kind] ? this.videos[kind].tag.id : null);
     this.sendSignal?.(entry.id, {
@@ -1337,6 +1396,8 @@ export class AudioEngine {
       level: 0,
       audioSender: null,
       videoSenders: { screen: null, camera: null },
+      screenAudioSender: null,
+      screenAudio: null,
       twoVideos: false,
       remoteVideoStreams: new Map(),
       latestRemoteVideo: null,
@@ -1380,7 +1441,13 @@ export class AudioEngine {
     pc.addEventListener("track", (ev) => {
       const stream = ev.streams[0] ?? new MediaStream([ev.track]);
       if (ev.track.kind === "audio" || !ev.track.kind) {
-        this._attachRemoteAudioStream(entry, stream);
+        // A screen's audio comes under the screen's stream, the one its video
+        // arrived under (added first, so the stream already holds it) and the
+        // one the peer's label names; a voice comes under a stream of its own.
+        const screen =
+          stream.getVideoTracks().length > 0 || entry.remoteVideoLabel?.streams?.screen === stream.id;
+        if (screen) this._attachRemoteScreenAudio(entry, ev.track);
+        else this._attachRemoteAudioStream(entry, stream);
       } else if (ev.track.kind === "video") {
         this._attachRemoteVideoStream(entry, stream, ev.track);
       }
@@ -1505,6 +1572,42 @@ export class AudioEngine {
     }
   }
 
+  /**
+   * Send the screen's audio to this peer alongside its screen video, under
+   * the same stream, while the share has one; take it away with the video.
+   */
+  private _syncScreenAudioSender(entry: PeerConn): void {
+    const screen = this.videos.screen;
+    const track = entry.videoSenders.screen ? (screen.live?.stream.getAudioTracks()[0] ?? null) : null;
+    if (track && !entry.screenAudioSender) {
+      try {
+        const sender = entry.pc.addTrack(track, screen.tag);
+        entry.screenAudioSender = sender;
+        void this._applyScreenAudioEncoding(sender);
+      } catch (err) {
+        console.error("[audio] add screen audio track error:", err);
+      }
+    } else if (!track && entry.screenAudioSender) {
+      try {
+        entry.pc.removeTrack(entry.screenAudioSender);
+      } catch {
+        /* PC may already be closed. */
+      }
+      entry.screenAudioSender = null;
+    }
+  }
+
+  /** Raise the Opus cap for a screen's audio (see SCREEN_AUDIO_MAX_BITRATE). */
+  private async _applyScreenAudioEncoding(sender: RTCRtpSender): Promise<void> {
+    const params = sender.getParameters();
+    for (const encoding of params.encodings) encoding.maxBitrate = SCREEN_AUDIO_MAX_BITRATE;
+    try {
+      await sender.setParameters(params);
+    } catch (err) {
+      console.error("[audio] setParameters (screen audio) error:", err);
+    }
+  }
+
   /** Stop sending the `kind` video to this peer. Returns whether a sender
    *  was removed. */
   private _removeVideoTrack(entry: PeerConn, kind: VideoKind): boolean {
@@ -1578,6 +1681,60 @@ export class AudioEngine {
     // awake to meter it and animate the speaking ring, even if it had gone idle
     // while this peer was silently connecting.
     this.onWake?.();
+  }
+
+  /**
+   * Play a peer's screen-share audio as it is. No spatialisation: the sender
+   * already limited it to the call or the room, so whoever receives it is
+   * meant to hear it — except, as with voices, the room's while we are in a
+   * call (`_screenAudioGain`). No analyser either: a screen gets no speaking
+   * ring. One per peer: a new share's track replaces the last one's.
+   */
+  private _attachRemoteScreenAudio(entry: PeerConn, track: MediaStreamTrack): void {
+    if (entry.screenAudio?.track === track) return;
+    this._detachRemoteScreenAudio(entry);
+
+    const ctx = this._getAudioContext();
+    const stream = new MediaStream([track]);
+    const source = ctx.createMediaStreamSource(stream);
+    const gain = ctx.createGain();
+    gain.gain.value = this._screenAudioGain(entry);
+    source.connect(gain);
+    gain.connect(ctx.destination);
+    const sink = new Audio();
+    sink.srcObject = stream;
+    sink.muted = true;
+    sink.autoplay = true;
+    void sink.play().catch(() => {
+      /* As for the voice sink: the gain path still plays; a gesture resumes. */
+    });
+    entry.screenAudio = { track, source, gain, sink };
+    track.addEventListener(
+      "ended",
+      () => {
+        if (entry.screenAudio?.track === track) this._detachRemoteScreenAudio(entry);
+      },
+      { once: true },
+    );
+  }
+
+  private _detachRemoteScreenAudio(entry: PeerConn): void {
+    const screen = entry.screenAudio;
+    if (!screen) return;
+    try {
+      screen.source.disconnect();
+    } catch { /* already disconnected */ }
+    try {
+      screen.gain.disconnect();
+    } catch { /* already disconnected */ }
+    try { screen.sink.pause(); } catch { /* ignore */ }
+    screen.sink.srcObject = null;
+    entry.screenAudio = null;
+  }
+
+  /** Full, unless a call of ours has taken the ears and this is the room's. */
+  private _screenAudioGain(entry: PeerConn): number {
+    return entry.page || !this.hasPage() ? 1 : 0;
   }
 
   /** Keep a remote video stream (screen share or camera) for the UI layer. */
@@ -1797,6 +1954,7 @@ export class AudioEngine {
       try { entry.sink.pause(); } catch { /* ignore */ }
       entry.sink.srcObject = null;
     }
+    this._detachRemoteScreenAudio(entry);
     if (entry.remoteVideoStreams.size > 0) {
       entry.remoteVideoStreams.clear();
       this._notifyRemoteVideo(entry);
@@ -1808,6 +1966,7 @@ export class AudioEngine {
     entry.level = 0;
     entry.audioSender = null;
     entry.videoSenders = { screen: null, camera: null };
+    entry.screenAudioSender = null;
     try {
       entry.pc.close();
     } catch { /* already closed */ }
