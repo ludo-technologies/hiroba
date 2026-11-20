@@ -411,6 +411,9 @@ pub enum ClientMsg {
         data: Value,
     },
 
+    /// Wave at a member anywhere in the org — a greeting, no call.
+    Wave { to: String },
+
     /// Start a cross-space 1:1 page (ring the target; they accept or decline).
     Page { to: String },
 
@@ -514,6 +517,13 @@ pub enum ServerMsg {
         connect: Vec<ProximityConnect>,
         disconnect: Vec<String>,
     },
+
+    /// `from` waved at you.
+    Wave { from: String },
+
+    /// Your wave reached `to` (to the sender). A wave that was dropped is
+    /// never confirmed.
+    Waved { to: String },
 
     /// Incoming page offer (to the callee). No media until they accept.
     PageOffer { from: String },

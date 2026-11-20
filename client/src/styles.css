@@ -1444,6 +1444,19 @@ a.hud-pill {
   border-color: var(--accent);
 }
 
+/* The wave beside Call: the hand alone, no pill around a word. */
+.wave-btn {
+  padding: 3px 7px;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.wave-btn:hover,
+.wave-btn:focus-visible {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
 /* A call we did not take: the row says when, and its button calls back. */
 .roster-row.has-missed {
   box-shadow: inset 3px 0 0 var(--accent);
@@ -2242,6 +2255,33 @@ a.hud-pill {
 .toast.leaving {
   opacity: 0;
   transform: translateY(-6px);
+}
+
+/* A toast with something to press. */
+.toast.has-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  pointer-events: auto;
+}
+
+.toast-action {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border: 1px solid rgba(253, 246, 234, 0.45);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.toast-action:hover,
+.toast-action:focus-visible {
+  background: #fdf6ea;
+  color: var(--ink);
 }
 
 /* Error toasts read as failures at a glance, not just notices. */

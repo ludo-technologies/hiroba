@@ -261,6 +261,12 @@ export interface SignalMsg {
   data: SignalData;
 }
 
+/** Wave at a member anywhere in the org — a greeting, no call. */
+export interface WaveMsg {
+  t: "wave";
+  to: string;
+}
+
 /** Start a cross-space 1:1 page (rings the target; they accept or decline). */
 export interface PageMsg {
   t: "page";
@@ -316,6 +322,7 @@ export type ClientMsg =
   | SetStatusMsg
   | SetProfileMsg
   | SignalMsg
+  | WaveMsg
   | PageMsg
   | PageAcceptMsg
   | PageEndMsg
@@ -441,6 +448,19 @@ export interface PageOfferMsg {
   from: string;
 }
 
+/** `from` waved at us. */
+export interface WaveFromMsg {
+  t: "wave";
+  from: string;
+}
+
+/** Our wave reached `to`. A wave the server dropped (they are offline or in
+ *  do-not-disturb, or we just waved) is never confirmed. */
+export interface WavedMsg {
+  t: "waved";
+  to: string;
+}
+
 /** Someone paged us while we were `dnd` or in a call: nothing rang. */
 export interface PageMissedMsg {
   t: "page_missed";
@@ -548,6 +568,8 @@ export type ServerMsg =
   | StateMsg
   | PeerMuteMsg
   | ProximityMsg
+  | WaveFromMsg
+  | WavedMsg
   | PageOfferMsg
   | PageMissedMsg
   | PageRingingMsg

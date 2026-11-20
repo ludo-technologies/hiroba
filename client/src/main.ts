@@ -373,6 +373,7 @@ const ui = new UIManager(
     onEnterSpace: handleEnterSpace,
     onCreateSpace: handleCreateSpace,
     onSetSpaceLock: handleSetSpaceLock,
+    onWave: handleWave,
     onPage: handlePage,
     onDismissMissed: clearMissedCall,
     onPageAccept: handlePageAccept,
@@ -2266,6 +2267,7 @@ function rebuildRoster(): void {
     label: statusLabel(ss, session.spaceId),
     tone: ss,
     isSelf: true,
+    canWave: false,
     canPage: false,
   });
 
@@ -2290,6 +2292,8 @@ function rebuildRoster(): void {
       label: off ? t.statusOffline : statusLabel(m.status, m.spaceId),
       tone: off ? "offline" : m.status,
       isSelf: false,
+      // The server drops a wave at someone in do-not-disturb.
+      canWave: !off && m.status !== "dnd",
       canPage: !off && !session.pages.has(m.id),
       missed: missedCalls.get(m.id),
     });
@@ -2666,6 +2670,28 @@ function bindServerMessages(net: HirobaNet): void {
     rebuildRoster();
   });
 
+  // --- Waving: a greeting across the org, no call ---
+
+  net.on("waved", (e) => {
+    if (!session) return;
+    const { to } = e.detail;
+    ui.showToast(t.waveSent(session.roster.get(to)?.name ?? to));
+    renderer.wave(session.self.id);
+  });
+
+  net.on("wave", (e) => {
+    if (!session) return;
+    const { from } = e.detail;
+    ui.showToast(t.waveReceived(session.roster.get(from)?.name ?? from), "info", {
+      key: `wave:${from}`,
+      label: t.waveBackBtn,
+      run: () => handleWave(from),
+    });
+    session.audio.playWaveChime();
+    if (!document.hasFocus()) void requestWindowAttention(UserAttentionType.Informational);
+    renderer.wave(from);
+  });
+
   // --- Paging (cross-space 1:1): ring → accept → connect ---
 
   net.on("page_ringing", (e) => {
@@ -2883,25 +2909,23 @@ function syncIncomingAlert(): void {
   if (!session) return;
   if (session.ringingIn.size > 0 || (session.knocksIn.size > 0 && !session.dnd)) {
     session.audio.startRingtone();
-    void requestWindowAttention(true);
+    void requestWindowAttention(UserAttentionType.Critical);
   } else {
     session.audio.stopRingtone();
-    void requestWindowAttention(false);
+    void requestWindowAttention(null);
   }
 }
 
 /**
  * Ask the OS to surface the app (Dock bounce / taskbar flash). Critical keeps
- * requesting until focus; `active: false` clears the request where the WM
- * supports it (no-op on macOS for null).
+ * requesting until focus, Informational asks once; `null` clears the request
+ * where the WM supports it (a no-op on macOS).
  */
-async function requestWindowAttention(active: boolean): Promise<void> {
+async function requestWindowAttention(type: UserAttentionType | null): Promise<void> {
   if (!isTauri()) return;
   try {
     const win = getCurrentWindow();
-    await win.requestUserAttention(
-      active ? UserAttentionType.Critical : null,
-    );
+    await win.requestUserAttention(type);
   } catch (err) {
     console.warn("[attention] requestUserAttention failed:", err);
   }
@@ -3202,6 +3226,14 @@ function handleSetSpaceLock(locked: boolean): void {
   ui.showToast(locked ? t.spaceLocked : t.spaceUnlocked);
 }
 
+/** The toast and the hand over our head come with the server's `waved`: a
+ *  wave it dropped is not shown as sent. */
+function handleWave(memberId: string): void {
+  if (!session) return;
+  markActive();
+  session.net.send({ t: "wave", to: memberId });
+}
+
 function handlePage(memberId: string): void {
   if (!session) return;
   markActive();
@@ -3462,7 +3494,7 @@ function teardownSession(): void {
   s.input.destroy();
   // destroy() also stopRingtone(); clear Dock/taskbar attention explicitly.
   s.audio.destroy();
-  void requestWindowAttention(false);
+  void requestWindowAttention(null);
   s.net.close();
 
   canvas.classList.remove("walkable", "can-page", "can-sit", "can-read");

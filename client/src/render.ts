@@ -103,6 +103,10 @@ const CAM_REST: Camera = { yaw: 0, pitch: 0.74 };
 const CAM_ENTER: Camera = { yaw: Math.PI / 4, pitch: 0.56 };
 /** The swing's length, ms. */
 const ENTER_MS = 1500;
+/** How long a wave plays over someone's head. */
+const WAVE_MS = 2400;
+/** Height of a name chip, CSS px at scale 1. */
+const CHIP_H = 19;
 
 /** How the room meets the viewport: "fit" shows all of it; "height" fills
  *  the viewport's height and lets a room wider than the viewport pan
@@ -174,6 +178,9 @@ interface RenderPeer extends Peer {
   /** Set when the peer is leaving; `leave` fades 1→0, then we drop them. */
   leaving: boolean;
   leave: number;
+  /** A wave over their head: when it started (0 = none, -1 = starts on the
+   *  next frame). */
+  wave: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -514,6 +521,8 @@ export class Renderer {
     bottom: number;
     isSelf: boolean;
     alpha: number;
+    /** `RenderPeer.wave`, when one is playing. */
+    wave: number;
   }> = [];
 
   /**
@@ -875,6 +884,14 @@ export class Renderer {
     }
   }
 
+  /** Play a wave over someone's head — a peer in this space, or self. */
+  wave(id: string): void {
+    const p = this.self?.id === id ? this.self : this.peers.get(id);
+    if (!p) return;
+    p.wave = -1;
+    this.onWake?.();
+  }
+
   /** Update mute badge for a remote peer. */
   updatePeerMute(id: string, muted: boolean): void {
     const p = this.peers.get(id);
@@ -1028,6 +1045,12 @@ export class Renderer {
       const level = entry.isSelf ? levels.selfLevel : levels.levelOf(entry.peer.id);
       if (level > 0) lowRate = true;
       if (entry.peer.status === "in_call") lowRate = true;
+      const p = entry.peer;
+      if (p.wave < 0) p.wave = now;
+      if (p.wave > 0) {
+        if (now - p.wave < WAVE_MS) highRate = true;
+        else p.wave = 0;
+      }
       this._drawPeer(effectsNow, V, entry.peer, entry.isSelf, level, this._isSeated(entry.peer.x, entry.peer.y));
     };
     for (let i = 0; i <= standing.length; i++) {
@@ -1040,6 +1063,7 @@ export class Renderer {
     for (const c of this.chipQueue) {
       ctx.globalAlpha = c.alpha;
       this._drawNameChip(c.name, c.x, c.bottom, c.isSelf, V.scale);
+      if (c.wave > 0) this._drawWave(c.x, c.bottom - CHIP_H * V.scale, (now - c.wave) / WAVE_MS, V.scale);
     }
     ctx.globalAlpha = 1;
     this.chipQueue.length = 0;
@@ -1140,6 +1164,7 @@ export class Renderer {
       spawn: spawned ? 1 : 0,
       leaving: false,
       leave: 1,
+      wave: 0,
     };
   }
 
@@ -1357,6 +1382,7 @@ export class Renderer {
       bottom: headY - r - ringPad - 6 * V.scale,
       isSelf,
       alpha,
+      wave: peer.wave,
     });
 
     ctx.restore();
@@ -1507,6 +1533,21 @@ export class Renderer {
     ctx.restore();
   }
 
+  /** A waving hand above a name chip, `t` 0→1 through the wave: it rocks on
+   *  its wrist, fading in and out at the ends. */
+  private _drawWave(cx: number, bottom: number, t: number, scale: number): void {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalAlpha *= clamp01(t * 8) * clamp01((1 - t) * 5);
+    ctx.translate(cx, bottom - 3 * scale);
+    ctx.rotate(Math.sin(t * Math.PI * 8) * 0.35);
+    ctx.font = `${Math.round(22 * scale)}px ${FONT_FAMILY}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    ctx.fillText("👋", 0, 0);
+    ctx.restore();
+  }
+
   /** A subtle rounded chip behind the name so labels stay legible. */
   private _drawNameChip(
     name: string,
@@ -1525,7 +1566,7 @@ export class Renderer {
     const padX = 8 * scale;
     const padY = 3.5 * scale;
     const chipW = w + padX * 2;
-    const chipH = 19 * scale;
+    const chipH = CHIP_H * scale;
     const x = cx - chipW / 2;
     const top = bottom - chipH;
 

@@ -261,6 +261,8 @@ const RING_FREQ_A = 440;
 const RING_FREQ_B = 480;
 /** Peak gain per oscillator path; dual tones sum, so keep this modest. */
 const RING_GAIN = 0.09;
+/** The wave chime: [frequency Hz, seconds after the first note]. */
+const WAVE_NOTES: ReadonlyArray<readonly [number, number]> = [[659.25, 0], [880, 0.14]];
 
 // ---------------------------------------------------------------------------
 // AudioEngine
@@ -527,6 +529,28 @@ export class AudioEngine {
       this.ringtoneTimer = 0;
     }
     this._stopRingBurst();
+  }
+
+  /** Two rising notes for an incoming wave: a greeting, over in half a
+   *  second, where a call rings until it is answered. */
+  playWaveChime(): void {
+    const ctx = this._getAudioContext();
+    if (ctx.state === "suspended") void ctx.resume();
+    const now = ctx.currentTime;
+    for (const [freq, at] of WAVE_NOTES) {
+      const start = now + at;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0, start);
+      gain.gain.linearRampToValueAtTime(RING_GAIN, start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.3);
+      gain.connect(ctx.destination);
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      osc.connect(gain);
+      osc.start(start);
+      osc.stop(start + 0.32);
+    }
   }
 
   /** Whether the incoming-page ringtone is currently scheduled/playing. */

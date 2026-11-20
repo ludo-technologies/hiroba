@@ -327,6 +327,15 @@ Dropped silently otherwise — `to` not connected, the pair not linked (another
 space, out of earshot, across the meeting-room wall, or not yet told to
 `connect`), or either peer `dnd` without a page link (§Presence & status).
 
+### `wave` — wave at a member
+```json
+{ "t": "wave", "to": "9" }
+```
+A greeting across the org: no ring, no media, nothing to answer. `to` receives
+`wave{from}` and the sender receives `waved{to}`. Dropped silently — neither
+frame is sent — when `to` is offline or `dnd`, when `to` is the sender, or
+within 3 seconds of the sender's last wave that went through.
+
 ### `page` — start a cross-space 1:1 page (FR-10)
 ```json
 { "t": "page", "to": "9" }
@@ -597,6 +606,20 @@ Decline with `page_end{to: from}`; accept with `page_accept{to: from}`.
 Clients SHOULD play a ringtone and request OS attention (Dock bounce / taskbar
 flash) so an unfocused window is not a silent miss — unanswered rings time out
 server-side (~25s) as a decline.
+
+### `wave` — someone waved at you
+```json
+{ "t": "wave", "from": "3" }
+```
+Nothing is pending and nothing needs answering. Clients SHOULD show who it
+was, play a short sound, and offer to wave back.
+
+### `waved` — your wave went through (to the sender)
+```json
+{ "t": "waved", "to": "9" }
+```
+Clients SHOULD show a wave as sent only on this frame: a wave the server
+dropped (§`wave`) is never confirmed.
 
 ### `page_missed` — someone paged you while you could not be rung
 ```json

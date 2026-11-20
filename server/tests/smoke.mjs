@@ -282,10 +282,27 @@ class Client {
   ok(!!missedA, "a DND member is told who paged them (page_missed), without a ring");
   ok(!A.drain("page_offer").length, "a DND member is not rung");
 
+  // A wave at a DND member is dropped, and not confirmed to the sender.
+  A.clear(); B.clear();
+  B.send({ t: "wave", to: idA });
+  await sleep(150);
+  ok(!A.drain("wave").length && !B.drain("waved").length, "a wave at a DND member is dropped and not confirmed");
+
   // A clears DND → B pages A → ring (no media / no in_call yet).
   A.clear(); B.clear();
   A.send({ t: "set_status", dnd: false });
   await B.wait((m) => m.t === "presence" && m.member?.id === idA && m.member?.status === "active");
+
+  // Waving: the target is told who, the sender that it landed; a second one
+  // straight after is dropped.
+  B.send({ t: "wave", to: idA });
+  const waveA = await A.wait((m) => m.t === "wave" && m.from === idB);
+  const wavedB = await B.wait((m) => m.t === "waved" && m.to === idA);
+  ok(!!waveA && !!wavedB, "a wave reaches its target (wave) and is confirmed to the sender (waved)");
+  A.clear(); B.clear();
+  B.send({ t: "wave", to: idA });
+  await sleep(150);
+  ok(!A.drain("wave").length && !B.drain("waved").length, "a second wave within the cooldown is dropped");
   B.clear(); A.clear();
   B.send({ t: "page", to: idA });
   const ringB = await B.wait((m) => m.t === "page_ringing" && m.to === idA);

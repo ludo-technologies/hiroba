@@ -350,6 +350,7 @@ pub async fn handle_ws(
                             let _ = tx.send(note_error(e)).await;
                         }
                     }
+                    Ok(ClientMsg::Wave { to }) => org.wave(&pid, &to).await,
                     Ok(ClientMsg::Page { to }) => {
                         if let PageOutcome::Rejected(reason) = org.page(&pid, &to).await {
                             let _ = tx

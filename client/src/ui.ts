@@ -626,6 +626,8 @@ export interface UICallbacks {
   onVideoDockChange(): void;
   /** What a docked video panel covers of the room's top or right edge, CSS px. */
   onRoomInset(inset: RoomInset): void;
+  /** Wave at a roster member. */
+  onWave(memberId: string): void;
   /** Start a page (cross-space 1:1) with a roster member (FR-10). */
   onPage(memberId: string): void;
   /** Forget the missed call from a roster member. */
@@ -714,6 +716,8 @@ export interface RosterEntry {
   label: string;
   tone: "active" | "away" | "dnd" | "in_call" | "offline";
   isSelf: boolean;
+  /** Whether to offer a wave button on this row. */
+  canWave: boolean;
   /** Whether to offer a "page" button on this row. */
   canPage: boolean;
   /** A call from them we did not take: when the last one came (ms epoch) and
@@ -2384,6 +2388,18 @@ export class UIManager {
         li.addEventListener("click", () => this.showSettings("profile"));
       }
 
+      // A row with a missed call has no room for a third button.
+      if (e.canWave && !e.missed) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "page-btn wave-btn";
+        btn.title = t.waveTitle(e.name);
+        btn.setAttribute("aria-label", t.waveTitle(e.name));
+        btn.textContent = "👋";
+        btn.addEventListener("click", () => this.callbacks.onWave(e.id));
+        li.appendChild(btn);
+      }
+
       if (e.canPage) {
         const btn = document.createElement("button");
         btn.type = "button";
@@ -3025,14 +3041,43 @@ export class UIManager {
     if (rule && rule.offsetTop < elChatLog.scrollTop + 8) elChatLog.scrollTop = rule.offsetTop - 8;
   }
 
-  showToast(message: string, kind: "info" | "error" = "info"): void {
+  /** `action` adds a button that runs it and closes the toast. Such a toast
+   *  is for someone who may be in another window, so it stays longer and its
+   *  clock starts only once this window has the focus; a later one with the
+   *  same `key` takes its place rather than piling up beside it. */
+  showToast(
+    message: string,
+    kind: "info" | "error" = "info",
+    action?: { key: string; label: string; run: () => void },
+  ): void {
     const el = document.createElement("div");
     el.className = "toast";
     el.dataset.kind = kind;
     el.textContent = message;
+    if (action) {
+      el.classList.add("has-action");
+      for (const old of elToasts.querySelectorAll<HTMLElement>(".toast.has-action")) {
+        if (old.dataset.key === action.key) old.remove();
+      }
+      el.dataset.key = action.key;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "toast-action";
+      btn.textContent = action.label;
+      btn.addEventListener("click", () => {
+        el.remove();
+        action.run();
+      });
+      el.appendChild(btn);
+    }
     elToasts.appendChild(el);
-    window.setTimeout(() => el.classList.add("leaving"), 2600);
-    window.setTimeout(() => el.remove(), 3100);
+    const life = action ? 8000 : 2600;
+    const leave = () => {
+      window.setTimeout(() => el.classList.add("leaving"), life);
+      window.setTimeout(() => el.remove(), life + 500);
+    };
+    if (action && !document.hasFocus()) window.addEventListener("focus", leave, { once: true });
+    else leave();
   }
 
   // -------------------------------------------------------------------------

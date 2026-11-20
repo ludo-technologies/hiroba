@@ -51,6 +51,10 @@ pub const NOTE_COOLDOWN: Duration = Duration::from_secs(1);
 /// taking back a mis-tap right away goes through.
 pub const REACTION_COOLDOWN: Duration = Duration::from_millis(500);
 
+/// Minimum gap between one member's waves. A wave makes a sound on someone
+/// else's computer; a few seconds between them is a greeting, not a buzzer.
+pub const WAVE_COOLDOWN: Duration = Duration::from_secs(3);
+
 /// Avatar colour used when a client supplies none, or one that fails
 /// validation. Also what a note stored before notes carried a colour shows.
 pub const DEFAULT_COLOR: &str = "#8a93a6";
@@ -188,6 +192,8 @@ pub struct Member {
     pub last_note_at: Option<Instant>,
     /// When this member last reacted ([`REACTION_COOLDOWN`]).
     pub last_reaction_at: Option<Instant>,
+    /// When this member last waved ([`WAVE_COOLDOWN`]).
+    pub last_wave_at: Option<Instant>,
     /// When this member connected — the stay length on leave.
     pub joined_at: Instant,
     /// The most *other* members in the org at once while this member was
@@ -931,6 +937,7 @@ impl Org {
             role,
             last_note_at: None,
             last_reaction_at: None,
+            last_wave_at: None,
             joined_at: Instant::now(),
             peers_max: others,
             space_id: space_id.clone(),
@@ -1559,6 +1566,43 @@ impl Org {
     }
 
     // -----------------------------------------------------------------------
+    // Waving — a greeting across the org, no call
+    // -----------------------------------------------------------------------
+
+    /// `from` waves at `to`: `to` receives `wave{from}` and `from` receives
+    /// `waved{to}`. Dropped — nobody is told anything — when `to` is offline
+    /// or `dnd` (unreachable, as for a page), when it is the sender, or
+    /// within [`WAVE_COOLDOWN`] of the sender's last wave.
+    pub async fn wave(&self, from: &str, to: &str) {
+        let mut guard = self.inner.lock().await;
+        if from == to {
+            return;
+        }
+        let Some(target) = guard.members.get(to) else {
+            return;
+        };
+        if target.dnd {
+            return;
+        }
+        let Some(sender) = guard.members.get_mut(from) else {
+            return;
+        };
+        if sender
+            .last_wave_at
+            .is_some_and(|at| at.elapsed() < WAVE_COOLDOWN)
+        {
+            return;
+        }
+        sender.last_wave_at = Some(Instant::now());
+        sender.tx.send(ServerMsg::Waved { to: to.to_string() });
+        if let Some(target) = guard.members.get(to) {
+            target.tx.send(ServerMsg::Wave {
+                from: from.to_string(),
+            });
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Paging (cross-space 1:1) — ring → accept/decline → connect
     // -----------------------------------------------------------------------
 
@@ -1985,6 +2029,7 @@ mod tests {
                     role: Role::Member,
                     last_note_at: None,
                     last_reaction_at: None,
+                    last_wave_at: None,
                     joined_at: Instant::now(),
                     peers_max: 0,
                     space_id: desc.id.clone(),
@@ -2601,6 +2646,52 @@ mod tests {
             .drain()
             .iter()
             .any(|m| matches!(m, ServerMsg::KnockEnd { id } if *id == other.id)));
+    }
+
+    #[tokio::test]
+    async fn a_wave_reaches_its_target_once_per_cooldown_and_never_a_dnd_member() {
+        let org = Org::new("o", "O", None);
+        let mut a = connect(&org, "A", Some("a"), Role::Member).await;
+        let mut b = connect(&org, "B", Some("b"), Role::Member).await;
+        let waves = |c: &mut Conn| {
+            c.drain()
+                .into_iter()
+                .filter_map(|m| match m {
+                    ServerMsg::Wave { from } => Some(format!("from {from}")),
+                    ServerMsg::Waved { to } => Some(format!("to {to}")),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let rearm = |id: String| {
+            let org = org.clone();
+            async move { org.inner.lock().await.members.get_mut(&id).unwrap().last_wave_at = None }
+        };
+        a.drain();
+        b.drain();
+
+        org.wave(&a.id, &b.id).await;
+        assert_eq!(waves(&mut b), [format!("from {}", a.id)]);
+        assert_eq!(waves(&mut a), [format!("to {}", b.id)]);
+
+        // Again at once, and at oneself: dropped, and not confirmed.
+        org.wave(&a.id, &b.id).await;
+        rearm(b.id.clone()).await;
+        org.wave(&b.id, &b.id).await;
+        assert!(waves(&mut b).is_empty());
+        assert!(waves(&mut a).is_empty());
+
+        // A dnd member is not waved at, and the sender is not told it landed.
+        rearm(a.id.clone()).await;
+        org.set_status(&b.id, None, Some(true)).await;
+        org.wave(&a.id, &b.id).await;
+        assert!(waves(&mut b).is_empty());
+        assert!(waves(&mut a).is_empty());
+
+        // The dropped wave did not start a cooldown.
+        org.set_status(&b.id, None, Some(false)).await;
+        org.wave(&a.id, &b.id).await;
+        assert_eq!(waves(&mut b), [format!("from {}", a.id)]);
     }
 
     #[tokio::test]
