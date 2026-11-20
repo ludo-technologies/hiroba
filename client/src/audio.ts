@@ -819,10 +819,13 @@ export class AudioEngine {
     if (!this.muted && !this.micAcquired) {
       try {
         await this._ensureMic();
-      } catch {
-        // Mic acquisition failed (denied/no device): revert to muted.
+      } catch (err) {
+        // Back to muted. An acquisition overtaken by a device switch or a
+        // teardown is nothing to report; one that failed (denied, no device)
+        // is the caller's to explain — a press that does nothing explains nothing.
         this.muted = true;
-        return this.muted;
+        if (err instanceof DOMException && err.name === "AbortError") return this.muted;
+        throw err;
       }
     }
 

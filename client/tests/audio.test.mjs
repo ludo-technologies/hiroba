@@ -802,6 +802,18 @@ test("superseding microphone acquisition leaves the engine able to retry", async
   eng.destroy();
 });
 
+test("an unmute whose microphone cannot be had rejects with the reason and stays muted", async () => {
+  installMocks();
+  navigator.mediaDevices.getUserMedia = () =>
+    Promise.reject(new DOMException("Requested device not found", "NotFoundError"));
+  const eng = new AudioEngine();
+  eng.init(SPACE, () => {}, () => {});
+
+  await assert.rejects(eng.toggleMute(), { name: "NotFoundError" });
+  assert.equal(eng.isMuted, true, "the engine is muted again");
+  eng.destroy();
+});
+
 /** Matches MIC_IDLE_RELEASE_MS in src/audio.ts. */
 const MIC_IDLE_RELEASE_MS = 20_000;
 

@@ -181,6 +181,7 @@ const EN = {
   errSessionNotSaved:
     "Signed in, but this device couldn't save the session to the keychain — the next launch will ask again.",
   errMicDenied: "Microphone access denied. Check browser/OS permissions.",
+  errMicMissing: "No microphone found. Connect one to talk.",
   errSignIn: "Sign-in failed. Please try again.",
   errEmail: "Please enter a valid email address.",
   errSendCode: "Couldn't send the code. Check the address and try again.",
@@ -586,6 +587,7 @@ const JA: typeof EN = {
   errSessionNotSaved:
     "サインインしましたが、この端末ではキーチェーンにセッションを保存できませんでした。次回の起動時にまた求められます。",
   errMicDenied: "マイクを使用できません。ブラウザ/OSの権限設定を確認してください。",
+  errMicMissing: "マイクが見つかりません。接続すると話せます。",
   errSignIn: "サインインに失敗しました。もう一度お試しください。",
   errEmail: "有効なメールアドレスを入力してください。",
   errSendCode: "コードを送信できませんでした。アドレスを確認してもう一度お試しください。",
@@ -990,6 +992,7 @@ const ES: typeof EN = {
   errSessionNotSaved:
     "Sesión iniciada, pero este dispositivo no pudo guardarla en el llavero. La próxima vez que abras la app te la volverá a pedir.",
   errMicDenied: "Acceso al micrófono denegado. Revisa los permisos del navegador o del sistema.",
+  errMicMissing: "No se ha encontrado ningún micrófono. Conecta uno para hablar.",
   errSignIn: "No se pudo iniciar sesión. Inténtalo de nuevo.",
   errEmail: "Escribe un correo electrónico válido.",
   errSendCode: "No se pudo enviar el código. Revisa la dirección e inténtalo de nuevo.",
@@ -1395,6 +1398,7 @@ const FR: typeof EN = {
   errSessionNotSaved:
     "Connexion réussie, mais cet appareil n'a pas pu enregistrer la session dans le trousseau : elle vous sera redemandée au prochain lancement.",
   errMicDenied: "Accès au micro refusé. Vérifiez les autorisations du navigateur ou du système.",
+  errMicMissing: "Aucun micro détecté. Branchez-en un pour parler.",
   errSignIn: "Échec de la connexion. Veuillez réessayer.",
   errEmail: "Veuillez saisir une adresse e-mail valide.",
   errSendCode: "Impossible d'envoyer le code. Vérifiez l'adresse et réessayez.",
@@ -1800,6 +1804,7 @@ const PT: typeof EN = {
   errSessionNotSaved:
     "Login feito, mas este dispositivo não conseguiu salvar a sessão no chaveiro. Na próxima vez que abrir o app, ele vai pedir de novo.",
   errMicDenied: "Acesso ao microfone negado. Verifique as permissões do navegador ou do sistema.",
+  errMicMissing: "Nenhum microfone encontrado. Conecte um para falar.",
   errSignIn: "Não foi possível entrar. Tente novamente.",
   errEmail: "Digite um e-mail válido.",
   errSendCode: "Não foi possível enviar o código. Verifique o endereço e tente novamente.",

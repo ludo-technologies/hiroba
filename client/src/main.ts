@@ -3105,12 +3105,13 @@ async function handleMicToggle(): Promise<void> {
     renderer.setSelfMuted(muted);
     session.net.send({ t: "mute", muted });
     wake();
-  } catch {
+  } catch (err) {
     if (session !== activeSession) return;
     ui.setMuted(true);
     // We're inside a session, so the join-card error area is hidden — surface
     // the failure where the user actually is.
-    ui.showToast(t.errMicDenied, "error");
+    const missing = err instanceof DOMException && err.name === "NotFoundError";
+    ui.showToast(missing ? t.errMicMissing : t.errMicDenied, "error");
   }
 }
 
