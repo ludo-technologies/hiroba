@@ -22,7 +22,9 @@ use std::sync::Mutex;
 
 use rusqlite::{params, Connection};
 
-use crate::protocol::{meeting_room_for, Reaction, SpaceDescriptor, SpaceKind, TeamLayout};
+use crate::protocol::{
+    meeting_room_for, Reaction, SpaceDescriptor, SpaceKind, TeamLayout, SPACE_CAPACITY,
+};
 use crate::state::DEFAULT_COLOR;
 
 /// A message in a space's chat.
@@ -157,6 +159,10 @@ impl Store {
             )
             .expect("add spaces.owner_sub and spaces.locked");
         }
+        // Catalogs from when a space held 5: the capacity was never a choice,
+        // so every space takes the current one.
+        conn.execute("UPDATE spaces SET capacity = ?1", [SPACE_CAPACITY])
+            .expect("raise spaces.capacity");
         // Notes from before they carried the author's colour: they show in
         // the default colour, as a client with no colour of its own would.
         let has_color: bool = conn
@@ -501,6 +507,8 @@ mod tests {
         assert_eq!(spaces[1].layout, Some(TeamLayout::Meeting));
         // Nor did spaces have owners or locks.
         assert!(spaces.iter().all(|s| s.owner.is_none() && !s.locked));
+        // And they held 5.
+        assert!(spaces.iter().all(|s| s.capacity == SPACE_CAPACITY));
     }
 
     #[test]

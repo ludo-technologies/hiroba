@@ -418,7 +418,7 @@ The server is designed to be boring and cheap: it does a little work per tick
 (~12 Hz) **only for spaces that have someone in them** — empty spaces are skipped
 entirely, so an idle floor costs almost nothing. Work scales with the number of
 connected peers, not the number of spaces. For an org of a few small team spaces
-plus a 5-person lobby, expect negligible CPU and a small, flat memory footprint.
+plus a 10-person lobby, expect negligible CPU and a small, flat memory footprint.
 These are the NFR-01/02/06 targets.
 
 ## 8. Scaling limits
@@ -426,11 +426,10 @@ These are the NFR-01/02/06 targets.
 Hiroba is **presence-first, not a meeting tool** — it deliberately omits
 always-on video, recording, and an SFU. Optional screen share is limited to
 active 1:1 page calls (not proximity / group voice). The intended ceiling is
-**≤5 per space** (lobby and team rooms), with a few dozen people per org. A
-WebRTC mesh is comfortable in that range; each client holds at most a handful of
-P2P links.
+**≤10 per space** (lobby and team rooms), with a few dozen people per org. A
+WebRTC mesh holds up in that range; each client holds at most nine P2P links.
 
-Past ~10–15 people in one space the mesh becomes the bottleneck (each client
+Past that the mesh becomes the bottleneck (each client
 maintaining many P2P links — "the mesh cliff"). That is **out of scope by design**:
 if you consistently need denser crowds or video, Hiroba is the wrong tool, not a
 tool to be scaled up. Keep spaces small and the experience stays light.

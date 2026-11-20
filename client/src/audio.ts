@@ -228,8 +228,8 @@ interface PeerConn {
  *  bandwidth estimator still goes lower on a weak link. */
 const SCREEN_SHARE_MAX_BITRATE = 6_000_000;
 /** Encoder cap for a camera sent to a group place (bps). Each peer in the
- *  place gets its own copy — four at the 5-person space capacity — so the
- *  2.5 Mbps default would ask 10 Mbps of the uplink; this is plenty for a
+ *  place gets its own copy — nine at the 10-person space capacity — so the
+ *  2.5 Mbps default would ask 22.5 Mbps of the uplink; this is plenty for a
  *  face at 640×480. */
 const PLACE_CAMERA_MAX_BITRATE = 800_000;
 /** Encoder cap for a screen share's audio (bps). Opus defaults to a voice

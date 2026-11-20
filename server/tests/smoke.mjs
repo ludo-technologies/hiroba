@@ -61,7 +61,7 @@ class Client {
   ok(wA?.space?.kind === "lobby", "welcome.space.kind = lobby");
   ok(wA?.space?.nearRadius === 150, "lobby nearRadius = 150 (camelCase)");
   ok(wA?.space?.farRadius === 180, "lobby farRadius = 180 (camelCase)");
-  ok(wA?.space?.capacity === 5, "lobby capacity = 5");
+  ok(wA?.space?.capacity === 10, "lobby capacity = 10");
   ok(wA?.space?.tickHz >= 10 && wA?.space?.tickHz <= 15, "lobby tickHz in 10..15");
   ok(typeof wA?.space?.capacity === "number", "space carries a capacity");
   ok(wA?.you?.muted === true, "A starts muted (FR-12)");
@@ -254,7 +254,7 @@ class Client {
   const spacesB = await B.wait((m) => m.t === "spaces" && m.spaces?.some((s) => s.name === "Design"));
   ok(!!spacesA && !!spacesB, "create_space broadcasts the new catalog to the whole org");
   const design = spacesA?.spaces?.find((s) => s.name === "Design");
-  ok(design?.kind === "team" && design?.capacity === 5, "created space is a team (capacity 5)");
+  ok(design?.kind === "team" && design?.capacity === 10, "created space is a team (capacity 10)");
   ok(design?.layout === "meeting", "create_space without a layout gets the meeting layout");
   ok(spacesA?.spaces?.find((s) => s.kind === "lobby")?.layout === undefined, "the lobby carries no layout");
   A.clear();

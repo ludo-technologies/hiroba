@@ -2002,8 +2002,8 @@ a.hud-pill {
 }
 
 /* Several videos: a grid filling the panel (no stage), or a strip under the
-   stage. Strip tiles are sized off the panel's width (four across, the most
-   there can be beside a stage in a 5-person space) so its height never
+   stage. Strip tiles are sized off the panel's width (one row: four across,
+   narrower once there are more) so its height never
    depends on a percentage of the aspect-ratio panel — see #screen-video. */
 .video-tiles {
   display: grid;
@@ -2025,7 +2025,7 @@ a.hud-pill {
 
 .video-tiles[data-layout="strip"] {
   flex: 0 0 auto;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(var(--cols, 4), 1fr);
 }
 
 .video-tile {

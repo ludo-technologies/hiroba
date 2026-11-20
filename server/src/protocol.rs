@@ -137,6 +137,10 @@ pub struct SpaceDescriptor {
     pub mine: bool,
 }
 
+/// How many members a space holds at once. The voice is a mesh, so every
+/// member holds a link to each of the others.
+pub const SPACE_CAPACITY: u32 = 10;
+
 impl SpaceDescriptor {
     /// The well-known lobby: org-wide plaza, normal proximity voice.
     /// Same 800×600 footprint as team spaces so avatars render at the same
@@ -154,7 +158,7 @@ impl SpaceDescriptor {
             near_radius: 150.0,
             far_radius: 180.0,
             tick_hz: 12,
-            capacity: 5,
+            capacity: SPACE_CAPACITY,
             meeting_room: meeting_room_for(SpaceKind::Lobby, width, height),
             locked: false,
             owner: None,
@@ -176,7 +180,7 @@ impl SpaceDescriptor {
             near_radius: 1100.0,
             far_radius: 1100.0,
             tick_hz: 12,
-            capacity: 5,
+            capacity: SPACE_CAPACITY,
             meeting_room: None,
             locked: false,
             owner: None,

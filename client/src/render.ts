@@ -2087,7 +2087,7 @@ export function paintLayoutPreview(canvas: HTMLCanvasElement, layout: TeamLayout
     nearRadius: 1100,
     farRadius: 1100,
     tickHz: 12,
-    capacity: 5,
+    capacity: 10,
   };
   const V = fitView(canvas.width, canvas.height, space, CAM_REST);
   const plan = buildFloor(space);

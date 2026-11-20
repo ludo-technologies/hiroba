@@ -85,7 +85,7 @@ space catalog. Defaults:
 | `nearRadius` | 150           | ≥ space diagonal    | distance ≤ this ⇒ peers are "near" ⇒ audio connects  |
 | `farRadius`  | 180           | ≥ space diagonal    | distance ≥ this ⇒ peers disconnect (hysteresis)      |
 | `tickHz`     | 12            | 12                  | server position-broadcast rate (NFR-04: 10–15 Hz)    |
-| `capacity`   | 5             | 5                   | max simultaneous members in the space                |
+| `capacity`   | 10            | 10                  | max simultaneous members in the space                |
 | `meetingRoom`| `{x,y,w,h}`   | absent              | walled room on the floor, world units (see below)    |
 
 **Team spaces set `nearRadius`/`farRadius` to at least the space diagonal**, so
@@ -114,7 +114,7 @@ Used in `welcome.spaces`, `welcome.space`, and `spaces` broadcasts:
 ```json
 { "id": "lobby", "name": "Lobby", "kind": "lobby",
   "width": 800, "height": 600, "nearRadius": 150, "farRadius": 180,
-  "tickHz": 12, "capacity": 5,
+  "tickHz": 12, "capacity": 10,
   "meetingRoom": { "x": 480, "y": 36, "w": 280, "h": 228 } }
 ```
 `kind` is `"lobby"` or `"team"`. `meetingRoom` is present on the lobby only
@@ -421,10 +421,10 @@ Servers that predate this message ignore it, and do not expire connections.
   "org": { "id": "ludo", "name": "Ludo" },
   "you":  { "id": "7", "name": "Aoi", "color": "#4f9dde", "x": 800, "y": 600, "muted": true },
   "spaceId": "lobby",
-  "space": { "id": "lobby", "name": "Lobby", "kind": "lobby", "width": 800, "height": 600, "nearRadius": 150, "farRadius": 180, "tickHz": 12, "capacity": 5 },
+  "space": { "id": "lobby", "name": "Lobby", "kind": "lobby", "width": 800, "height": 600, "nearRadius": 150, "farRadius": 180, "tickHz": 12, "capacity": 10 },
   "spaces": [
-    { "id": "lobby", "name": "Lobby", "kind": "lobby", "width": 800, "height": 600, "nearRadius": 150, "farRadius": 180, "tickHz": 12, "capacity": 5 },
-    { "id": "dev", "name": "Dev", "kind": "team", "width": 800, "height": 600, "nearRadius": 1100, "farRadius": 1100, "tickHz": 12, "capacity": 5 }
+    { "id": "lobby", "name": "Lobby", "kind": "lobby", "width": 800, "height": 600, "nearRadius": 150, "farRadius": 180, "tickHz": 12, "capacity": 10 },
+    { "id": "dev", "name": "Dev", "kind": "team", "width": 800, "height": 600, "nearRadius": 1100, "farRadius": 1100, "tickHz": 12, "capacity": 10 }
   ],
   "peers": [
     { "id": "3", "name": "Ren", "color": "#e0708a", "x": 400, "y": 220, "muted": false }
@@ -451,7 +451,7 @@ Servers that predate this message ignore it, and do not expire connections.
 {
   "t": "space_snapshot",
   "spaceId": "dev",
-  "space": { "id": "dev", "name": "Dev", "kind": "team", "width": 800, "height": 600, "nearRadius": 1100, "farRadius": 1100, "tickHz": 12, "capacity": 5 },
+  "space": { "id": "dev", "name": "Dev", "kind": "team", "width": 800, "height": 600, "nearRadius": 1100, "farRadius": 1100, "tickHz": 12, "capacity": 10 },
   "you": { "id": "7", "x": 400, "y": 300 },
   "peers": [ { "id": "9", "name": "Sora", "color": "#7ac77a", "x": 200, "y": 150, "muted": false } ]
 }

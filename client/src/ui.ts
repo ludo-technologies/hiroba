@@ -2816,7 +2816,10 @@ export class UIManager {
       playIn(tile.querySelector("video")!, v.stream);
     });
     elVideoTiles.dataset.layout = layout;
-    elVideoTiles.style.setProperty("--cols", String(videos.length <= 1 ? 1 : videos.length <= 4 ? 2 : 3));
+    const n = videos.length;
+    // A strip stays one row however many it holds, so it never eats the stage.
+    const cols = layout === "strip" ? Math.max(4, n) : n <= 1 ? 1 : n <= 4 ? 2 : n <= 9 ? 3 : 4;
+    elVideoTiles.style.setProperty("--cols", String(cols));
     elVideoTiles.toggleAttribute("hidden", videos.length === 0);
   }
 
