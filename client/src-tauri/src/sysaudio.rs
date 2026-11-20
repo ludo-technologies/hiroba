@@ -13,8 +13,11 @@
 //!
 //! Transport is pull-based: `system_audio_read` blocks until PCM is queued
 //! and returns it raw over the IPC protocol — one round trip per chunk, no
-//! JSON. Audio capture arrived with macOS 13; earlier systems get
-//! `unsupported` and the screen is shared without sound.
+//! JSON. Each capture has an id that its reads and its stop are bound to: a
+//! share cancelled while its capture was starting, then started again, must
+//! not have the stale handle stop the capture of the share that followed.
+//! Audio capture arrived with macOS 13; earlier systems get `unsupported`
+//! and the screen is shared without sound.
 
 use std::mem::{offset_of, size_of};
 use std::ptr::{null_mut, NonNull};
@@ -66,10 +69,11 @@ const READ_MAX_BYTES: usize = 64 * 1024;
 /// hundred milliseconds.
 const SETUP_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Sample format the webview builds its worklet for.
+/// Sample format the webview builds its worklet for, and the capture's id.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Format {
+    pub id: u64,
     pub sample_rate: u32,
     pub channels: u32,
 }
@@ -151,9 +155,17 @@ unsafe impl Send for Capture {}
 struct SendRetained<T>(Retained<T>);
 unsafe impl<T> Send for SendRetained<T> {}
 
-/// Managed state: the capture, while a share with sound is on.
+/// Managed state: the capture, while a share with sound is on, under its id.
+/// Held for the whole of a start, so starts serialise and a read or stop sees
+/// either the capture before or the one after, never a half-built one.
 #[derive(Default)]
-pub struct SystemAudio(Arc<Mutex<Option<Capture>>>);
+pub struct SystemAudio(Arc<Mutex<Slot>>);
+
+#[derive(Default)]
+struct Slot {
+    next_id: u64,
+    capture: Option<(u64, Capture)>,
+}
 
 fn supported() -> bool {
     NSProcessInfo::processInfo().isOperatingSystemAtLeastVersion(NSOperatingSystemVersion {
@@ -167,38 +179,44 @@ fn supported() -> bool {
 /// is replaced.
 #[tauri::command]
 pub async fn system_audio_start(state: tauri::State<'_, SystemAudio>) -> Result<Format, String> {
-    let captures = state.0.clone();
-    tauri::async_runtime::spawn_blocking(move || start(&captures))
+    let slot = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || start(&slot))
         .await
         .map_err(|e| e.to_string())?
 }
 
 /// The next queued PCM (f32 interleaved, native endian, `Format` above), or
-/// nothing after `READ_TIMEOUT`. Errors once the capture has stopped or failed.
+/// nothing after `READ_TIMEOUT`. Errors once capture `id` has stopped, failed,
+/// or been replaced.
 #[tauri::command]
 pub async fn system_audio_read(
     state: tauri::State<'_, SystemAudio>,
+    id: u64,
 ) -> Result<tauri::ipc::Response, String> {
-    let captures = state.0.clone();
-    tauri::async_runtime::spawn_blocking(move || read(&captures))
+    let slot = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || read(&slot, id))
         .await
         .map_err(|e| e.to_string())?
         .map(tauri::ipc::Response::new)
 }
 
+/// Stop capture `id`. A stale id — its capture already replaced — is a no-op.
 #[tauri::command]
-pub async fn system_audio_stop(state: tauri::State<'_, SystemAudio>) -> Result<(), String> {
-    let captures = state.0.clone();
-    tauri::async_runtime::spawn_blocking(move || stop(&captures))
+pub async fn system_audio_stop(state: tauri::State<'_, SystemAudio>, id: u64) -> Result<(), String> {
+    let slot = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || stop(&slot, id))
         .await
         .map_err(|e| e.to_string())
 }
 
-fn start(captures: &Mutex<Option<Capture>>) -> Result<Format, String> {
+fn start(slot: &Mutex<Slot>) -> Result<Format, String> {
     if !supported() {
         return Err(UNSUPPORTED.into());
     }
-    stop(captures);
+    let mut slot = slot.lock().unwrap();
+    if let Some((_, previous)) = slot.capture.take() {
+        stop_capture(previous);
+    }
 
     let display = first_display()?;
     // The display only feeds the (discarded) video; audio is system-wide.
@@ -242,14 +260,19 @@ fn start(captures: &Mutex<Option<Capture>>) -> Result<Format, String> {
     .map_err(|e| e.localizedDescription().to_string())?;
     await_completion(|done| unsafe { stream.startCaptureWithCompletionHandler(Some(&done)) })?;
 
-    *captures.lock().unwrap() = Some(Capture { stream, output, rx: Arc::new(Mutex::new(rx)) });
-    Ok(Format { sample_rate: SAMPLE_RATE, channels: CHANNELS })
+    let id = slot.next_id;
+    slot.next_id += 1;
+    slot.capture = Some((id, Capture { stream, output, rx: Arc::new(Mutex::new(rx)) }));
+    Ok(Format { id, sample_rate: SAMPLE_RATE, channels: CHANNELS })
 }
 
-fn read(captures: &Mutex<Option<Capture>>) -> Result<Vec<u8>, String> {
+fn read(slot: &Mutex<Slot>, id: u64) -> Result<Vec<u8>, String> {
     let rx = {
-        let guard = captures.lock().unwrap();
-        let capture = guard.as_ref().ok_or("not capturing")?;
+        let guard = slot.lock().unwrap();
+        let capture = match &guard.capture {
+            Some((current, capture)) if *current == id => capture,
+            _ => return Err("not capturing".into()),
+        };
         if let Some(failure) = capture.output.failure() {
             return Err(failure);
         }
@@ -270,10 +293,15 @@ fn read(captures: &Mutex<Option<Capture>>) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
-fn stop(captures: &Mutex<Option<Capture>>) {
-    let Some(capture) = captures.lock().unwrap().take() else {
-        return;
-    };
+fn stop(slot: &Mutex<Slot>, id: u64) {
+    let mut guard = slot.lock().unwrap();
+    if guard.capture.as_ref().is_some_and(|(current, _)| *current == id) {
+        let (_, capture) = guard.capture.take().unwrap();
+        stop_capture(capture);
+    }
+}
+
+fn stop_capture(capture: Capture) {
     if let Err(e) =
         await_completion(|done| unsafe { capture.stream.stopCaptureWithCompletionHandler(Some(&done)) })
     {
@@ -423,21 +451,28 @@ mod tests {
             crate::screen_capture_permission(),
             "no Screen Recording grant: allow the terminal under System Settings › Privacy & Security › Screen & System Audio Recording, relaunch it, and run again"
         );
-        let captures = Mutex::new(None);
-        let format = start(&captures).expect("start");
+        let slot = Mutex::new(Slot::default());
+        let format = start(&slot).expect("start");
         assert_eq!((format.sample_rate, format.channels), (SAMPLE_RATE, CHANNELS));
         let deadline = std::time::Instant::now() + Duration::from_secs(1);
         let (mut bytes, mut reads, mut peak) = (0usize, 0u32, 0f32);
         while std::time::Instant::now() < deadline {
-            let chunk = read(&captures).expect("read");
+            let chunk = read(&slot, format.id).expect("read");
             reads += 1;
             bytes += chunk.len();
             for sample in chunk.chunks_exact(4) {
                 peak = peak.max(f32::from_ne_bytes(sample.try_into().unwrap()).abs());
             }
         }
-        stop(&captures);
-        assert!(read(&captures).is_err(), "reads fail once stopped");
+        // A second start replaces the first; the first's handle is then dead
+        // and its stop leaves the second alone.
+        let second = start(&slot).expect("second start");
+        assert_ne!(second.id, format.id);
+        assert!(read(&slot, format.id).is_err(), "a replaced capture's reads fail");
+        stop(&slot, format.id);
+        assert!(read(&slot, second.id).is_ok(), "a stale stop leaves the new capture running");
+        stop(&slot, second.id);
+        assert!(read(&slot, second.id).is_err(), "reads fail once stopped");
         let seconds = bytes as f32 / (SAMPLE_RATE * CHANNELS * 4) as f32;
         println!("{reads} reads, {bytes} bytes = {seconds:.2}s of audio, peak {peak:.3}");
         assert!(seconds > 0.5, "a second of capture yielded {seconds:.2}s");

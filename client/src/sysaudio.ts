@@ -19,6 +19,9 @@ export interface SystemAudioCapture {
 }
 
 interface Format {
+  /** This capture's id: reads and the stop are bound to it, so a handle the
+   *  share discarded cannot touch the capture of the share that followed. */
+  id: number;
   sampleRate: number;
   channels: number;
 }
@@ -53,7 +56,7 @@ export async function captureSystemAudio(onError: (err: unknown) => void): Promi
     });
   } catch (err) {
     void ctx.close();
-    void invoke("system_audio_stop");
+    void invoke("system_audio_stop", { id: format.id });
     throw err;
   }
   node.port.postMessage({ channels: format.channels });
@@ -67,7 +70,7 @@ export async function captureSystemAudio(onError: (err: unknown) => void): Promi
     running = false;
     node.disconnect();
     void ctx.close();
-    void invoke("system_audio_stop");
+    void invoke("system_audio_stop", { id: format.id });
   };
 
   // Pull loop: each read answers with whatever PCM is queued (or nothing
@@ -75,7 +78,7 @@ export async function captureSystemAudio(onError: (err: unknown) => void): Promi
   void (async () => {
     try {
       while (running) {
-        const pcm = await invoke<ArrayBuffer>("system_audio_read");
+        const pcm = await invoke<ArrayBuffer>("system_audio_read", { id: format.id });
         if (!running) break;
         if (pcm.byteLength > 0) node.port.postMessage(pcm, [pcm]);
       }

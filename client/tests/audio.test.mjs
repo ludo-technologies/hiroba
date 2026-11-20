@@ -983,9 +983,10 @@ async function connectAll(eng, ids, kind = "proximity") {
   return pcs;
 }
 
-/** Start a screen share whose picker returns straight away. */
-async function shareScreen(eng) {
-  const capture = deferredCapture();
+/** Start a screen share whose picker returns straight away; `withAudio` with
+ *  the picker's "share audio" ticked. */
+async function shareScreen(eng, withAudio = false) {
+  const capture = deferredCapture(withAudio);
   navigator.mediaDevices.getDisplayMedia = capture.request;
   const sharing = eng.startScreenShare();
   capture.release();
@@ -1179,13 +1180,9 @@ test("a room peer's screen reaches the viewer, not only a caller's", async () =>
 // --- Screen share audio ------------------------------------------------------
 
 test("a screen share with the picker's sound sends it to the call under the screen's stream, and stops it with the share", async () => {
-  const { eng, pc } = await inCall(false);
+  const { eng, pc } = await inCall(true);
 
-  const capture = deferredCapture(true);
-  navigator.mediaDevices.getDisplayMedia = capture.request;
-  const sharing = eng.startScreenShare();
-  capture.release();
-  await sharing;
+  const capture = await shareScreen(eng, true);
   assert.deepEqual(pc.added, [capture.track, capture.audio], "the screen, then its sound");
 
   eng.stopScreenShare();
@@ -1193,8 +1190,18 @@ test("a screen share with the picker's sound sends it to the call under the scre
   assert.ok(capture.audio.stopped, "the audio capture is released");
 });
 
-test("on a Mac the engine asks the host for the sound and sends it with the screen", async () => {
+test("a peer on an older version gets the screen without its sound, and the sound once it says two-videos", async () => {
   const { eng, pc } = await inCall(false);
+
+  const capture = await shareScreen(eng, true);
+  assert.deepEqual(pc.added, [capture.track], "it would take the sound for our voice: the screen alone");
+
+  await eng.handleSignal("9", { kind: "two-videos" });
+  assert.deepEqual(pc.added, [capture.track, capture.audio], "a peer of this generation gets the sound too");
+});
+
+test("on a Mac the engine asks the host for the sound and sends it with the screen", async () => {
+  const { eng, pc } = await inCall(true);
   const hostTrack = fakeAudioTrack();
   let stops = 0;
   eng.setSystemAudioSource(async () => ({ track: hostTrack, stop: () => { stops++; } }));
@@ -1209,7 +1216,7 @@ test("on a Mac the engine asks the host for the sound and sends it with the scre
 });
 
 test("a host that has no sound to give leaves the share silent and on", async () => {
-  const { eng, pc } = await inCall(false);
+  const { eng, pc } = await inCall(true);
   eng.setSystemAudioSource(async () => null);
 
   const capture = await shareScreen(eng);
@@ -1217,44 +1224,60 @@ test("a host that has no sound to give leaves the share silent and on", async ()
   assert.equal(eng.isScreenSharing, true);
 });
 
-test("a host capture that lands after hang-up is ended, not sent", async () => {
-  const { eng, pc } = await inCall(false);
+/** A share whose picker lands at once but whose host capture waits for the test. */
+function shareWithPendingHost(eng) {
   let land;
   let stops = 0;
   eng.setSystemAudioSource(() => new Promise((resolve) => { land = resolve; }));
-
   const capture = deferredCapture();
   navigator.mediaDevices.getDisplayMedia = capture.request;
   const sharing = eng.startScreenShare();
   capture.release();
+  return {
+    capture,
+    sharing,
+    land: () => land({ track: fakeAudioTrack(), stop: () => { stops++; } }),
+    stops: () => stops,
+  };
+}
+
+test("a host capture that lands after hang-up is ended, not sent", async () => {
+  const { eng, pc } = await inCall(true);
+  const share = shareWithPendingHost(eng);
   await tick(); // the picker lands; the host is asked
   eng.endPage("9");
-  land({ track: fakeAudioTrack(), stop: () => { stops++; } });
-  await sharing;
+  share.land();
+  await share.sharing;
 
-  assert.equal(stops, 1, "the capture was ended on arrival");
-  assert.ok(capture.track.stopped, "and the screen capture with it");
+  assert.equal(share.stops(), 1, "the capture was ended on arrival");
+  assert.ok(share.capture.track.stopped, "and the screen capture with it");
   assert.equal(eng.isScreenSharing, false);
   assert.equal(pc.added, undefined, "nothing was sent");
 });
 
-test("the sound follows the screen to a peer that shows a single video", async () => {
-  const { eng, pc } = await inCall(false);
+test("a screen the OS stopped while the host was asked is not shared with live sound", async () => {
+  const { eng, pc } = await inCall(true);
+  const share = shareWithPendingHost(eng);
+  await tick();
+  share.capture.track.stop(); // the menu bar's "stop sharing": `ended` fired with nobody listening
+  share.land();
+  await share.sharing;
+
+  assert.equal(share.stops(), 1, "the capture was ended on arrival");
+  assert.equal(eng.isScreenSharing, false, "a dead picture is not shared");
+  assert.equal(pc.added, undefined, "nothing was sent");
+});
+
+test("the sound follows the screen beside the camera, and leaves with the screen", async () => {
+  const { eng, pc } = await inCall(true);
   const camera = await startCamera(eng);
-  const screen = (() => {
-    const capture = deferredCapture(true);
-    navigator.mediaDevices.getDisplayMedia = capture.request;
-    const sharing = eng.startScreenShare();
-    capture.release();
-    return sharing.then(() => capture);
-  })();
-  const capture = await screen;
+  const capture = await shareScreen(eng, true);
   assert.deepEqual(pc.added, [camera.track, capture.track, capture.audio]);
-  assert.deepEqual(pc.removed, [camera.track], "the screen and its sound took the camera's place");
+  assert.equal(pc.removed, undefined, "the camera stays");
 
   eng.stopScreenShare();
-  assert.deepEqual(pc.removed, [camera.track, capture.track, capture.audio], "both go when the share does");
-  assert.deepEqual(pc.added.at(-1), camera.track, "the camera is sent again, without sound");
+  assert.deepEqual(new Set(pc.removed), new Set([capture.track, capture.audio]), "both go when the share does");
+  assert.equal(eng.isCameraOn, true);
 });
 
 test("a peer's screen sound plays in full with no speaking ring, and the room's goes quiet during a call", async () => {

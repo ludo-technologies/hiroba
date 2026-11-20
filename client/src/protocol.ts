@@ -602,8 +602,9 @@ export interface VideoModeData {
   streams?: Record<VideoKind, string | null>;
 }
 
-/** "I can show your screen and your camera at once", sent once when a link
- *  opens. A peer that never says so is sent a single video. */
+/** "I can show your screen and your camera at once, and play the screen's
+ *  sound", sent once when a link opens. A peer that never says so is sent a
+ *  single video and no screen audio. */
 export interface TwoVideosData {
   kind: "two-videos";
 }

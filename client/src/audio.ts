@@ -200,8 +200,9 @@ interface PeerConn {
   screenAudioSender: RTCRtpSender | null;
   /** The peer's screen-share audio, while they send one. */
   screenAudio: ScreenAudio | null;
-  /** Whether the peer said it shows a screen and a camera at once ("two-videos").
-   *  One that has not gets a single video: the screen when both are on. */
+  /** Whether the peer said it shows a screen and a camera at once ("two-videos"),
+   *  and so plays a screen's sound. One that has not gets a single video —
+   *  the screen when both are on — and no screen audio. */
   twoVideos: boolean;
   /** Remote video streams from this peer by id, kept from the moment their
    *  track arrives. */
@@ -998,8 +999,12 @@ export class AudioEngine {
       let endAudio: (() => void) | null = null;
       if (stream.getAudioTracks().length === 0 && this.systemAudioSource) {
         const capture = await this.systemAudioSource();
-        if (this._acquireIsStale("screen", epoch, stream)) {
+        // The OS can end the capture while the host is asked (the menu bar's
+        // "stop sharing"): its `ended` fired before anyone listened for it,
+        // and a share of a dead picture with live sound must not start.
+        if (this._acquireIsStale("screen", epoch, stream) || track.readyState === "ended") {
           capture?.stop();
+          stream.getTracks().forEach((t) => t.stop());
           return;
         }
         if (capture) {
@@ -1575,10 +1580,14 @@ export class AudioEngine {
   /**
    * Send the screen's audio to this peer alongside its screen video, under
    * the same stream, while the share has one; take it away with the video.
+   * Only to a peer of this generation (it said "two-videos"): an older one
+   * takes the first audio track it gets for the voice and keeps it as the
+   * only one, so a screen's sound would leave it deaf to our microphone.
    */
   private _syncScreenAudioSender(entry: PeerConn): void {
     const screen = this.videos.screen;
-    const track = entry.videoSenders.screen ? (screen.live?.stream.getAudioTracks()[0] ?? null) : null;
+    const track =
+      entry.twoVideos && entry.videoSenders.screen ? (screen.live?.stream.getAudioTracks()[0] ?? null) : null;
     if (track && !entry.screenAudioSender) {
       try {
         const sender = entry.pc.addTrack(track, screen.tag);
