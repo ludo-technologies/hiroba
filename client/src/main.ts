@@ -2682,7 +2682,7 @@ function bindServerMessages(net: HirobaNet): void {
   net.on("wave", (e) => {
     if (!session) return;
     const { from } = e.detail;
-    ui.showToast(t.waveReceived(session.roster.get(from)?.name ?? from), "info", {
+    ui.showToast(`👋 ${t.waveReceived(session.roster.get(from)?.name ?? from)}`, "info", {
       key: `wave:${from}`,
       label: t.waveBackBtn,
       run: () => handleWave(from),
