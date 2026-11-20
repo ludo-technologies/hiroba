@@ -9,11 +9,15 @@
 //!     plugins; the frontend drives them from updater.ts), and
 //!   - hiroba:// deep links (invite links; deep-link + single-instance
 //!     plugins; the frontend consumes them in deeplink.ts), and
-//!   - opening at login (autostart.rs).
+//!   - opening at login (autostart.rs), and
+//!   - on macOS, the system audio a screen share carries (sysaudio.rs), which
+//!     WKWebView's getDisplayMedia cannot capture.
 
 #[cfg(desktop)]
 mod autostart;
 mod oauth;
+#[cfg(target_os = "macos")]
+mod sysaudio;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -129,6 +133,10 @@ pub fn run() {
             show_main_window(app);
         }));
     }
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.manage(sysaudio::SystemAudio::default());
+    }
     builder
         .manage(CloseHandlerReady::default())
         .plugin(tauri_plugin_deep_link::init())
@@ -225,6 +233,12 @@ pub fn run() {
             autostart::autostart_enabled,
             #[cfg(desktop)]
             autostart::set_autostart,
+            #[cfg(target_os = "macos")]
+            sysaudio::system_audio_start,
+            #[cfg(target_os = "macos")]
+            sysaudio::system_audio_read,
+            #[cfg(target_os = "macos")]
+            sysaudio::system_audio_stop,
         ])
         .build(tauri::generate_context!())
         .expect("error while running Hiroba")

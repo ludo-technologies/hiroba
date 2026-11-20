@@ -402,6 +402,7 @@ const EN = {
   yourScreen: "Your screen",
   sharedScreen: (name: string) => `${name}'s screen`,
   errScreenShare: "Couldn't start screen sharing. Check browser/OS permissions.",
+  errScreenAudio: "Couldn't capture this Mac's sound. Your screen is shared without it.",
   screenPermTitle: "Allow screen recording",
   screenPermBody:
     "macOS blocks whole-screen sharing until you allow it: open System Settings → Privacy & Security → Screen & System Audio Recording, turn on Hiroba, then relaunch the app. macOS applies the change only after a restart.",
@@ -801,6 +802,7 @@ const JA: typeof EN = {
   yourScreen: "自分の画面",
   sharedScreen: (name: string) => `${name} の画面`,
   errScreenShare: "画面共有を開始できませんでした。ブラウザ/OSの権限設定を確認してください。",
+  errScreenAudio: "Mac の音声を取り込めませんでした。音声なしで画面を共有しています。",
   screenPermTitle: "画面収録を許可してください",
   screenPermBody:
     "macOSでは許可がないと画面全体を共有できません。「システム設定 → プライバシーとセキュリティ → 画面収録とシステムオーディオ録音」でHirobaをオンにして、アプリを再起動してください。変更は再起動後に反映されます。",
@@ -1200,6 +1202,7 @@ const ES: typeof EN = {
   yourScreen: "Tu pantalla",
   sharedScreen: (name: string) => `Pantalla de ${name}`,
   errScreenShare: "No se pudo compartir la pantalla. Revisa los permisos del navegador o del sistema.",
+  errScreenAudio: "No se pudo capturar el sonido del Mac. La pantalla se comparte sin audio.",
   screenPermTitle: "Permitir la grabación de pantalla",
   screenPermBody:
     "macOS bloquea compartir la pantalla completa hasta que lo permitas: abre Ajustes del Sistema → Privacidad y seguridad → Grabación de pantalla, activa Hiroba y vuelve a abrir la app. macOS solo aplica el cambio después de reiniciarla.",
@@ -1601,6 +1604,7 @@ const FR: typeof EN = {
   yourScreen: "Votre écran",
   sharedScreen: (name: string) => `Écran partagé par ${name}`,
   errScreenShare: "Impossible de lancer le partage d'écran. Vérifiez les autorisations du navigateur ou du système.",
+  errScreenAudio: "Impossible de capturer le son du Mac. L'écran est partagé sans audio.",
   screenPermTitle: "Autoriser l'enregistrement de l'écran",
   screenPermBody:
     "macOS bloque le partage de l'écran entier tant que vous ne l'avez pas autorisé : ouvrez Réglages Système → Confidentialité et sécurité → Enregistrement de l'écran, activez Hiroba, puis relancez l'application. macOS n'applique le changement qu'après un redémarrage.",
@@ -2000,6 +2004,7 @@ const PT: typeof EN = {
   yourScreen: "Sua tela",
   sharedScreen: (name: string) => `Tela de ${name}`,
   errScreenShare: "Não foi possível compartilhar a tela. Verifique as permissões do navegador ou do sistema.",
+  errScreenAudio: "Não foi possível capturar o som do Mac. A tela está sendo compartilhada sem áudio.",
   screenPermTitle: "Permitir a gravação de tela",
   screenPermBody:
     "O macOS bloqueia o compartilhamento da tela inteira até você permitir: abra Ajustes do Sistema → Privacidade e Segurança → Gravação de Tela e Áudio do Sistema, ative o Hiroba e reabra o app. O macOS só aplica a mudança depois de reiniciar.",

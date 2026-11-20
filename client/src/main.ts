@@ -21,6 +21,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, UserAttentionType } from "@tauri-apps/api/window";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { captureSystemAudio } from "./sysaudio.js";
 import { HirobaNet } from "./net.js";
 import { Renderer, type FrameLevels, type RenderActivity } from "./render.js";
 import { InputHandler, isTypingTarget } from "./input.js";
@@ -2093,6 +2094,21 @@ function handleCancelReconnect(): void {
 function initSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[]): void {
   const input = new InputHandler();
   const audio = new AudioEngine();
+  // On a Mac the picker's stream has no audio (WebKit); the shell captures
+  // the Mac's sound and the engine sends it with the screen (sysaudio.ts).
+  // A capture that fails leaves the share on, without sound, and says so.
+  if (isTauri() && /Macintosh/.test(navigator.userAgent)) {
+    const failed = (err: unknown) => {
+      console.error("[sysaudio] system audio failed:", err);
+      ui.showToast(t.errScreenAudio, "error");
+    };
+    audio.setSystemAudioSource(() =>
+      captureSystemAudio(failed).catch((err) => {
+        failed(err);
+        return null;
+      }),
+    );
+  }
   // Restore the user's last-picked devices (no-op side effects: the mic isn't
   // acquired yet, so this just seeds the preference for the first unmute).
   void audio.setMicDevice(localStorage.getItem(LS_MIC_DEVICE));
