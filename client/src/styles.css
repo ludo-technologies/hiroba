@@ -900,25 +900,49 @@ a.hud-pill {
 }
 
 #mic {
-  color: var(--ink-soft);
+  --mic-pad-x: 17px;
+  position: relative;
+  padding-inline: var(--mic-pad-x);
 }
 
-/* Live: sage green, present and talking */
+/* Live: a solid sage fill — the floor behind the HUD never shows through. */
 #mic[aria-pressed="true"] {
-  border-color: rgba(79, 122, 58, 0.6);
-  color: var(--sage);
-  background: var(--sage-soft);
+  border-color: var(--sage);
+  color: #fff;
+  background: var(--sage);
   box-shadow: var(--shadow-hud), 0 0 16px -4px rgba(79, 122, 58, 0.5);
 }
 
-/* Muted: dim glyph */
-#mic[aria-pressed="false"] .mic-glyph {
-  color: var(--ink-mute);
+/* Muted: the off colour and a struck-through mic, so it reads as a state
+   ("nobody hears you") rather than as a button that would mute. */
+#mic[aria-pressed="false"] {
+  border-color: rgba(184, 72, 48, 0.5);
+  color: var(--danger);
+  background: #f7e4da;
 }
 
-#mic[aria-pressed="false"] .mic-glyph::before,
-#mic[aria-pressed="false"] .mic-glyph::after {
-  opacity: 0.6;
+#mic[aria-pressed="false"]:hover {
+  background: #fbeee7;
+}
+
+#mic[aria-pressed="false"]::after {
+  /* the slash, laid over the glyph (which already spends both its pseudos) */
+  content: "";
+  position: absolute;
+  left: calc(var(--mic-pad-x) - 4.5px); /* a 20px square centred on the 11px glyph */
+  top: 50%;
+  width: 20px;
+  height: 20px;
+  transform: translateY(-50%);
+  background: linear-gradient(
+    to top left,
+    transparent calc(50% - 1.8px),
+    #f7e4da calc(50% - 1.8px),
+    #f7e4da calc(50% - 0.8px),
+    currentColor calc(50% - 0.8px),
+    currentColor calc(50% + 0.8px),
+    transparent calc(50% + 0.8px)
+  );
 }
 
 /* Attention pulse when the nudge wants the user to unmute */
@@ -3820,7 +3844,8 @@ a.hud-pill {
   }
 
   #mic {
-    padding: 13px 20px;
+    --mic-pad-x: 20px;
+    padding-block: 13px;
     font-size: 15px;
   }
 
