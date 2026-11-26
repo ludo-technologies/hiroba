@@ -381,6 +381,38 @@ policy). The UI shows "in call" with one-click hang-up.
 - **Incoming offer (callee declines):** clears the pending offer; caller gets
   `page_rejected{to, reason: "declined"}`.
 
+### `join_ask` — ask to join a live call
+```json
+{ "t": "join_ask", "to": "9" }
+```
+**Joining a live call.** A call is everyone reachable from a member over page
+links. Someone in no call asks to join the one `to` is in: every member of
+that call receives `join_ask{id}` and the asker `join_asking{to}`. No link is
+opened, so nothing is relayed and the asker hears nothing, until one of them
+answers. A yes gives the asker a page link to **everyone** in the call
+(`page_connect` on both ends of each new link, then `presence` with
+`in_call`); from then on it is an ordinary call of page links, each ended with
+`page_end`.
+
+If `to` is `dnd` or in no call, the server replies `join_rejected` (`reason`:
+`"dnd"` | `"ended"`). A request from a member already in a call, or to an
+unknown member, is ignored. One request per member: asking again replaces the
+earlier one. Unanswered for ~30s it is turned away (`"timeout"`); it is
+withdrawn when the asker enters a call of their own or leaves, and turned away
+as `"ended"` when nobody it was put to is in a call any more.
+
+### `join_answer` — let someone into your call, or turn them away
+```json
+{ "t": "join_answer", "id": "9", "admit": true }
+```
+`id` is the asker. Only someone the request was put to, and still in a call,
+may answer; the first answer settles it for everyone. Anything else is ignored.
+
+### `join_cancel` — withdraw your pending request to join
+```json
+{ "t": "join_cancel" }
+```
+
 ### `bye` — leave the org (optional; closing the socket is equivalent)
 ```json
 { "t": "bye" }
@@ -662,6 +694,34 @@ should surface `timeout` to the callee as a missed call.
 Tear down the page link to `from`, or dismiss a pending `page_offer` from
 `from`. Sent when the peer hangs up, cancels, disconnects, or the ring times out.
 
+### `join_asking` — your request to join a call is waiting
+```json
+{ "t": "join_asking", "to": "9" }
+```
+To the asker. Being let in arrives as `page_connect`, one per member of the
+call. Withdraw with `join_cancel`.
+
+### `join_ask` — someone is asking to join your call
+```json
+{ "t": "join_ask", "id": "3" }
+```
+To everyone in the call. Answer with `join_answer{id, admit}`. Clients SHOULD
+announce it quietly (it is put to people who are talking) rather than ring.
+
+### `join_rejected` — your request to join was turned away
+```json
+{ "t": "join_rejected", "reason": "declined" }
+```
+`reason` is `"declined"`, `"timeout"`, `"ended"` (the call was over before
+anyone answered), or `"dnd"`. To the asker.
+
+### `join_end` — a request to join is over
+```json
+{ "t": "join_end", "id": "3" }
+```
+To everyone the request by `id` was put to, the one who answered included: it
+was answered, withdrawn, timed out, or the asker left. Dismiss it.
+
 ### `signal` — relayed WebRTC signaling from another peer
 ```json
 { "t": "signal", "from": "3", "data": { "...": "opaque" } }
@@ -821,6 +881,12 @@ client                         server
   |  ── signal ⇄ signal ─────────▶ |  (establish 1:1 link)
   |  ── page_end{to} ────────────▶ |  (hang up / cancel / decline)
   |  ◀── page_end{from}            |  (+ presence: clear in_call if live)
+  |                                |
+  |  ── join_ask{to} ────────────▶ |  (to is in a call; asker is in none)
+  |  ◀── join_asking{to}           |  (asker; no link, nothing heard)
+  |  ◀── join_ask{id}              |  (everyone in the call)
+  |  ── join_answer{id,admit} ───▶ |  (any one of them; first answer wins)
+  |  ◀── page_connect{peer,init}   |  (asker ⇄ each member; or join_rejected)
   |                                |
   |  ── bye / close ─────────────▶ |  (broadcast presence_left to the org)
 ```
