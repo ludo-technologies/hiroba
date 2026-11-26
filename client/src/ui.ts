@@ -628,14 +628,16 @@ export interface UICallbacks {
   onRoomInset(inset: RoomInset): void;
   /** Wave at a roster member. */
   onWave(memberId: string): void;
-  /** Start a page (cross-space 1:1) with a roster member (FR-10). */
+  /** The row's call button: page a roster member (FR-10), or ask to join
+   *  the call they are in. */
   onPage(memberId: string): void;
   /** Forget the missed call from a roster member. */
   onDismissMissed(memberId: string): void;
-  /** The banner's accept button: answer a page, or let a knocker in. */
+  /** The banner's accept button: answer a page, or let in someone knocking
+   *  or asking to join the call. */
   onPageAccept(): void;
   /** The banner's other button: hang up a live page, cancel an outgoing ring
-   *  or knock, or decline an incoming offer or knock. */
+   *  or request, or decline an incoming offer or request. */
   onHangUp(): void;
   /** Start or stop screen sharing in the current page link. */
   onScreenShareToggle(): void;
@@ -662,17 +664,18 @@ export interface UICallbacks {
 /** Call banner mode: live conversation vs ring states. */
 export type CallBannerMode = "in_call" | "outgoing" | "incoming";
 
-/** What the call banner shows. `knock` makes a ring a knock on a locked
- *  space: incoming lets the knocker in or declines, outgoing withdraws. */
+/** What the call banner shows. `ask` makes a ring a request to be let in —
+ *  a knock on a locked space, or asking to join a call: incoming lets them
+ *  in or declines, outgoing withdraws. */
 export interface CallBanner {
   mode: CallBannerMode;
   text: string;
-  knock?: boolean;
+  ask?: boolean;
 }
 
 /** The call banner's button labels for `state`. */
 function callLabels(state: CallBanner): { accept: string; dismiss: string } {
-  const accept = state.knock ? t.knockLetIn : t.pageAccept;
+  const accept = state.ask ? t.knockLetIn : t.pageAccept;
   if (state.mode === "incoming") return { accept, dismiss: t.pageDecline };
   if (state.mode === "outgoing") return { accept, dismiss: t.pageCancel };
   return { accept, dismiss: t.hangUp };
@@ -720,6 +723,8 @@ export interface RosterEntry {
   canWave: boolean;
   /** Whether to offer a "page" button on this row. */
   canPage: boolean;
+  /** They are in a call we are not in: the button asks to join it. */
+  joins?: boolean;
   /** A call from them we did not take: when the last one came (ms epoch) and
    *  how many. The row says so and its button calls back. */
   missed?: { at: number; count: number };
@@ -2404,9 +2409,10 @@ export class UIManager {
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "page-btn";
-        btn.title = t.callTitle(e.name);
-        btn.setAttribute("aria-label", t.callTitle(e.name));
-        btn.textContent = e.missed ? t.callBackBtn : t.callBtn;
+        const title = e.joins ? t.joinAskTitle(e.name) : t.callTitle(e.name);
+        btn.title = title;
+        btn.setAttribute("aria-label", title);
+        btn.textContent = e.joins ? t.joinAskBtn : e.missed ? t.callBackBtn : t.callBtn;
         btn.addEventListener("click", () => this.callbacks.onPage(e.id));
         li.appendChild(btn);
       }

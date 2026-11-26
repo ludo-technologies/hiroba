@@ -161,6 +161,10 @@ interface Session {
   knocksIn: Map<string, string>;
   /** The locked space we are knocking on, waiting to be let in. */
   knockingAt: string | null;
+  /** Who is asking to join the call we are in. */
+  joinsIn: Set<string>;
+  /** Whose call we are asking to join, waiting to be let in. */
+  joiningTo: string | null;
   /** Each peer's live screen share and camera, keyed by peer id. */
   remoteVideos: Map<string, Record<VideoKind, MediaStream | null>>;
   /** True when the user dismissed the remote video panel (minimize). */
@@ -576,6 +580,13 @@ function canPagePeer(id: string): boolean {
   if (session.pages.has(id)) return false;
   if (session.ringingOut.has(id) || session.ringingIn.has(id)) return false;
   return session.roster.has(id);
+}
+
+/** Whether calling `id` means asking to join a call: they are in one, and we
+ *  are in none (PROTOCOL.md §"Joining a live call"). */
+function joinsCall(id: string): boolean {
+  if (!session || session.pages.size > 0 || session.offline.has(id)) return false;
+  return session.roster.get(id)?.status === "in_call";
 }
 
 /** A click (or tap) on the floor at client px (x, y). */
@@ -2193,6 +2204,8 @@ function initSession(net: HirobaNet, msg: WelcomeMsg, iceServers: RTCIceServer[]
     ringingIn: new Map(),
     knocksIn: new Map(),
     knockingAt: null,
+    joinsIn: new Set(),
+    joiningTo: null,
     remoteVideos: new Map(),
     screenDismissed: false,
     pickedVideo: null,
@@ -2295,6 +2308,7 @@ function rebuildRoster(): void {
       // The server drops a wave at someone in do-not-disturb.
       canWave: !off && m.status !== "dnd",
       canPage: !off && !session.pages.has(m.id),
+      joins: joinsCall(m.id),
       missed: missedCalls.get(m.id),
     });
   }
@@ -2726,6 +2740,8 @@ function bindServerMessages(net: HirobaNet): void {
     const { peer, initiator } = e.detail;
     session.ringingOut.delete(peer);
     session.ringingIn.delete(peer);
+    // Let in, or in another call now (which withdrew the request server-side).
+    session.joiningTo = null;
     missedCalls.delete(peer);
     void session.audio.connect(peer, initiator, "page");
     session.pages.set(peer, session.roster.get(peer)?.name ?? peer);
@@ -2805,6 +2821,41 @@ function bindServerMessages(net: HirobaNet): void {
     wake();
   });
 
+  // --- Joining a live call: ask → let in / decline ---
+
+  net.on("join_asking", (e) => {
+    if (!session) return;
+    session.joiningTo = e.detail.to;
+    updateCallBanner();
+    wake();
+  });
+
+  net.on("join_rejected", (e) => {
+    if (!session) return;
+    const to = session.joiningTo;
+    session.joiningTo = null;
+    ui.showToast(joinRejectedCopy(e.detail.reason, (to && session.roster.get(to)?.name) || t.someone));
+    updateCallBanner();
+    wake();
+  });
+
+  net.on("join_ask", (e) => {
+    if (!session) return;
+    session.joinsIn.add(e.detail.id);
+    // One chime, not a ring: it is put to people who are talking.
+    if (!session.dnd) session.audio.playWaveChime();
+    if (!document.hasFocus()) void requestWindowAttention(UserAttentionType.Informational);
+    updateCallBanner();
+    wake();
+  });
+
+  net.on("join_end", (e) => {
+    if (!session) return;
+    session.joinsIn.delete(e.detail.id);
+    updateCallBanner();
+    wake();
+  });
+
   // --- Errors ---
 
   net.on("error", (e) => {
@@ -2821,6 +2872,15 @@ function knockRejectedCopy(reason: "declined" | "timeout" | "full", space: strin
   }
 }
 
+function joinRejectedCopy(reason: "declined" | "timeout" | "ended" | "dnd", name: string): string {
+  switch (reason) {
+    case "declined": return t.joinDeclined;
+    case "timeout": return t.joinTimeout;
+    case "ended": return t.joinEnded;
+    case "dnd": return t.pageDnd(name);
+  }
+}
+
 function pageRejectedCopy(reason: "dnd" | "busy" | "offline" | "declined" | "timeout", name: string): string {
   switch (reason) {
     case "dnd": return t.pageDnd(name);
@@ -2833,8 +2893,9 @@ function pageRejectedCopy(reason: "dnd" | "busy" | "offline" | "declined" | "tim
 
 /**
  * What the call banner is currently showing (and what Accept / Hang-up act on).
- * Priority: first incoming offer > first knock put to us > live call > first
- * outgoing ring > our own knock.
+ * Priority: first incoming offer > first knock put to us > first request to
+ * join our call > live call > first outgoing ring > our own knock > our own
+ * request to join.
  * Hang-up must only affect this focus — never tear down hidden concurrent rings.
  */
 type CallFocus =
@@ -2842,7 +2903,9 @@ type CallFocus =
   | { mode: "incoming"; peerId: string; name: string }
   | { mode: "outgoing"; peerId: string; name: string }
   | { mode: "knock_in"; peerId: string; spaceId: string }
-  | { mode: "knock_out"; spaceId: string };
+  | { mode: "knock_out"; spaceId: string }
+  | { mode: "join_in"; peerId: string }
+  | { mode: "join_out"; peerId: string };
 
 function callFocus(): CallFocus | null {
   if (!session) return null;
@@ -2854,12 +2917,18 @@ function callFocus(): CallFocus | null {
     const [peerId, spaceId] = [...session.knocksIn.entries()][0];
     return { mode: "knock_in", peerId, spaceId };
   }
+  // A request outlives our part in the call it was put to; it is ours to
+  // answer only while we are still in one.
+  if (session.joinsIn.size > 0 && session.pages.size > 0) {
+    return { mode: "join_in", peerId: [...session.joinsIn][0] };
+  }
   if (session.pages.size > 0) return { mode: "in_call" };
   if (session.ringingOut.size > 0) {
     const [peerId, name] = [...session.ringingOut.entries()][0];
     return { mode: "outgoing", peerId, name };
   }
   if (session.knockingAt) return { mode: "knock_out", spaceId: session.knockingAt };
+  if (session.joiningTo) return { mode: "join_out", peerId: session.joiningTo };
   return null;
 }
 
@@ -2888,11 +2957,20 @@ function updateCallBanner(): void {
   }
   if (focus?.mode === "knock_in") {
     const name = session.roster.get(focus.peerId)?.name ?? focus.peerId;
-    ui.setCall({ mode: "incoming", knock: true, text: t.knockIncoming(name, spaceName(focus.spaceId)) });
+    ui.setCall({ mode: "incoming", ask: true, text: t.knockIncoming(name, spaceName(focus.spaceId)) });
     return;
   }
   if (focus?.mode === "knock_out") {
-    ui.setCall({ mode: "outgoing", knock: true, text: t.knockWaiting(spaceName(focus.spaceId)) });
+    ui.setCall({ mode: "outgoing", ask: true, text: t.knockWaiting(spaceName(focus.spaceId)) });
+    return;
+  }
+  if (focus?.mode === "join_in" || focus?.mode === "join_out") {
+    const name = session.roster.get(focus.peerId)?.name ?? focus.peerId;
+    ui.setCall(
+      focus.mode === "join_in"
+        ? { mode: "incoming", ask: true, text: t.joinIncoming(name) }
+        : { mode: "outgoing", ask: true, text: t.joinWaiting(name) },
+    );
     return;
   }
   ui.setCall(null);
@@ -3238,6 +3316,14 @@ function handleWave(memberId: string): void {
 function handlePage(memberId: string): void {
   if (!session) return;
   markActive();
+  if (joinsCall(memberId)) {
+    // Optimistic waiting banner until join_asking / join_rejected arrives.
+    session.joiningTo = memberId;
+    updateCallBanner();
+    session.net.send({ t: "join_ask", to: memberId });
+    wake();
+    return;
+  }
   // Optimistic outgoing UI until page_ringing / page_rejected arrives.
   const name = session.roster.get(memberId)?.name ?? memberId;
   session.ringingOut.set(memberId, name);
@@ -3247,10 +3333,16 @@ function handlePage(memberId: string): void {
   wake();
 }
 
-/** Accept the offer, or let in the knocker, shown on the banner. */
+/** Accept the offer, or let in whoever is knocking or asking to join, shown
+ *  on the banner. */
 function handlePageAccept(): void {
   if (!session) return;
   const focus = callFocus();
+  if (focus?.mode === "join_in") {
+    markActive();
+    answerJoin(focus.peerId, true);
+    return;
+  }
   if (focus?.mode === "knock_in") {
     markActive();
     answerKnock(focus.peerId, true);
@@ -3275,6 +3367,16 @@ function answerKnock(knockerId: string, admit: boolean): void {
   wake();
 }
 
+/** Answer the request to join by `askerId`; `join_end` follows, but the
+ *  banner moves on now. */
+function answerJoin(askerId: string, admit: boolean): void {
+  if (!session) return;
+  session.net.send({ t: "join_answer", id: askerId, admit });
+  session.joinsIn.delete(askerId);
+  updateCallBanner();
+  wake();
+}
+
 /**
  * Act on the banner's current focus only (same priority as {@link callFocus}):
  * - in_call   → hang up every live page (banner aggregates them)
@@ -3282,6 +3384,8 @@ function answerKnock(knockerId: string, admit: boolean): void {
  * - outgoing  → cancel that one ring (not hidden incoming offers)
  * - knock_in  → decline that one knock
  * - knock_out → withdraw our knock
+ * - join_in   → decline that one request to join
+ * - join_out  → withdraw our request to join
  */
 function handleHangUp(): void {
   if (!session) return;
@@ -3295,6 +3399,17 @@ function handleHangUp(): void {
   if (focus.mode === "knock_out") {
     session.net.send({ t: "knock_cancel" });
     session.knockingAt = null;
+    updateCallBanner();
+    wake();
+    return;
+  }
+  if (focus.mode === "join_in") {
+    answerJoin(focus.peerId, false);
+    return;
+  }
+  if (focus.mode === "join_out") {
+    session.net.send({ t: "join_cancel" });
+    session.joiningTo = null;
     updateCallBanner();
     wake();
     return;

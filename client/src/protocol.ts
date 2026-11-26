@@ -197,6 +197,24 @@ export interface KnockCancelMsg {
   t: "knock_cancel";
 }
 
+/** Ask to join the call `to` is in; everyone in it is asked. */
+export interface JoinAskMsg {
+  t: "join_ask";
+  to: string;
+}
+
+/** Let in (`admit`) or turn away the member `id` asking to join our call. */
+export interface JoinAnswerMsg {
+  t: "join_answer";
+  id: string;
+  admit: boolean;
+}
+
+/** Withdraw our pending request to join a call. */
+export interface JoinCancelMsg {
+  t: "join_cancel";
+}
+
 /** Rename the org (admin only). The server answers with `org` to everyone. */
 export interface RenameOrgMsg {
   t: "rename_org";
@@ -313,6 +331,9 @@ export type ClientMsg =
   | SetSpaceLockMsg
   | KnockAnswerMsg
   | KnockCancelMsg
+  | JoinAskMsg
+  | JoinAnswerMsg
+  | JoinCancelMsg
   | RenameOrgMsg
   | PostNoteMsg
   | RemoveNoteMsg
@@ -521,6 +542,32 @@ export interface KnockEndMsg {
   id: string;
 }
 
+/** Our `join_ask` is waiting for an answer from the call `to` is in. Being
+ *  let in arrives as a `page_connect` per participant. */
+export interface JoinAskingMsg {
+  t: "join_asking";
+  to: string;
+}
+
+/** Member `id` is asking to join the call we are in, and it is ours to answer. */
+export interface JoinAskedMsg {
+  t: "join_ask";
+  id: string;
+}
+
+/** Our request to join a call was turned away; `ended` is the call being
+ *  over before anyone answered. */
+export interface JoinRejectedMsg {
+  t: "join_rejected";
+  reason: "declined" | "timeout" | "ended" | "dnd";
+}
+
+/** The request by `id` is over (answered, withdrawn, timed out, or they left). */
+export interface JoinEndMsg {
+  t: "join_end";
+  id: string;
+}
+
 /** Relayed WebRTC signaling from another peer. */
 export interface ServerSignalMsg {
   t: "signal";
@@ -580,6 +627,10 @@ export type ServerMsg =
   | KnockMsg
   | KnockRejectedMsg
   | KnockEndMsg
+  | JoinAskingMsg
+  | JoinAskedMsg
+  | JoinRejectedMsg
+  | JoinEndMsg
   | ServerSignalMsg
   | PongMsg
   | ErrorMsg;

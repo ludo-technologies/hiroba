@@ -392,6 +392,13 @@ const EN = {
   knockTimeout: (space: string) => `Nobody answered at ${space}.`,
   knockFull: (space: string) => `${space} filled up before you got in.`,
   errSpaceLocked: "This space is locked, and nobody is around to let you in.",
+  joinAskBtn: "Join",
+  joinAskTitle: (name: string) => `Ask to join ${name}'s call`,
+  joinWaiting: (name: string) => `Asking to join ${name}'s call…`,
+  joinIncoming: (name: string) => `${name} is asking to join the call`,
+  joinDeclined: "You weren't let into the call.",
+  joinTimeout: "Nobody in the call answered.",
+  joinEnded: "The call has ended.",
 
   // Paging / call banner
   inCallWith: (name: string) => `In call with ${name}`,
@@ -797,6 +804,13 @@ const JA: typeof EN = {
   knockTimeout: (space: string) => `${space} から応答がありませんでした。`,
   knockFull: (space: string) => `${space} は入る前に満員になりました。`,
   errSpaceLocked: "このスペースには鍵がかかっていて、入室を許可できる人がいません。",
+  joinAskBtn: "参加",
+  joinAskTitle: (name: string) => `${name} の通話に参加を頼む`,
+  joinWaiting: (name: string) => `${name} の通話への参加を頼んでいます…`,
+  joinIncoming: (name: string) => `${name} が通話への参加を希望しています`,
+  joinDeclined: "通話への参加は許可されませんでした。",
+  joinTimeout: "通話から応答がありませんでした。",
+  joinEnded: "通話は終了しました。",
 
   // Paging / call banner
   inCallWith: (name: string) => `${name} と通話中`,
@@ -1202,6 +1216,13 @@ const ES: typeof EN = {
   knockTimeout: (space: string) => `Nadie respondió en ${space}.`,
   knockFull: (space: string) => `${space} se llenó antes de que pudieras entrar.`,
   errSpaceLocked: "Este espacio está cerrado con llave y no hay nadie para dejarte pasar.",
+  joinAskBtn: "Unirse",
+  joinAskTitle: (name: string) => `Pedir unirse a la llamada de ${name}`,
+  joinWaiting: (name: string) => `Pidiendo unirse a la llamada de ${name}…`,
+  joinIncoming: (name: string) => `${name} pide unirse a la llamada`,
+  joinDeclined: "No te dejaron unirte a la llamada.",
+  joinTimeout: "Nadie respondió en la llamada.",
+  joinEnded: "La llamada ha terminado.",
 
   // Paging / call banner
   inCallWith: (name: string) => `En llamada con ${name}`,
@@ -1608,6 +1629,13 @@ const FR: typeof EN = {
   knockTimeout: (space: string) => `Personne n'a répondu dans ${space}.`,
   knockFull: (space: string) => `${space} s'est rempli avant votre entrée.`,
   errSpaceLocked: "Cet espace est verrouillé et personne n'est là pour vous faire entrer.",
+  joinAskBtn: "Rejoindre",
+  joinAskTitle: (name: string) => `Demander à rejoindre l'appel de ${name}`,
+  joinWaiting: (name: string) => `Demande à rejoindre l'appel de ${name}…`,
+  joinIncoming: (name: string) => `${name} demande à rejoindre l'appel`,
+  joinDeclined: "Vous n'avez pas été admis dans l'appel.",
+  joinTimeout: "Personne n'a répondu dans l'appel.",
+  joinEnded: "L'appel est terminé.",
 
   // Paging / call banner — names are never preceded by "de", which would
   // need elision ("d'Aoi") the template can't know about.
@@ -2014,6 +2042,13 @@ const PT: typeof EN = {
   knockTimeout: (space: string) => `Ninguém respondeu em ${space}.`,
   knockFull: (space: string) => `${space} lotou antes de você entrar.`,
   errSpaceLocked: "Este espaço está trancado e não há ninguém para deixar você entrar.",
+  joinAskBtn: "Entrar",
+  joinAskTitle: (name: string) => `Pedir para entrar na chamada de ${name}`,
+  joinWaiting: (name: string) => `Pedindo para entrar na chamada de ${name}…`,
+  joinIncoming: (name: string) => `${name} quer entrar na chamada`,
+  joinDeclined: "Você não foi autorizado a entrar na chamada.",
+  joinTimeout: "Ninguém na chamada respondeu.",
+  joinEnded: "A chamada terminou.",
 
   // Paging / call banner
   inCallWith: (name: string) => `Em chamada com ${name}`,
