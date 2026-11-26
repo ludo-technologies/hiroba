@@ -248,7 +248,10 @@ function fakeSender(log) {
 const FakeMic = {
   lastTrack: null,
   getUserMedia() {
-    const track = { kind: "audio", enabled: false, stopped: false, stop() { this.stopped = true; } };
+    const track = {
+      kind: "audio", enabled: false, stopped: false, stop() { this.stopped = true; },
+      addEventListener(type, cb) { if (type === "ended") this.end = cb; },
+    };
     FakeMic.lastTrack = track;
     return Promise.resolve(new FakeMediaStream([track]));
   },
@@ -583,6 +586,43 @@ test("switching microphones during a call moves the call over and keeps the spac
   assert.equal(micTo(eng, "caller"), after, "the call carries the new mic");
   assert.equal(micTo(eng, "near"), null, "the space still hears nothing");
   assert.equal(before.stopped, true, "the old mic is let go");
+  eng.destroy();
+});
+
+test("a microphone the OS ends under us is taken again, and the peer hears the new one", async () => {
+  installMocks();
+  const eng = new AudioEngine();
+  eng.init(SPACE, () => {}, () => {});
+  await eng.connect("near", true, "proximity");
+  await eng.toggleMute();
+  await tick();
+  const dead = FakeMic.lastTrack;
+
+  dead.end();
+  await tick();
+  const fresh = FakeMic.lastTrack;
+  assert.notEqual(fresh, dead);
+  assert.equal(fresh.enabled, true, "still unmuted");
+  assert.equal(micTo(eng, "near"), fresh);
+  eng.destroy();
+});
+
+test("a microphone that ends while muted is taken again on the next unmute", async () => {
+  installMocks();
+  const eng = new AudioEngine();
+  eng.init(SPACE, () => {}, () => {});
+  await eng.connect("near", true, "proximity");
+  await eng.toggleMute();
+  await eng.toggleMute(); // muted, track kept for the peer
+  const dead = FakeMic.lastTrack;
+
+  dead.end();
+  await tick();
+  assert.equal(FakeMic.lastTrack, dead, "no mic is taken while muted");
+  await eng.toggleMute();
+  await tick();
+  assert.notEqual(FakeMic.lastTrack, dead);
+  assert.equal(micTo(eng, "near"), FakeMic.lastTrack);
   eng.destroy();
 });
 

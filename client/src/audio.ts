@@ -1899,6 +1899,25 @@ export class AudioEngine {
     this.micAcquired = false;
   }
 
+  /**
+   * The OS can end a track under us — the device unplugged, or capture failing
+   * once another app reconfigures it. Let go of the dead track so the mic is
+   * held again by the usual rules (`_updateMicHold`), not sent on in silence.
+   * `stop()` fires no `ended`, so our own releases never land here.
+   */
+  private _watchMicTrack(track: MediaStreamTrack): void {
+    track.addEventListener(
+      "ended",
+      () => {
+        if (this.localTrack !== track) return;
+        console.error("[audio] microphone track ended");
+        this._releaseMic();
+        this._updateMicHold();
+      },
+      { once: true },
+    );
+  }
+
   /** Acquire the mic unless already held or in flight: the unmute gesture and
    *  the peer-arrival path share one getUserMedia call. */
   private _ensureMic(): Promise<void> {
@@ -1929,6 +1948,7 @@ export class AudioEngine {
       this.localStream = stream;
       this.localTrack = track;
       this.micAcquired = true;
+      this._watchMicTrack(track);
 
       // Give the track to every existing peer that may hear it. Each new
       // sender fires onnegotiationneeded, renegotiating to send our audio.
@@ -1972,6 +1992,7 @@ export class AudioEngine {
     this._tapLocalStream(stream);
     this.localStream = stream;
     this.localTrack = track;
+    this._watchMicTrack(track);
     // Senders outside a live call stay empty; the rest take the new track
     // before the old one stops, so the switch has no gap.
     await this._syncMicSenders();
