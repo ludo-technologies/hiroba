@@ -1916,14 +1916,16 @@ impl Org {
         } else {
             None
         };
+        // Asking anew replaces the earlier request even when the new one is
+        // turned away: the asker is shown one request, and now none.
+        guard.end_join(from);
         if let Some(reason) = unavailable {
-            asker.tx.send(ServerMsg::JoinRejected {
+            guard.members[from].tx.send(ServerMsg::JoinRejected {
                 reason: reason.to_string(),
             });
             return;
         }
 
-        guard.end_join(from);
         let asked = guard.call_of(to);
         for id in &asked {
             guard.members[id].tx.send(ServerMsg::JoinAsk {
@@ -3151,6 +3153,15 @@ mod tests {
             .drain()
             .iter()
             .any(|m| matches!(m, ServerMsg::JoinEnd { id } if *id == c.id)));
+        org.join_answer(&a.id, &c.id, true).await;
+        assert!(paging_of(&org, &c).await.is_empty());
+
+        // Asking someone in no call is turned away, and takes the earlier
+        // request with it: nobody can let C in from a banner C no longer has.
+        org.join_ask(&c.id, &a.id).await;
+        c.drain();
+        org.join_ask(&c.id, &c.id).await;
+        assert_eq!(join_rejected(&mut c).as_deref(), Some("ended"));
         org.join_answer(&a.id, &c.id, true).await;
         assert!(paging_of(&org, &c).await.is_empty());
 
