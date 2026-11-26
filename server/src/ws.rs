@@ -316,6 +316,11 @@ pub async fn handle_ws(
                         org.knock_answer(&pid, &id, admit).await
                     }
                     Ok(ClientMsg::KnockCancel) => org.knock_cancel(&pid).await,
+                    Ok(ClientMsg::JoinAsk { to }) => org.join_ask(&pid, &to).await,
+                    Ok(ClientMsg::JoinAnswer { id, admit }) => {
+                        org.join_answer(&pid, &id, admit).await
+                    }
+                    Ok(ClientMsg::JoinCancel) => org.join_cancel(&pid).await,
                     Ok(ClientMsg::RenameOrg { name }) => {
                         if let Err(e) = org.rename(&pid, &name).await {
                             let (code, message) = match e {

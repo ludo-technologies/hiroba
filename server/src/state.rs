@@ -83,6 +83,10 @@ const PAGE_RING_TIMEOUT: Duration = Duration::from_secs(25);
 /// someone who has to look up from their work first.
 const KNOCK_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// How long a request to join a call waits for an answer before it is turned
+/// away. The same wait as a knock: it is put to people busy talking.
+const JOIN_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// How long after a connection drops inside a locked space the same account
 /// may come back without knocking. Covers the client's reconnect (its offline
 /// window is three minutes), so a network blip does not put a knock in front
@@ -331,6 +335,15 @@ struct Knock {
     at: Instant,
 }
 
+/// A request to join a call, waiting for an answer (PROTOCOL.md §"Joining a
+/// live call"). Keyed by the asker's id in [`OrgInner::joins`]: one at a time.
+struct Join {
+    /// Who was sent the `join_ask`, and so may answer it.
+    asked: HashSet<String>,
+    /// When it was made, which tells its timeout from a later request's.
+    at: Instant,
+}
+
 /// Whether `member` owns the space `desc` describes.
 fn owns(desc: &SpaceDescriptor, member: &Member) -> bool {
     desc.owner.is_some() && desc.owner == member.sub
@@ -364,6 +377,8 @@ pub struct OrgInner {
     links: HashMap<String, proximity::LinkSets>,
     /// Pending knocks on locked spaces, by knocker id.
     knocks: HashMap<String, Knock>,
+    /// Pending requests to join a call, by asker id.
+    joins: HashMap<String, Join>,
 }
 
 /// Choose a spawn position for the n-th member in a space. Index 0 lands
@@ -536,6 +551,70 @@ impl OrgInner {
             }
         }
         Some(knock)
+    }
+
+    /// Everyone in the call `id` is in, `id` included: the members reachable
+    /// from it over page links. Just `id` when it is in no call.
+    fn call_of(&self, id: &str) -> HashSet<String> {
+        let mut call = HashSet::from([id.to_string()]);
+        let mut todo = vec![id.to_string()];
+        while let Some(next) = todo.pop() {
+            for peer in self.members.get(&next).into_iter().flat_map(|m| &m.paging) {
+                if call.insert(peer.clone()) {
+                    todo.push(peer.clone());
+                }
+            }
+        }
+        call
+    }
+
+    /// Open a page link between `a` and `b` and tell both to connect; the
+    /// smaller numeric id offers (avoids glare). Being in a call withdraws
+    /// either one's own request to join another.
+    fn link_page(&mut self, a: &str, b: &str) {
+        let (Some(ma), Some(mb)) = (self.members.get(a), self.members.get(b)) else {
+            return;
+        };
+        let a_initiates = ma.num_id < mb.num_id;
+        for (id, peer, initiator) in [(a, b, a_initiates), (b, a, !a_initiates)] {
+            self.end_join(id);
+            let m = self.members.get_mut(id).unwrap();
+            m.paging.insert(peer.to_string());
+            m.tx.send(ServerMsg::PageConnect {
+                peer: peer.to_string(),
+                initiator,
+            });
+        }
+    }
+
+    /// Take `id`'s pending request to join a call off, telling everyone it
+    /// was put to.
+    fn end_join(&mut self, id: &str) -> Option<Join> {
+        let join = self.joins.remove(id)?;
+        for asked in &join.asked {
+            if let Some(m) = self.members.get(asked) {
+                m.tx.send(ServerMsg::JoinEnd { id: id.to_string() });
+            }
+        }
+        Some(join)
+    }
+
+    /// Turn away, as `ended`, every request nobody asked can still answer:
+    /// the call it was put to is over. Run after a page link goes.
+    fn end_orphaned_joins(&mut self) {
+        let in_call = |id: &String| self.members.get(id).is_some_and(|m| !m.paging.is_empty());
+        let orphaned: Vec<String> = self
+            .joins
+            .iter()
+            .filter(|(_, join)| !join.asked.iter().any(in_call))
+            .map(|(asker, _)| asker.clone())
+            .collect();
+        for asker in orphaned {
+            self.end_join(&asker);
+            self.members[&asker].tx.send(ServerMsg::JoinRejected {
+                reason: "ended".to_string(),
+            });
+        }
     }
 
     /// Move member `id` from their space into `target`, telling both spaces
@@ -811,6 +890,7 @@ impl Org {
                 next_note_id: 1,
                 links: HashMap::new(),
                 knocks: HashMap::new(),
+                joins: HashMap::new(),
             })),
             next_id: Arc::new(AtomicU64::new(1)),
             store,
@@ -861,6 +941,7 @@ impl Org {
                 next_note_id,
                 links: HashMap::new(),
                 knocks: HashMap::new(),
+                joins: HashMap::new(),
             })),
             next_id: Arc::new(AtomicU64::new(1)),
             store,
@@ -1000,6 +1081,7 @@ impl Org {
     pub async fn leave(&self, id: &str) -> Option<Member> {
         let mut guard = self.inner.lock().await;
         guard.end_knock(id);
+        guard.end_join(id);
         let member = guard.members.remove(id)?;
 
         // A drop inside a space that can be locked: the reconnect comes back
@@ -1047,6 +1129,7 @@ impl Org {
         for partner_id in partners {
             guard.broadcast_presence(&partner_id);
         }
+        guard.end_orphaned_joins();
 
         // Cancel outgoing rings (caller left) and drop incoming offers.
         for callee_id in &member.ringing_out {
@@ -1703,34 +1786,7 @@ impl Org {
             c.ringing_in.remove(accepter);
         }
 
-        let (caller_num, accepter_num) =
-            match (guard.members.get(caller), guard.members.get(accepter)) {
-                (Some(c), Some(a)) => (c.num_id, a.num_id),
-                _ => return,
-            };
-
-        if let Some(c) = guard.members.get_mut(caller) {
-            c.paging.insert(accepter.to_string());
-        }
-        if let Some(a) = guard.members.get_mut(accepter) {
-            a.paging.insert(caller.to_string());
-        }
-
-        // Initiator tie-break: smaller numeric id offers (avoids glare).
-        let caller_initiates = caller_num < accepter_num;
-        if let Some(c) = guard.members.get(caller) {
-            c.tx.send(ServerMsg::PageConnect {
-                peer: accepter.to_string(),
-                initiator: caller_initiates,
-            });
-        }
-        if let Some(a) = guard.members.get(accepter) {
-            a.tx.send(ServerMsg::PageConnect {
-                peer: caller.to_string(),
-                initiator: !caller_initiates,
-            });
-        }
-
+        guard.link_page(caller, accepter);
         guard.broadcast_presence(caller);
         guard.broadcast_presence(accepter);
     }
@@ -1763,6 +1819,7 @@ impl Org {
             for id in changed {
                 guard.broadcast_presence(&id);
             }
+            guard.end_orphaned_joins();
             return;
         }
 
@@ -1834,6 +1891,105 @@ impl Org {
                 reason: "timeout".to_string(),
             });
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Joining a live call — ask → let in/turn away → page links to everyone
+    // -----------------------------------------------------------------------
+
+    /// `from` asks to join the call `to` is in. Everyone in that call gets
+    /// `join_ask` and `from` gets `join_asking`; no link opens, so nothing is
+    /// heard, until one of them lets `from` in. Turned away at once when `to`
+    /// is DND or in no call; ignored when `from` is already in a call.
+    pub async fn join_ask(&self, from: &str, to: &str) {
+        let mut guard = self.inner.lock().await;
+        let (Some(asker), Some(target)) = (guard.members.get(from), guard.members.get(to)) else {
+            return;
+        };
+        if !asker.paging.is_empty() {
+            return;
+        }
+        let unavailable = if target.dnd {
+            Some("dnd")
+        } else if target.paging.is_empty() {
+            Some("ended")
+        } else {
+            None
+        };
+        if let Some(reason) = unavailable {
+            asker.tx.send(ServerMsg::JoinRejected {
+                reason: reason.to_string(),
+            });
+            return;
+        }
+
+        guard.end_join(from);
+        let asked = guard.call_of(to);
+        for id in &asked {
+            guard.members[id].tx.send(ServerMsg::JoinAsk {
+                id: from.to_string(),
+            });
+        }
+        let at = Instant::now();
+        guard.joins.insert(from.to_string(), Join { asked, at });
+        guard.members[from]
+            .tx
+            .send(ServerMsg::JoinAsking { to: to.to_string() });
+
+        let org = self.clone();
+        let asker = from.to_string();
+        tokio::spawn(async move {
+            tokio::time::sleep(JOIN_TIMEOUT).await;
+            org.join_timeout(&asker, at).await;
+        });
+    }
+
+    /// `answerer` lets in (`admit`) or turns away the member `asker`. Only
+    /// someone the request was put to, and still in a call, may answer it;
+    /// the first answer settles it for all of them. Let in, the asker gets a
+    /// page link to everyone in the answerer's call as it is now.
+    pub async fn join_answer(&self, answerer: &str, asker: &str, admit: bool) {
+        let mut guard = self.inner.lock().await;
+        let may_answer = guard
+            .joins
+            .get(asker)
+            .is_some_and(|j| j.asked.contains(answerer))
+            && guard
+                .members
+                .get(answerer)
+                .is_some_and(|m| !m.paging.is_empty());
+        if !may_answer {
+            return;
+        }
+        guard.end_join(asker);
+        if !admit {
+            guard.members[asker].tx.send(ServerMsg::JoinRejected {
+                reason: "declined".to_string(),
+            });
+            return;
+        }
+        for peer in guard.call_of(answerer) {
+            guard.link_page(asker, &peer);
+        }
+        guard.broadcast_presence(asker);
+    }
+
+    /// Member `id` withdraws their pending request to join a call, if any.
+    pub async fn join_cancel(&self, id: &str) {
+        self.inner.lock().await.end_join(id);
+    }
+
+    /// Turn away a request still unanswered after [`JOIN_TIMEOUT`] — the one
+    /// made `at`, not a later request by the same member.
+    async fn join_timeout(&self, asker: &str, at: Instant) {
+        let mut guard = self.inner.lock().await;
+        if guard.joins.get(asker).is_none_or(|j| j.at != at) {
+            return;
+        }
+        guard.end_join(asker);
+        guard.members[asker].tx.send(ServerMsg::JoinRejected {
+            reason: "timeout".to_string(),
+        });
     }
 
     // -----------------------------------------------------------------------
@@ -2064,6 +2220,7 @@ mod tests {
             next_note_id: 1,
             links: HashMap::new(),
             knocks: HashMap::new(),
+            joins: HashMap::new(),
         }
     }
 
@@ -2665,7 +2822,15 @@ mod tests {
         };
         let rearm = |id: String| {
             let org = org.clone();
-            async move { org.inner.lock().await.members.get_mut(&id).unwrap().last_wave_at = None }
+            async move {
+                org.inner
+                    .lock()
+                    .await
+                    .members
+                    .get_mut(&id)
+                    .unwrap()
+                    .last_wave_at = None
+            }
         };
         a.drain();
         b.drain();
@@ -2862,5 +3027,184 @@ mod tests {
             org.enter_space(&back.id, &room).await,
             EnterOutcome::Knocking(_)
         ));
+    }
+
+    /// Put `a` and `b` in a call: `a` pages, `b` accepts.
+    async fn call(org: &Org, a: &Conn, b: &Conn) {
+        assert!(matches!(org.page(&a.id, &b.id).await, PageOutcome::Ringing));
+        org.page_accept(&b.id, &a.id).await;
+    }
+
+    async fn paging_of(org: &Org, conn: &Conn) -> HashSet<String> {
+        org.inner.lock().await.members[&conn.id].paging.clone()
+    }
+
+    fn join_rejected(conn: &mut Conn) -> Option<String> {
+        conn.drain().into_iter().find_map(|m| match m {
+            ServerMsg::JoinRejected { reason } => Some(reason),
+            _ => None,
+        })
+    }
+
+    #[tokio::test]
+    async fn asking_to_join_a_call_is_put_to_everyone_in_it_and_one_yes_links_them_all() {
+        let org = Org::new("o", "O", None);
+        let mut a = connect(&org, "A", Some("a"), Role::Member).await;
+        let mut b = connect(&org, "B", Some("b"), Role::Member).await;
+        let mut c = connect(&org, "C", Some("c"), Role::Member).await;
+        let mut bystander = connect(&org, "D", Some("d"), Role::Member).await;
+        call(&org, &a, &b).await;
+        for conn in [&mut a, &mut b, &mut c, &mut bystander] {
+            conn.drain();
+        }
+        let asks = |conn: &mut Conn| {
+            conn.drain()
+                .into_iter()
+                .filter_map(|m| match m {
+                    ServerMsg::JoinAsk { id } => Some(id),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+
+        org.join_ask(&c.id, &a.id).await;
+        assert_eq!(asks(&mut a), vec![c.id.clone()]);
+        assert_eq!(asks(&mut b), vec![c.id.clone()]);
+        assert!(bystander.drain().is_empty());
+        assert!(matches!(&c.drain()[..], [ServerMsg::JoinAsking { to }] if *to == a.id));
+
+        // Until someone says yes there is no link: nothing C sends reaches
+        // the call, so nobody in it answers with their microphone.
+        org.route_signal(&c.id, &a.id, serde_json::json!({ "kind": "offer" }))
+            .await;
+        assert!(a.signals().is_empty());
+        assert!(paging_of(&org, &c).await.is_empty());
+
+        // Nobody it was not put to can answer it.
+        org.join_answer(&bystander.id, &c.id, true).await;
+        assert!(paging_of(&org, &c).await.is_empty());
+
+        // B, who was not the one asked by name, lets C in: a full mesh.
+        org.join_answer(&b.id, &c.id, true).await;
+        let ids = |conns: [&Conn; 2]| {
+            conns
+                .map(|x| x.id.clone())
+                .into_iter()
+                .collect::<HashSet<_>>()
+        };
+        assert_eq!(paging_of(&org, &c).await, ids([&a, &b]));
+        assert_eq!(paging_of(&org, &a).await, ids([&b, &c]));
+        assert_eq!(paging_of(&org, &b).await, ids([&a, &c]));
+        let connects = |conn: &mut Conn| {
+            conn.drain()
+                .into_iter()
+                .filter_map(|m| match m {
+                    ServerMsg::PageConnect { peer, .. } => Some(peer),
+                    _ => None,
+                })
+                .collect::<HashSet<_>>()
+        };
+        assert_eq!(connects(&mut c), ids([&a, &b]));
+        let got = a.drain();
+        assert!(got
+            .iter()
+            .any(|m| matches!(m, ServerMsg::JoinEnd { id } if *id == c.id)));
+        assert!(got
+            .iter()
+            .any(|m| matches!(m, ServerMsg::PageConnect { peer, .. } if *peer == c.id)));
+
+        // One of three hanging up leaves the other two talking.
+        org.page_end(&a.id, &b.id).await;
+        org.page_end(&a.id, &c.id).await;
+        assert_eq!(paging_of(&org, &b).await, HashSet::from([c.id.clone()]));
+    }
+
+    #[tokio::test]
+    async fn a_request_to_join_is_turned_away_by_a_no_by_time_and_by_the_call_ending() {
+        let org = Org::new("o", "O", None);
+        let mut a = connect(&org, "A", Some("a"), Role::Member).await;
+        let b = connect(&org, "B", Some("b"), Role::Member).await;
+        let mut c = connect(&org, "C", Some("c"), Role::Member).await;
+
+        // Nobody to ask: `to` is in no call.
+        org.join_ask(&c.id, &a.id).await;
+        assert_eq!(join_rejected(&mut c).as_deref(), Some("ended"));
+
+        call(&org, &a, &b).await;
+        org.join_ask(&c.id, &a.id).await;
+        org.join_answer(&a.id, &c.id, false).await;
+        assert_eq!(join_rejected(&mut c).as_deref(), Some("declined"));
+        // Settled: a late yes from the other one changes nothing.
+        org.join_answer(&b.id, &c.id, true).await;
+        assert!(paging_of(&org, &c).await.is_empty());
+
+        org.join_ask(&c.id, &a.id).await;
+        let at = org.inner.lock().await.joins[&c.id].at;
+        org.join_timeout(&c.id, at).await;
+        assert_eq!(join_rejected(&mut c).as_deref(), Some("timeout"));
+
+        // Withdrawn: the banner goes, and a yes after it does nothing.
+        org.join_ask(&c.id, &a.id).await;
+        a.drain();
+        org.join_cancel(&c.id).await;
+        assert!(a
+            .drain()
+            .iter()
+            .any(|m| matches!(m, ServerMsg::JoinEnd { id } if *id == c.id)));
+        org.join_answer(&a.id, &c.id, true).await;
+        assert!(paging_of(&org, &c).await.is_empty());
+
+        // Do-not-disturb is not asked.
+        org.set_status(&a.id, None, Some(true)).await;
+        org.join_ask(&c.id, &a.id).await;
+        assert_eq!(join_rejected(&mut c).as_deref(), Some("dnd"));
+        org.set_status(&a.id, None, Some(false)).await;
+
+        // The call ends while the request waits.
+        org.join_ask(&c.id, &a.id).await;
+        c.drain();
+        org.page_end(&a.id, &b.id).await;
+        assert_eq!(join_rejected(&mut c).as_deref(), Some("ended"));
+        assert!(org.inner.lock().await.joins.is_empty());
+
+        // So does it when the last one asked drops instead of hanging up.
+        call(&org, &a, &b).await;
+        org.join_ask(&c.id, &a.id).await;
+        c.drain();
+        org.leave(&b.id).await;
+        assert_eq!(join_rejected(&mut c).as_deref(), Some("ended"));
+    }
+
+    #[tokio::test]
+    async fn a_request_to_join_goes_when_the_asker_leaves_or_takes_another_call() {
+        let org = Org::new("o", "O", None);
+        let mut a = connect(&org, "A", Some("a"), Role::Member).await;
+        let b = connect(&org, "B", Some("b"), Role::Member).await;
+        let c = connect(&org, "C", Some("c"), Role::Member).await;
+        let d = connect(&org, "D", Some("d"), Role::Member).await;
+        call(&org, &a, &b).await;
+        let ended = |conn: &mut Conn| {
+            conn.drain()
+                .iter()
+                .any(|m| matches!(m, ServerMsg::JoinEnd { .. }))
+        };
+
+        // Someone already in a call cannot ask to join another.
+        org.join_ask(&a.id, &b.id).await;
+        assert!(org.inner.lock().await.joins.is_empty());
+
+        // Picking up a call of their own withdraws the request.
+        org.join_ask(&c.id, &a.id).await;
+        a.drain();
+        call(&org, &d, &c).await;
+        assert!(ended(&mut a));
+        org.join_answer(&a.id, &c.id, true).await;
+        assert_eq!(paging_of(&org, &c).await, HashSet::from([d.id.clone()]));
+        org.page_end(&c.id, &d.id).await;
+
+        org.join_ask(&c.id, &a.id).await;
+        a.drain();
+        org.leave(&c.id).await;
+        assert!(ended(&mut a));
     }
 }

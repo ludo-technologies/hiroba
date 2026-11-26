@@ -383,6 +383,17 @@ pub enum ClientMsg {
     /// Withdraw the caller's pending knock.
     KnockCancel,
 
+    /// Ask to join the call `to` is in. Everyone in that call is asked; the
+    /// asker is linked to nobody until one of them lets them in.
+    JoinAsk { to: String },
+
+    /// Let in (`admit`) or turn away the member `id` asking to join the
+    /// call — asked of whoever received the `join_ask`.
+    JoinAnswer { id: String, admit: bool },
+
+    /// Withdraw the caller's pending request to join a call.
+    JoinCancel,
+
     /// Rename the org (admin only).
     RenameOrg { name: String },
 
@@ -580,6 +591,22 @@ pub enum ServerMsg {
     /// The knock by `id` is over — answered (by you or someone else),
     /// withdrawn, timed out, or the knocker left. To everyone it was asked of.
     KnockEnd { id: String },
+
+    /// Your `join_ask` is waiting for an answer from the call `to` is in (to
+    /// the asker). Being let in arrives as a `page_connect` per participant.
+    JoinAsking { to: String },
+
+    /// Member `id` is asking to join the call you are in (to everyone in it).
+    JoinAsk { id: String },
+
+    /// Your request to join a call was turned away. `reason` is "declined",
+    /// "timeout", "ended" (nobody asked is in a call any more), or "dnd".
+    /// To the asker.
+    JoinRejected { reason: String },
+
+    /// The request by `id` is over — answered (by you or someone else),
+    /// withdrawn, timed out, or the asker left. To everyone it was asked of.
+    JoinEnd { id: String },
 
     /// Relayed WebRTC signaling from another peer.
     Signal { from: String, data: Value },

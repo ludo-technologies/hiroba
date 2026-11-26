@@ -340,6 +340,48 @@ class Client {
   const pageSig = await B.wait((m) => m.t === "signal" && m.data?.sdp === "PAGE_SDP");
   ok(!!pageSig, "signal relays across spaces over an established page link (by design)");
 
+  // Joining the live call: C asks, both in it are asked, and until one of
+  // them says yes C has no link — nothing C sends reaches the call.
+  const C = new Client("C");
+  await C.ready;
+  C.send({ t: "hello", name: "Chika", color: "#7bd88f" });
+  const idC = (await C.wait((m) => m.t === "welcome")).id;
+  A.clear(); B.clear();
+  C.send({ t: "join_ask", to: idA });
+  const asking = await C.wait((m) => m.t === "join_asking" && m.to === idA);
+  const askA = await A.wait((m) => m.t === "join_ask" && m.id === idC);
+  const askB = await B.wait((m) => m.t === "join_ask" && m.id === idC);
+  ok(!!asking && !!askA && !!askB, "join_ask is put to everyone in the call (join_asking to the asker)");
+  C.send({ t: "signal", to: idB, data: { kind: "offer", sdp: "JOIN_PENDING_SDP" } });
+  await sleep(150);
+  ok(!B.drain("signal").some((m) => m.data?.sdp === "JOIN_PENDING_SDP"), "no signal reaches the call before the asker is let in");
+  ok(!C.drain("page_connect").length, "the asker is linked to nobody while waiting");
+
+  B.send({ t: "join_answer", id: idC, admit: true });
+  const joinEndA = await A.wait((m) => m.t === "join_end" && m.id === idC);
+  ok(!!joinEndA, "the others asked are told the request is over (join_end)");
+  const pcCA = await C.wait((m) => m.t === "page_connect" && m.peer === idA);
+  const pcCB = await C.wait((m) => m.t === "page_connect" && m.peer === idB);
+  const pcAC = await A.wait((m) => m.t === "page_connect" && m.peer === idC);
+  const pcBC = await B.wait((m) => m.t === "page_connect" && m.peer === idC);
+  ok(!!pcCA && !!pcCB && !!pcAC && !!pcBC, "let in, the asker is linked to everyone in the call");
+  ok(pcCA?.initiator !== pcAC?.initiator, "each new link has exactly one initiator");
+  const joinPres = await A.wait((m) => m.t === "presence" && m.member?.id === idC && m.member?.status === "in_call");
+  ok(!!joinPres, "the one let in becomes in_call");
+
+  // A request turned away, and C leaving ends its links.
+  C.send({ t: "page_end", to: idA });
+  C.send({ t: "page_end", to: idB });
+  await B.wait((m) => m.t === "page_end" && m.from === idC);
+  C.clear();
+  C.send({ t: "join_ask", to: idB });
+  await A.wait((m) => m.t === "join_ask" && m.id === idC && m !== askA);
+  A.send({ t: "join_answer", id: idC, admit: false });
+  const joinRej = await C.wait((m) => m.t === "join_rejected");
+  ok(joinRej?.reason === "declined", "a request turned away is join_rejected{declined}");
+  C.send({ t: "bye" });
+  await A.wait((m) => m.t === "presence_left" && m.id === idC);
+
   // page_end on live link → other side notified, in_call cleared.
   A.clear(); B.clear();
   B.send({ t: "page_end", to: idA });
