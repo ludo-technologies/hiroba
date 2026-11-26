@@ -2744,10 +2744,13 @@ function bindServerMessages(net: HirobaNet): void {
     session.joiningTo = null;
     missedCalls.delete(peer);
     void session.audio.connect(peer, initiator, "page");
+    const startsCall = session.pages.size === 0;
     session.pages.set(peer, session.roster.get(peer)?.name ?? peer);
     syncVideoViews();
-    // Voice goes live only after both sides have accepted (PROTOCOL.md §page).
-    void goLiveForPage();
+    // Voice goes live only after both sides have accepted (PROTOCOL.md §page),
+    // and only as the call starts: someone let into a call we are already in
+    // must not open a mic we muted.
+    if (startsCall) void goLiveForPage();
     updateCallBanner();
     syncIncomingAlert();
     rebuildRoster();
